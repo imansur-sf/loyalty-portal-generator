@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loyalty Portal Generator</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .step-panel { display: none; }
+    .step-panel.active { display: block; }
+    .step-dot.active { background-color: #2563eb; color: white; }
+    .step-dot.completed { background-color: #16a34a; color: white; }
+    .step-dot.completed::after { content: '✓'; }
+    .fade-in { animation: fadeIn 0.3s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .preview-frame { border: 1px solid #e5e7eb; border-radius: 8px; background: white; }
+    input[type="color"] { -webkit-appearance: none; border: none; width: 40px; height: 40px; cursor: pointer; border-radius: 8px; padding: 0; }
+    input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+    input[type="color"]::-webkit-color-swatch { border: 2px solid #e5e7eb; border-radius: 6px; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- TOP BAR -->
+  <div class="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <div class="max-w-[1400px] mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+          <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
+        </div>
+        <h1 class="text-lg font-700 text-gray-900">Loyalty Portal Generator</h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="startOver()" class="px-3 py-1.5 text-xs font-600 text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">Start Over</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP INDICATORS -->
+  <div class="bg-white border-b border-gray-100">
+    <div class="max-w-[1400px] mx-auto px-4 py-3">
+      <div class="flex items-center justify-center gap-1" id="step-indicators">
+        <button onclick="goToStep(0)" class="step-dot active w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="0">1</button>
+        <div class="w-8 h-0.5 bg-gray-200"></div>
+        <button onclick="goToStep(1)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="1">2</button>
+        <div class="w-8 h-0.5 bg-gray-200"></div>
+        <button onclick="goToStep(2)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="2">3</button>
+        <div class="w-8 h-0.5 bg-gray-200"></div>
+        <button onclick="goToStep(3)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="3">4</button>
+        <div class="w-8 h-0.5 bg-gray-200"></div>
+        <button onclick="goToStep(4)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="4">5</button>
+        <div class="w-8 h-0.5 bg-gray-200"></div>
+        <button onclick="goToStep(5)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="5">6</button>
+        <div class="w-8 h-0.5 bg-gray-200"></div>
+        <button onclick="goToStep(6)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="6">7</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN LAYOUT: Wizard + Preview -->
+  <div class="max-w-[1400px] mx-auto px-4 py-6">
+    <div class="flex gap-6" id="main-layout">
+
+      <!-- LEFT: WIZARD FORM -->
+      <div class="w-full lg:w-[55%] shrink-0" id="wizard-col">
+
+        <!-- STEP 1: Brand & Identity -->
+        <div class="step-panel active fade-in" data-step="0">
+          <div class="bg-white rounded-xl border border-gray-200 p-6">
+            <h2 class="text-lg font-700 text-gray-900 mb-1">Step 1: Brand & Identity</h2>
+            <p class="text-sm text-gray-500 mb-5">Tell us about the customer's brand</p>
+
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-600 text-gray-700 mb-1">Brand Name <span class="text-red-500">*</span></label>
+                <input type="text" id="brand-name" placeholder="e.g. Express Wash Concepts" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none" oninput="onFieldChange()">
+              </div>
+
+              <div>
+                <label class="block text-sm font-600 text-gray-700 mb-1">Industry</label>
+                <select id="brand-industry" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none bg-white" onchange="onIndustryChange()">
+                  <option value="carwash">Car Wash</option>
+                  <option value="restaurant">Restaurant / Food</option>
+                  <option value="retail">Retail / Fashion</option>
+                  <option value="fitness">Fitness / Wellness</option>
+                  <option value="healthcare">Healthcare / Pharmacy</option>
+                  <option value="generic" selected>Generic</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-600 text-gray-700 mb-1">Program Name</label>
+                <input type="text" id="program-name" placeholder="Auto: {Brand} Perks" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none" oninput="onFieldChange()">
+              </div>
+
+              <div>
+                <label class="block text-sm font-600 text-gray-700 mb-1">Brand Logo</label>
+                <div id="drop-logo" class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all">
+                  <img id="preview-logo" src="" class="hidden w-20 h-20 object-contain rounded mx-auto mb-2">
+                  <p class="text-sm text-gray-500">📷 Drop image or click to upload</p>
+                  <p class="text-xs text-gray-400 mt-1">PNG, JPG, SVG — or use URL below</p>
+                </div>
+                <input type="text" id="url-logo" placeholder="Or paste logo URL" class="w-full mt-2 px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none" oninput="onLogoUrlChange()">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 2: Colors & Theme -->
+        <div class="step-panel fade-in" data-step="1">
+          <div class="bg-white rounded-xl border border-gray-200 p-6">
+            <h2 class="text-lg font-700 text-gray-900 mb-1">Step 2: Colors & Theme</h2>
+            <p class="text-sm text-gray-500 mb-5">Set the brand colors for the portal</p>
+
+            <div class="mb-4">
+              <label class="block text-sm font-600 text-gray-700 mb-2">Quick Industry Palettes</label>
+              <div class="flex flex-wrap gap-2" id="palette-buttons"></div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-600 text-gray-700 mb-1">Primary Color</label>
+                <div class="flex items-center gap-2">
+                  <input type="color" id="color-primary" value="#2D3748" onchange="onColorChange()">
+                  <input type="text" id="hex-primary" value="#2D3748" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-400/50 outline-none" oninput="onHexChange('primary')">
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-600 text-gray-700 mb-1">Accent Color</label>
+                <div class="flex items-center gap-2">
+                  <input type="color" id="color-accent" value="#4299E1" onchange="onColorChange()">
+                  <input type="text" id="hex-accent" value="#4299E1" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-400/50 outline-none" oninput="onHexChange('accent')">
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-600 text-gray-700 mb-1">Background Color</label>
+                <div class="flex items-center gap-2">
+                  <input type="color" id="color-secondary" value="#F7FAFC" onchange="onColorChange()">
+                  <input type="text" id="hex-secondary" value="#F7FAFC" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-400/50 outline-none" oninput="onHexChange('secondary')">
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-600 text-gray-700 mb-1">Dark / Text Color</label>
+                <div class="flex items-center gap-2">
+                  <input type="color" id="color-dark" value="#1A202C" onchange="onColorChange()">
+                  <input type="text" id="hex-dark" value="#1A202C" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-400/50 outline-none" oninput="onHexChange('dark')">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 3: Tiers & Member Profile -->
+        <div class="step-panel fade-in" data-step="2">
+          <div class="bg-white rounded-xl border border-gray-200 p-6">
+            <h2 class="text-lg font-700 text-gray-900 mb-1">Step 3: Tiers & Member Profile</h2>
+            <p class="text-sm text-gray-500 mb-5">Configure loyalty tiers and demo member</p>
+
+            <h3 class="text-sm font-700 text-gray-800 mb-3">Loyalty Tiers</h3>
+            <div class="space-y-3 mb-6">
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tier 1 Name</label><input type="text" id="tier1-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="tier1-points" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tier 2 Name</label><input type="text" id="tier2-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="tier2-points" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tier 3 Name</label><input type="text" id="tier3-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="tier3-points" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+              </div>
+              <div>
+                <label class="block text-xs font-600 text-gray-600 mb-1">Tier Progress (%)</label>
+                <input type="range" id="tier-progress" min="0" max="100" value="30" class="w-full" oninput="document.getElementById('tier-progress-val').textContent=this.value+'%'; onFieldChange()">
+                <span id="tier-progress-val" class="text-xs text-gray-500">30%</span>
+              </div>
+            </div>
+
+            <h3 class="text-sm font-700 text-gray-800 mb-3">Demo Member Profile</h3>
+            <div class="grid grid-cols-2 gap-3">
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Name</label><input type="text" id="member-name" value="Imran Mansur" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Member #</label><input type="text" id="member-number" value="234567" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="member-points" value="1200" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Email</label><input type="email" id="member-email" placeholder="member@email.com" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Phone</label><input type="text" id="member-phone" placeholder="555-123-4567" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Join Date</label><input type="text" id="member-join" placeholder="21st Nov, 2019" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 4: Vouchers -->
+        <div class="step-panel fade-in" data-step="3">
+          <div class="bg-white rounded-xl border border-gray-200 p-6">
+            <div class="flex items-center justify-between mb-1">
+              <h2 class="text-lg font-700 text-gray-900">Step 4: Vouchers</h2>
+              <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="toggle-vouchers" checked onchange="onToggleSection('vouchers')"><span class="font-600 text-gray-600">Include</span></label>
+            </div>
+            <p class="text-sm text-gray-500 mb-4">Add reward vouchers members can redeem</p>
+            <button onclick="autoGenerate('vouchers')" class="mb-4 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-600 rounded-lg hover:bg-blue-100 transition-colors">⚡ Auto-generate from industry</button>
+            <div id="vouchers-container" class="space-y-4"></div>
+            <button onclick="addVoucher()" class="mt-3 px-4 py-2 border border-dashed border-gray-300 text-gray-500 text-xs font-600 rounded-lg hover:border-blue-400 hover:text-blue-600 w-full">+ Add Voucher</button>
+          </div>
+        </div>
+
+        <!-- STEP 5: Offers, Badges & Clubs -->
+        <div class="step-panel fade-in" data-step="4">
+          <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <h2 class="text-lg font-700 text-gray-900">Step 5: Offers, Badges & Clubs</h2>
+              </div>
+              <p class="text-sm text-gray-500 mb-4">Configure promotions, achievement badges, and social clubs</p>
+            </div>
+
+            <!-- Offers -->
+            <div class="border-t border-gray-100 pt-4">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-700 text-gray-800">Offers & Promotions</h3>
+                <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="toggle-offers" checked onchange="onToggleSection('offers')"><span class="font-600 text-gray-600">Include</span></label>
+              </div>
+              <button onclick="autoGenerate('offers')" class="mb-3 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-600 rounded-lg hover:bg-blue-100">⚡ Auto-generate</button>
+              <div id="offers-container" class="space-y-4"></div>
+              <button onclick="addOffer()" class="mt-2 px-4 py-2 border border-dashed border-gray-300 text-gray-500 text-xs font-600 rounded-lg hover:border-blue-400 hover:text-blue-600 w-full">+ Add Offer</button>
+            </div>
+
+            <!-- Badges -->
+            <div class="border-t border-gray-100 pt-4">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-700 text-gray-800">Badges</h3>
+                <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="toggle-badges" checked onchange="onToggleSection('badges')"><span class="font-600 text-gray-600">Include</span></label>
+              </div>
+              <button onclick="autoGenerate('badges')" class="mb-3 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-600 rounded-lg hover:bg-blue-100">⚡ Auto-generate</button>
+              <div id="badges-container" class="space-y-3"></div>
+              <button onclick="addBadge()" class="mt-2 px-4 py-2 border border-dashed border-gray-300 text-gray-500 text-xs font-600 rounded-lg hover:border-blue-400 hover:text-blue-600 w-full">+ Add Badge</button>
+            </div>
+
+            <!-- Social Clubs -->
+            <div class="border-t border-gray-100 pt-4">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-700 text-gray-800">Social Clubs</h3>
+                <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="toggle-clubs" checked onchange="onToggleSection('clubs')"><span class="font-600 text-gray-600">Include</span></label>
+              </div>
+              <button onclick="autoGenerate('clubs')" class="mb-3 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-600 rounded-lg hover:bg-blue-100">⚡ Auto-generate</button>
+              <div id="clubs-container" class="space-y-4"></div>
+              <button onclick="addClub()" class="mt-2 px-4 py-2 border border-dashed border-gray-300 text-gray-500 text-xs font-600 rounded-lg hover:border-blue-400 hover:text-blue-600 w-full">+ Add Club</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 6: Earn More, Benefits & Upsell -->
+        <div class="step-panel fade-in" data-step="5">
+          <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+            <div>
+              <h2 class="text-lg font-700 text-gray-900 mb-1">Step 6: More Sections</h2>
+              <p class="text-sm text-gray-500 mb-4">Benefits, earn actions, profile tasks, upsell, and navigation</p>
+            </div>
+
+            <!-- Benefits -->
+            <div class="border-t border-gray-100 pt-4">
+              <h3 class="text-sm font-700 text-gray-800 mb-3">My Benefits (expandable section)</h3>
+              <button onclick="autoGenerate('benefits')" class="mb-3 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-600 rounded-lg hover:bg-blue-100">⚡ Auto-generate</button>
+              <div id="benefits-container" class="space-y-2"></div>
+              <button onclick="addBenefit()" class="mt-2 px-4 py-2 border border-dashed border-gray-300 text-gray-500 text-xs font-600 rounded-lg hover:border-blue-400 hover:text-blue-600 w-full">+ Add Benefit</button>
+            </div>
+
+            <!-- Earn More -->
+            <div class="border-t border-gray-100 pt-4">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-700 text-gray-800">Earn More Actions</h3>
+                <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="toggle-earnMore" checked onchange="onToggleSection('earnMore')"><span class="font-600 text-gray-600">Include</span></label>
+              </div>
+              <button onclick="autoGenerate('earnMore')" class="mb-3 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-600 rounded-lg hover:bg-blue-100">⚡ Auto-generate</button>
+              <div id="earnmore-container" class="space-y-3"></div>
+              <button onclick="addEarnMore()" class="mt-2 px-4 py-2 border border-dashed border-gray-300 text-gray-500 text-xs font-600 rounded-lg hover:border-blue-400 hover:text-blue-600 w-full">+ Add Earn Action</button>
+            </div>
+
+            <!-- Profile Tasks -->
+            <div class="border-t border-gray-100 pt-4">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-700 text-gray-800">Complete Profile Tasks</h3>
+                <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="toggle-profileTasks" checked onchange="onToggleSection('profileTasks')"><span class="font-600 text-gray-600">Include</span></label>
+              </div>
+              <button onclick="autoGenerate('profileTasks')" class="mb-3 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-600 rounded-lg hover:bg-blue-100">⚡ Auto-generate</button>
+              <div id="profiletasks-container" class="space-y-3"></div>
+              <button onclick="addProfileTask()" class="mt-2 px-4 py-2 border border-dashed border-gray-300 text-gray-500 text-xs font-600 rounded-lg hover:border-blue-400 hover:text-blue-600 w-full">+ Add Task</button>
+            </div>
+
+            <!-- Upsell -->
+            <div class="border-t border-gray-100 pt-4">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-700 text-gray-800">Upsell Banner</h3>
+                <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="toggle-upsell" checked onchange="onToggleSection('upsell')"><span class="font-600 text-gray-600">Include</span></label>
+              </div>
+              <button onclick="autoGenerate('upsell')" class="mb-3 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-600 rounded-lg hover:bg-blue-100">⚡ Auto-generate</button>
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Title</label><input type="text" id="upsell-title" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Subtitle</label><input type="text" id="upsell-subtitle" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Price</label><input type="text" id="upsell-price" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Period</label><input type="text" id="upsell-period" placeholder="Monthly" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tagline</label><input type="text" id="upsell-tagline" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">CTA Button</label><input type="text" id="upsell-cta" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+              </div>
+            </div>
+
+            <!-- Nav Links -->
+            <div class="border-t border-gray-100 pt-4">
+              <h3 class="text-sm font-700 text-gray-800 mb-3">Navigation Links</h3>
+              <div id="nav-links-container" class="flex flex-wrap gap-2 mb-2"></div>
+              <div class="flex gap-2">
+                <input type="text" id="new-nav-link" placeholder="Add nav link" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50">
+                <button onclick="addNavLink()" class="px-4 py-2 bg-gray-100 text-gray-600 text-xs font-600 rounded-lg hover:bg-gray-200">Add</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 7: Preview & Export -->
+        <div class="step-panel fade-in" data-step="6">
+          <div class="bg-white rounded-xl border border-gray-200 p-6">
+            <h2 class="text-lg font-700 text-gray-900 mb-1">Step 7: Preview & Export</h2>
+            <p class="text-sm text-gray-500 mb-5">Review your portal and download the HTML file</p>
+
+            <div class="flex gap-3 mb-4">
+              <button onclick="downloadHTML()" class="flex-1 py-3 bg-blue-600 text-white text-sm font-700 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                Download HTML
+              </button>
+              <button onclick="copyHTML()" class="flex-1 py-3 bg-gray-800 text-white text-sm font-700 rounded-lg hover:bg-gray-900 transition-colors flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                Copy HTML
+              </button>
+            </div>
+
+            <div id="copy-success" class="hidden bg-green-50 text-green-700 text-sm font-600 text-center py-2 rounded-lg mb-4">✓ Copied to clipboard!</div>
+
+            <p class="text-xs text-gray-400 text-center">The downloaded HTML file is fully self-contained — open it in any browser for a live demo.</p>
+          </div>
+        </div>
+
+        <!-- NAVIGATION BUTTONS -->
+        <div class="flex items-center justify-between mt-4">
+          <button id="btn-prev" onclick="prevStep()" class="px-6 py-2.5 border border-gray-300 text-gray-600 text-sm font-600 rounded-lg hover:bg-gray-50 transition-colors hidden">← Back</button>
+          <div class="flex-1"></div>
+          <button id="btn-next" onclick="nextStep()" class="px-6 py-2.5 bg-blue-600 text-white text-sm font-600 rounded-lg hover:bg-blue-700 transition-colors">Next →</button>
+        </div>
+      </div>
+
+      <!-- RIGHT: LIVE PREVIEW -->
+      <div class="hidden lg:block flex-1 sticky top-28 self-start" id="preview-col">
+        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div class="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center gap-2">
+            <div class="w-3 h-3 rounded-full bg-red-400"></div>
+            <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
+            <div class="w-3 h-3 rounded-full bg-green-400"></div>
+            <span class="text-xs text-gray-400 ml-2">Live Preview</span>
+          </div>
+          <iframe id="preview-iframe" class="w-full bg-white" style="height: calc(100vh - 180px);" sandbox="allow-scripts"></iframe>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/defaults.js"></script>
+  <script src="js/images.js"></script>
+  <script src="js/generator.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
