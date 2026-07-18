@@ -567,7 +567,7 @@ function buildFooter(s, programName, brandAbbr) {
         <p class="text-[10px] text-gray-400 mt-4">© ${new Date().getFullYear()} ${esc(s.brand.name || programName)}. All rights reserved.</p>
       </div>
       <div class="mt-4 text-center">
-        <p class="text-[10px] text-gray-400 font-500">Powered by <span class="font-600 text-gray-500">Imran Mansur</span> &amp; <span class="font-600 text-gray-500">Miles Toolin</span></p>
+        <p class="text-[10px] text-gray-400 font-500">Powered by <span class="font-600 text-gray-500">Imran Mansur</span> — Inspired by <span class="font-600 text-gray-500">Miles Toolin</span> &amp; <span class="font-600 text-gray-500">Pierce Johnson</span></p>
       </div>
     </div>
   </footer>`;
