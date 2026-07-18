@@ -108,7 +108,7 @@
   function extractCoreHTML(html, url) {
     const doc = new DOMParser().parseFromString(html, 'text/html');
 
-    doc.querySelectorAll('script, style, noscript, svg, iframe, template').forEach(n => n.remove());
+    doc.querySelectorAll('script, style, noscript, iframe, template').forEach(n => n.remove());
 
     const title = doc.querySelector('title')?.textContent?.trim() || '';
     const description =
@@ -117,24 +117,29 @@
       '';
     const siteName =
       doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content') || '';
-    const ogImage =
-      doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || '';
+    const ogImage = absolutize(
+      doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || '' ,
+      url
+    );
+    const twitterImage = absolutize(
+      doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') || '',
+      url
+    );
 
-    const faviconEl =
-      doc.querySelector('link[rel~="icon"]') ||
-      doc.querySelector('link[rel="apple-touch-icon"]');
-    let favicon = faviconEl?.getAttribute('href') || '';
-    if (favicon && !favicon.startsWith('http')) {
-      try {
-        favicon = new URL(favicon, url).toString();
-      } catch (_) { /* leave as-is */ }
-    }
+    const appleIcon = absolutize(
+      doc.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('href') || '',
+      url
+    );
+    const favicon = absolutize(
+      (doc.querySelector('link[rel~="icon"]') || {}).getAttribute?.('href') || '',
+      url
+    );
 
     // Extract visible-ish text — headings first, then body content, capped
     const bodyText = (doc.body?.innerText || doc.body?.textContent || '')
       .replace(/\s+/g, ' ')
       .trim()
-      .slice(0, 8000);
+      .slice(0, 6000);
 
     const headings = Array.from(doc.querySelectorAll('h1, h2, h3'))
       .map(h => h.textContent.trim())
@@ -147,23 +152,155 @@
       .filter(t => t && t.length < 30)
       .slice(0, 15);
 
+    // ---- IMAGE HARVEST ----
+    // Pull every <img> tag + inline-style background-images, normalize to
+    // absolute URLs, filter to plausible content images, dedupe, cap.
+    const rawCandidates = [];
+
+    // <img> tags — include src, srcset (first URL), data-src, data-lazy-src
+    doc.querySelectorAll('img').forEach(img => {
+      const srcAttrs = ['src', 'data-src', 'data-lazy-src', 'data-original'];
+      for (const attr of srcAttrs) {
+        const v = img.getAttribute(attr);
+        if (v) {
+          rawCandidates.push({
+            src: v,
+            alt: img.getAttribute('alt') || '',
+            width: parseInt(img.getAttribute('width'), 10) || null,
+            height: parseInt(img.getAttribute('height'), 10) || null,
+            className: img.getAttribute('class') || '',
+            near: nearestTextContext(img)
+          });
+          break;
+        }
+      }
+      // srcset — pick the highest-res URL
+      const srcset = img.getAttribute('srcset');
+      if (srcset) {
+        const parts = srcset.split(',').map(s => s.trim().split(/\s+/));
+        const best = parts.reduce((a, b) => {
+          const aw = parseInt((a[1] || '0').replace(/\D/g, ''), 10) || 0;
+          const bw = parseInt((b[1] || '0').replace(/\D/g, ''), 10) || 0;
+          return bw > aw ? b : a;
+        }, parts[0] || []);
+        if (best && best[0]) {
+          rawCandidates.push({
+            src: best[0],
+            alt: img.getAttribute('alt') || '',
+            width: null, height: null,
+            className: img.getAttribute('class') || '',
+            near: nearestTextContext(img)
+          });
+        }
+      }
+    });
+
+    // Inline style background-image
+    doc.querySelectorAll('[style*="background"]').forEach(el => {
+      const style = el.getAttribute('style') || '';
+      const m = style.match(/background(?:-image)?:\s*[^;]*url\(\s*['"]?([^'")]+)['"]?\s*\)/i);
+      if (m && m[1]) {
+        rawCandidates.push({
+          src: m[1],
+          alt: el.getAttribute('aria-label') || '',
+          width: null, height: null,
+          className: el.getAttribute('class') || '',
+          near: (el.textContent || '').trim().slice(0, 120)
+        });
+      }
+    });
+
+    // Prepend og:image and twitter:image as high-priority candidates
+    if (ogImage) rawCandidates.unshift({ src: ogImage, alt: 'og:image', width: null, height: null, className: 'og-image', near: description });
+    if (twitterImage && twitterImage !== ogImage) rawCandidates.unshift({ src: twitterImage, alt: 'twitter:image', width: null, height: null, className: 'twitter-image', near: description });
+
+    // Normalize + filter + classify
+    const seen = new Set();
+    const images = [];
+    for (const c of rawCandidates) {
+      const abs = absolutize(c.src, url);
+      if (!abs) continue;
+      if (seen.has(abs)) continue;
+      if (!isLikelyContentImage(abs, c)) continue;
+      seen.add(abs);
+      images.push({
+        url: abs,
+        alt: (c.alt || '').trim().slice(0, 120),
+        role: classifyImageRole(abs, c),
+        width: c.width,
+        height: c.height,
+        near: (c.near || '').slice(0, 120)
+      });
+      if (images.length >= 25) break;
+    }
+
     return {
       url,
       title,
       siteName,
       description,
       ogImage,
+      twitterImage,
+      appleIcon,
       favicon,
       headings,
       navLinkCandidates,
-      bodyText
+      bodyText,
+      images
     };
+  }
+
+  function absolutize(maybeRel, base) {
+    if (!maybeRel) return '';
+    if (/^data:/i.test(maybeRel)) return maybeRel;
+    if (/^https?:\/\//i.test(maybeRel)) return maybeRel;
+    if (/^\/\//.test(maybeRel)) return 'https:' + maybeRel;
+    try { return new URL(maybeRel, base).toString(); } catch (_) { return ''; }
+  }
+
+  function isLikelyContentImage(abs, c) {
+    const lower = abs.toLowerCase();
+    // Filter obvious junk
+    if (/\.(svg|gif)($|\?)/i.test(lower) && !/logo/i.test(c.className || '') && !/logo/i.test(c.alt || '')) {
+      // Allow SVG only if it looks logo-ish; skip decorative SVGs
+      if (/pixel|spacer|1x1|tracking|beacon|adsystem|analytics/i.test(lower)) return false;
+    }
+    if (/pixel|spacer|1x1|tracking|beacon|adsystem|analytics|doubleclick|googletag/i.test(lower)) return false;
+    // If we know width, skip tiny images (< 40px = icon/pixel/spacer)
+    if ((c.width && c.width < 40) || (c.height && c.height < 40)) return false;
+    // Skip base64 unless it's clearly a real image
+    if (/^data:image\//.test(abs) && abs.length < 200) return false;
+    // Must have a plausible image extension OR be a data: URL OR served from a common CDN pattern
+    const hasExt = /\.(jpe?g|png|webp|avif|svg|gif)($|\?)/i.test(abs);
+    const looksLikeImage = hasExt || /^data:image\//.test(abs) || /\/(images?|img|assets|media|photos?|uploads?|cdn)\//i.test(abs);
+    return looksLikeImage;
+  }
+
+  function classifyImageRole(abs, c) {
+    const hay = (c.className + ' ' + c.alt + ' ' + abs).toLowerCase();
+    if (/logo|brand-mark/.test(hay)) return 'logo';
+    if (/hero|banner|jumbotron|masthead/.test(hay)) return 'hero';
+    if (/og-image|twitter-image/.test(hay)) return 'social';
+    if (/product|item|card|feature|service/.test(hay)) return 'product';
+    if (/team|staff|avatar|headshot|founder/.test(hay)) return 'person';
+    return 'content';
+  }
+
+  function nearestTextContext(el) {
+    // Walk up a few parents collecting readable text near the image
+    let cur = el;
+    for (let i = 0; i < 3 && cur; i++) {
+      const t = (cur.textContent || '').trim();
+      if (t && t.length > 4 && t.length < 200) return t;
+      cur = cur.parentElement;
+    }
+    return '';
   }
 
   // ---- PROMPT BUILDING ----
   const SYSTEM_PROMPT = `You are a brand analyst helping a Salesforce Solution Engineer build a demo loyalty portal for a specific customer.
 
-You will receive scraped content from a customer's website. Extract brand identity and generate realistic, on-brand loyalty program content.
+You will receive scraped content from a customer's website — including a list of image URLs found on the page. Extract brand identity and generate realistic, on-brand loyalty program content, and assign the most appropriate image to each content slot.
 
 Return ONLY a single JSON object matching the schema below. No preamble, no markdown fences, no trailing prose — just the JSON.
 
@@ -173,10 +310,13 @@ Schema:
   "industry": "carwash" | "restaurant" | "retail" | "fitness" | "healthcare" | "generic",
   "programName": string,
   "colors": {
-    "primary": "#RRGGBB",   // dominant/darker brand color, used for headers + text
-    "accent":  "#RRGGBB",   // secondary color for highlights/CTAs
-    "secondary": "#RRGGBB", // near-white background wash
-    "dark": "#RRGGBB"       // near-black body text color
+    "primary": "#RRGGBB",
+    "accent":  "#RRGGBB",
+    "secondary": "#RRGGBB",
+    "dark": "#RRGGBB"
+  },
+  "brand": {
+    "logoUrl": string   // ONE image URL from the candidate list that is the brand's logo. Empty string if none suits.
   },
   "tiers": [
     { "name": string, "points": 0 },
@@ -184,37 +324,44 @@ Schema:
     { "name": string, "points": number }
   ],
   "vouchers": [
-    { "title": string, "vendor": string, "expiry": string, "actionType": "points"|"code"|"qr", "actionValue": string, "emoji": string }
-  ],   // 4 items
+    { "title": string, "vendor": string, "expiry": string, "actionType": "points"|"code"|"qr", "actionValue": string, "emoji": string, "imageUrl": string }
+  ],   // 4 items — imageUrl from the candidate list, or empty string
   "offers": [
-    { "title": string, "description": string, "cta": string, "playerCount": string, "expiry": string, "emoji": string }
-  ],   // 2 items
-  "badges": [ { "name": string, "emoji": string, "color": "amber"|"emerald"|"blue"|"purple"|"rose"|"teal"|"orange"|"indigo"|"red"|"green" } ],  // 3 items
-  "clubs":  [ { "name": string, "description": string, "memberCount": number, "emoji": string } ],  // 2 items
-  "benefits": [ { "name": string, "emoji": string } ],  // 5-7 items
+    { "title": string, "description": string, "cta": string, "playerCount": string, "expiry": string, "emoji": string, "imageUrl": string }
+  ],   // 2 items — imageUrl from the candidate list, or empty string
+  "badges": [ { "name": string, "emoji": string, "color": "amber"|"emerald"|"blue"|"purple"|"rose"|"teal"|"orange"|"indigo"|"red"|"green", "imageUrl": string } ],  // 3 items
+  "clubs":  [ { "name": string, "description": string, "memberCount": number, "emoji": string, "imageUrl": string } ],  // 2 items
+  "benefits": [ { "name": string, "emoji": string, "imageUrl": string } ],  // 5-7 items
   "earnMore": [ { "title": string, "description": string, "hasCodeInput": boolean } ],  // 4 items, last should have hasCodeInput: true
   "profileTasks": [ { "description": string, "cta": string } ],  // 3 items
-  "upsell": { "title": string, "subtitle": string, "price": "$XX", "period": string, "tagline": string, "cta": string },
-  "navLinks": [ string ],  // 5-6 items, real nav sections from the site if visible, else appropriate defaults
+  "upsell": { "title": string, "subtitle": string, "price": "$XX", "period": string, "tagline": string, "cta": string, "bgImageUrl": string },
+  "navLinks": [ string ],
   "footerLinks": {
     "col1": { "title": string, "links": [string] },
     "col2": { "title": string, "links": [string] },
     "col3": { "title": string, "links": [string] }
   },
   "member": {
-    "name": string,      // realistic customer of this brand
-    "joinDate": string   // e.g. "21st Nov, 2019"
+    "name": string,
+    "joinDate": string
   }
 }
 
-Guidelines:
+⚠️ Critical rules for imageUrl fields:
+- ONLY use URLs from the "Image candidates" list I provide. Never invent URLs. Never use placeholder services (unsplash, pexels, picsum, via.placeholder). Never use example.com/*.jpg.
+- If NO candidate fits an item, use "" (empty string). It's better to leave imageUrl blank than to force a bad match.
+- Match images to context by their role/alt/near-text hints. Product/service images → vouchers + offers. Person/team images → badges/clubs. Hero images → upsell bgImageUrl.
+- Every candidate URL can be reused. But try to give each voucher/offer/club a distinct image so the demo doesn't look repetitive.
+- brand.logoUrl: pick the item flagged role:"logo" if present, otherwise "" (empty).
+
+Guidelines for copy:
 - Copy should sound like it belongs on THIS brand's site — use their voice, service names, and vertical language.
 - Vouchers/offers/badges/clubs should reference real services/products the brand appears to offer.
-- Colors must actually reflect the brand's palette — sample from any color signals in the HTML (logos, hero backgrounds, CTA colors).
+- Colors must actually reflect the brand's palette — sample from any color signals in the HTML.
 - Pick industry from the 6 options based on what fits best. If unsure, use "generic".
-- programName default pattern: "<Brand> Perks" or "<Brand> Rewards" — whatever fits.
+- programName default pattern: "<Brand> Perks" or "<Brand> Rewards".
 - Keep every string tight — voucher titles under 40 chars, benefit names under 30 chars, badge names 1–3 words.
-- Emoji use: single emoji per item, tasteful, category-appropriate.`;
+- Single emoji per item, tasteful, category-appropriate.`;
 
   function buildUserPrompt(scraped) {
     // URL-only mode: no scraped content, only the URL.
@@ -234,6 +381,18 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     const nav = scraped.navLinkCandidates && scraped.navLinkCandidates.length
       ? `\nVisible nav links: ${scraped.navLinkCandidates.join(' · ')}`
       : '';
+
+    // Format the image candidate list — the *only* URLs Claude may use for imageUrl fields.
+    let imageBlock = '';
+    if (Array.isArray(scraped.images) && scraped.images.length) {
+      const rows = scraped.images.map((img, i) =>
+        `  ${i + 1}. [${img.role}] ${img.url}${img.alt ? '  — alt: "' + img.alt + '"' : ''}${img.near && img.near !== img.alt ? '  (near: "' + img.near.slice(0, 60) + '")' : ''}`
+      ).join('\n');
+      imageBlock = `\n\nImage candidates (assign these to imageUrl fields — do NOT invent URLs):\n${rows}`;
+    } else {
+      imageBlock = '\n\nImage candidates: (none extracted — set every imageUrl to "")';
+    }
+
     return `Customer URL: ${scraped.url}
 Page title: ${scraped.title}
 Site name (og): ${scraped.siteName || '—'}
@@ -246,7 +405,7 @@ Top headings on the page:
 ${scraped.headings || '—'}
 
 Body text excerpt:
-${scraped.bodyText}
+${scraped.bodyText}${imageBlock}
 
 Now return the JSON per the schema. Return ONLY the JSON.`;
   }
@@ -329,7 +488,10 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     parsed._meta = {
       source_url: url,
       favicon: scraped.favicon,
+      apple_icon: scraped.appleIcon,
       og_image: scraped.ogImage,
+      twitter_image: scraped.twitterImage,
+      image_count: (scraped.images || []).length,
       model_used: llmResp.model_used,
       tier: llmResp.tier || opts.tier || 'balanced',
       mode: fallbackReason ? 'pagehost-url-only' : 'pagehost',

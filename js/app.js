@@ -242,7 +242,6 @@ function applyAnalysis(d) {
     ['primary','accent','secondary','dark'].forEach(k => {
       if (isHex(d.colors[k])) state.colors[k] = d.colors[k].toUpperCase();
     });
-    // Menu color follows primary unless user has customized it
     if (!state.menuColorCustom) state.colors.menu = state.colors.primary;
   }
 
@@ -273,12 +272,40 @@ function applyAnalysis(d) {
     if (d.member.joinDate) state.member.joinDate = d.member.joinDate;
   }
 
-  // Logo — use favicon as best-guess if no logo set yet
-  if (d._meta && d._meta.favicon && !state.brand.logoData && !state.brand.logoUrl) {
-    state.brand.logoUrl = d._meta.favicon;
-    const prev = document.getElementById('preview-logo');
-    if (prev) { prev.src = d._meta.favicon; prev.classList.remove('hidden'); }
-    setVal('url-logo', d._meta.favicon);
+  // ---- BRAND LOGO — layered fallback ----
+  // Priority order:
+  //   1. Existing user upload (state.brand.logoData) — never overwrite
+  //   2. Existing user URL (state.brand.logoUrl) — never overwrite
+  //   3. AI-picked logo from candidate list (d.brand.logoUrl)
+  //   4. Clearbit Logo API for the domain (works even in URL-only mode)
+  //   5. Apple touch icon
+  //   6. Favicon
+  if (!state.brand.logoData && !state.brand.logoUrl) {
+    let logo = '';
+    if (d.brand && typeof d.brand === 'object' && d.brand.logoUrl && isSafeUrl(d.brand.logoUrl)) {
+      logo = d.brand.logoUrl;
+    }
+    if (!logo && d._meta && d._meta.source_url) {
+      try {
+        const host = new URL(d._meta.source_url).hostname.replace(/^www\./, '');
+        logo = `https://logo.clearbit.com/${host}`;
+      } catch (_) { /* fall through */ }
+    }
+    if (!logo && d._meta && d._meta.apple_icon) logo = d._meta.apple_icon;
+    if (!logo && d._meta && d._meta.favicon)    logo = d._meta.favicon;
+
+    if (logo) {
+      state.brand.logoUrl = logo;
+      const prev = document.getElementById('preview-logo');
+      if (prev) { prev.src = logo; prev.classList.remove('hidden'); }
+      setVal('url-logo', logo);
+    }
+  }
+
+  // Upsell — accept AI-picked background image
+  if (d.upsell && d.upsell.bgImageUrl && isSafeUrl(d.upsell.bgImageUrl)) {
+    state.upsell.bgImageUrl = d.upsell.bgImageUrl;
+    state.upsell.bgImageData = '';
   }
 
   // Re-render everything
@@ -286,6 +313,15 @@ function applyAnalysis(d) {
   renderPaletteButtons();
   renderDynamicSections();
   schedulePreview();
+}
+
+function isSafeUrl(u) {
+  if (typeof u !== 'string') return false;
+  const t = u.trim();
+  if (!t) return false;
+  // Reject obvious placeholder / hallucination hosts the model must not use
+  if (/^https?:\/\/(www\.)?(example|placeholder|placekitten|placehold|placehold\.it|via\.placeholder|picsum\.photos|unsplash\.com|images\.unsplash\.com|pexels\.com|images\.pexels\.com)/i.test(t)) return false;
+  return /^https?:\/\//i.test(t) || /^data:image\//i.test(t);
 }
 
 function isHex(s) { return typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s.trim()); }
@@ -298,7 +334,8 @@ function cleanVoucher(v) {
     actionType: ['points','code','qr'].includes(v.actionType) ? v.actionType : 'points',
     actionValue: str(v.actionValue, 30),
     emoji: str(v.emoji, 4) || '🎁',
-    imageUrl: '', imageData: ''
+    imageUrl: isSafeUrl(v.imageUrl) ? v.imageUrl : '',
+    imageData: ''
   };
 }
 function cleanOffer(o) {
@@ -309,7 +346,8 @@ function cleanOffer(o) {
     playerCount: str(o.playerCount, 30),
     expiry: str(o.expiry, 40),
     emoji: str(o.emoji, 4) || '🎯',
-    imageUrl: '', imageData: ''
+    imageUrl: isSafeUrl(o.imageUrl) ? o.imageUrl : '',
+    imageData: ''
   };
 }
 function cleanBadge(b) {
@@ -317,7 +355,9 @@ function cleanBadge(b) {
   return {
     name: str(b.name, 40),
     emoji: str(b.emoji, 4) || '⭐',
-    color: allowed.includes(b.color) ? b.color : 'amber'
+    color: allowed.includes(b.color) ? b.color : 'amber',
+    imageUrl: isSafeUrl(b.imageUrl) ? b.imageUrl : '',
+    imageData: ''
   };
 }
 function cleanClub(c) {
@@ -326,11 +366,17 @@ function cleanClub(c) {
     description: str(c.description, 200),
     memberCount: typeof c.memberCount === 'number' ? c.memberCount : (parseInt(c.memberCount, 10) || 0),
     emoji: str(c.emoji, 4) || '👥',
-    imageUrl: '', imageData: ''
+    imageUrl: isSafeUrl(c.imageUrl) ? c.imageUrl : '',
+    imageData: ''
   };
 }
 function cleanBenefit(b) {
-  return { name: str(b.name, 40), emoji: str(b.emoji, 4) || '✨' };
+  return {
+    name: str(b.name, 40),
+    emoji: str(b.emoji, 4) || '✨',
+    imageUrl: isSafeUrl(b.imageUrl) ? b.imageUrl : '',
+    imageData: ''
+  };
 }
 function cleanEarnMore(e) {
   return {

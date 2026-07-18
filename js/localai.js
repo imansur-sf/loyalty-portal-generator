@@ -273,7 +273,10 @@
     parsed._meta = {
       source_url: url,
       favicon: scraped.favicon,
+      apple_icon: scraped.appleIcon,
       og_image: scraped.ogImage,
+      twitter_image: scraped.twitterImage,
+      image_count: (scraped.images || []).length,
       model_used,
       tier: opts.tier || 'balanced',
       provider,
