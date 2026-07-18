@@ -282,9 +282,10 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
       maxTokens: 4000
     });
 
-    // Response shape from spec: "AI output plus model_used and tier"
-    // Model output text is likely under one of: text, output, message, content, completion
+    // Per Page Host skill 11-TILE-AI-SERVICE.md the field is `response`.
+    // Keep other candidates as fallbacks in case the shape changes.
     const rawText =
+      llmResp.response ||
       llmResp.text ||
       llmResp.output ||
       llmResp.message ||
