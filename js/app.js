@@ -54,7 +54,234 @@ document.addEventListener('DOMContentLoaded', () => {
   updateStepIndicators();
   updateNavButtons();
   schedulePreview();
+  initQuickStart();
 });
+
+// ---- QUICK START (Page Host AI URL analysis) ----
+function initQuickStart() {
+  const panel = document.getElementById('quickstart-panel');
+  const note = document.getElementById('quickstart-note');
+  const btn = document.getElementById('quickstart-btn');
+  const input = document.getElementById('quickstart-url');
+  const settingsInput = document.getElementById('quickstart-upload-id');
+  if (!panel) return;
+
+  // Pre-fill manual override input from localStorage if present
+  const stored = localStorage.getItem('pagehost_upload_id');
+  if (stored && settingsInput) settingsInput.value = stored;
+
+  const available = window.PageHost && window.PageHost.isAvailable();
+  if (!available) {
+    if (note) note.style.display = 'block';
+    // Leave input+button active — user may set upload ID manually and try
+  }
+
+  if (input) {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); onQuickStartAnalyze(); }
+    });
+  }
+}
+
+function toggleQuickStartSettings() {
+  const el = document.getElementById('quickstart-settings');
+  if (el) el.classList.toggle('open');
+}
+
+function onQuickStartSettingsChange() {
+  const val = document.getElementById('quickstart-upload-id')?.value?.trim() || '';
+  if (window.PageHost && window.PageHost.setManualUploadId) {
+    window.PageHost.setManualUploadId(val);
+  }
+}
+
+function setQuickStartStatus(msg, busy) {
+  const s = document.getElementById('quickstart-status');
+  if (!s) return;
+  if (!msg) { s.innerHTML = ''; return; }
+  s.innerHTML = busy ? `<span class="spinner"></span><span>${escHtml(msg)}</span>` : escHtml(msg);
+}
+
+function setQuickStartError(msg) {
+  const el = document.getElementById('quickstart-error');
+  if (!el) return;
+  if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+async function onQuickStartAnalyze() {
+  const btn = document.getElementById('quickstart-btn');
+  const input = document.getElementById('quickstart-url');
+  const url = (input?.value || '').trim();
+  setQuickStartError('');
+
+  if (!url) {
+    setQuickStartError('Enter a customer URL to analyze.');
+    return;
+  }
+  if (!window.PageHost) {
+    setQuickStartError('AI client not loaded.');
+    return;
+  }
+
+  btn.disabled = true;
+  try {
+    setQuickStartStatus('Fetching customer site…', true);
+    const data = await window.PageHost.analyzeCustomerURL(url, {
+      onStatus: (phase) => {
+        if (phase === 'fetching') setQuickStartStatus('Fetching customer site…', true);
+        else if (phase === 'analyzing') setQuickStartStatus('Claude is analyzing brand and generating content…', true);
+      }
+    });
+    setQuickStartStatus('Populating wizard…', true);
+    applyAnalysis(data);
+    setQuickStartStatus(`✓ Populated from ${new URL(data._meta.source_url).hostname}. Review each step and tweak as needed.`, false);
+  } catch (err) {
+    console.error('[QuickStart] analyze failed:', err);
+    const msg = window.PageHost.humanErrorMessage(err);
+    setQuickStartError(msg);
+    setQuickStartStatus('', false);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function applyAnalysis(d) {
+  if (!d || typeof d !== 'object') return;
+
+  // Brand
+  if (d.brandName) state.brand.name = d.brandName;
+  if (d.industry && ['carwash','restaurant','retail','fitness','healthcare','generic'].includes(d.industry)) {
+    state.brand.industry = d.industry;
+  }
+  if (d.programName) state.brand.programName = d.programName;
+
+  // Colors
+  if (d.colors && typeof d.colors === 'object') {
+    ['primary','accent','secondary','dark'].forEach(k => {
+      if (isHex(d.colors[k])) state.colors[k] = d.colors[k].toUpperCase();
+    });
+    // Menu color follows primary unless user has customized it
+    if (!state.menuColorCustom) state.colors.menu = state.colors.primary;
+  }
+
+  // Tiers
+  if (Array.isArray(d.tiers) && d.tiers.length) {
+    d.tiers.slice(0, 3).forEach((t, i) => {
+      if (!state.tiers[i]) state.tiers[i] = { name: '', points: 0 };
+      if (t.name) state.tiers[i].name = t.name;
+      if (typeof t.points === 'number') state.tiers[i].points = t.points;
+    });
+  }
+
+  // Collections — replace wholesale when AI returned them
+  if (Array.isArray(d.vouchers) && d.vouchers.length) state.vouchers = d.vouchers.map(cleanVoucher);
+  if (Array.isArray(d.offers) && d.offers.length)   state.offers   = d.offers.map(cleanOffer);
+  if (Array.isArray(d.badges) && d.badges.length)   state.badges   = d.badges.map(cleanBadge);
+  if (Array.isArray(d.clubs) && d.clubs.length)     state.clubs    = d.clubs.map(cleanClub);
+  if (Array.isArray(d.benefits) && d.benefits.length) state.benefits = d.benefits.map(cleanBenefit);
+  if (Array.isArray(d.earnMore) && d.earnMore.length) state.earnMore = d.earnMore.map(cleanEarnMore);
+  if (Array.isArray(d.profileTasks) && d.profileTasks.length) state.profileTasks = d.profileTasks.map(cleanProfileTask);
+  if (d.upsell && typeof d.upsell === 'object') state.upsell = { ...state.upsell, ...cleanUpsell(d.upsell) };
+  if (Array.isArray(d.navLinks) && d.navLinks.length) state.navLinks = d.navLinks.filter(x => typeof x === 'string' && x).slice(0, 8);
+  if (d.footerLinks && typeof d.footerLinks === 'object') state.footerLinks = d.footerLinks;
+
+  // Member — only name + join date come from AI; keep other fields
+  if (d.member && typeof d.member === 'object') {
+    if (d.member.name) state.member.name = d.member.name;
+    if (d.member.joinDate) state.member.joinDate = d.member.joinDate;
+  }
+
+  // Logo — use favicon as best-guess if no logo set yet
+  if (d._meta && d._meta.favicon && !state.brand.logoData && !state.brand.logoUrl) {
+    state.brand.logoUrl = d._meta.favicon;
+    const prev = document.getElementById('preview-logo');
+    if (prev) { prev.src = d._meta.favicon; prev.classList.remove('hidden'); }
+    setVal('url-logo', d._meta.favicon);
+  }
+
+  // Re-render everything
+  populateFormFromState();
+  renderPaletteButtons();
+  renderDynamicSections();
+  schedulePreview();
+}
+
+function isHex(s) { return typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s.trim()); }
+
+function cleanVoucher(v) {
+  return {
+    title: str(v.title, 60),
+    vendor: str(v.vendor, 80),
+    expiry: str(v.expiry, 40),
+    actionType: ['points','code','qr'].includes(v.actionType) ? v.actionType : 'points',
+    actionValue: str(v.actionValue, 30),
+    emoji: str(v.emoji, 4) || '🎁',
+    imageUrl: '', imageData: ''
+  };
+}
+function cleanOffer(o) {
+  return {
+    title: str(o.title, 80),
+    description: str(o.description, 200),
+    cta: str(o.cta, 30) || 'Learn More',
+    playerCount: str(o.playerCount, 30),
+    expiry: str(o.expiry, 40),
+    emoji: str(o.emoji, 4) || '🎯',
+    imageUrl: '', imageData: ''
+  };
+}
+function cleanBadge(b) {
+  const allowed = ['amber','emerald','blue','purple','rose','teal','orange','indigo','red','green'];
+  return {
+    name: str(b.name, 40),
+    emoji: str(b.emoji, 4) || '⭐',
+    color: allowed.includes(b.color) ? b.color : 'amber'
+  };
+}
+function cleanClub(c) {
+  return {
+    name: str(c.name, 40),
+    description: str(c.description, 200),
+    memberCount: typeof c.memberCount === 'number' ? c.memberCount : (parseInt(c.memberCount, 10) || 0),
+    emoji: str(c.emoji, 4) || '👥',
+    imageUrl: '', imageData: ''
+  };
+}
+function cleanBenefit(b) {
+  return { name: str(b.name, 40), emoji: str(b.emoji, 4) || '✨' };
+}
+function cleanEarnMore(e) {
+  return {
+    title: str(e.title, 80),
+    description: str(e.description, 200),
+    hasCodeInput: Boolean(e.hasCodeInput)
+  };
+}
+function cleanProfileTask(t) {
+  return { description: str(t.description, 200), cta: str(t.cta, 30) || 'Go' };
+}
+function cleanUpsell(u) {
+  return {
+    title: str(u.title, 60),
+    subtitle: str(u.subtitle, 60),
+    price: str(u.price, 12) || '$29',
+    period: str(u.period, 24) || 'Monthly',
+    tagline: str(u.tagline, 160),
+    cta: str(u.cta, 30) || 'Upgrade'
+  };
+}
+function str(v, max) {
+  if (v === null || v === undefined) return '';
+  const s = String(v).trim();
+  return max ? s.slice(0, max) : s;
+}
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s ?? '';
+  return d.innerHTML;
+}
 
 // ---- INDUSTRY DEFAULTS ----
 function applyIndustryDefaults(industry) {

@@ -7,12 +7,12 @@
   <script src="https://cdn.tailwindcss.com/3.4.16"></script>
   <style>
     /* ── Salesforce Sans + Avant Garde For Salesforce (self-hosted) ── */
-    @font-face { font-family: 'Salesforce Sans'; font-weight: 300; font-style: normal; font-display: swap; src: url('assets/fonts/SalesforceSans-Light.woff2') format('woff2'); }
-    @font-face { font-family: 'Salesforce Sans'; font-weight: 400; font-style: normal; font-display: swap; src: url('assets/fonts/SalesforceSans-Regular.woff2') format('woff2'); }
-    @font-face { font-family: 'Salesforce Sans'; font-weight: 400; font-style: italic;  font-display: swap; src: url('assets/fonts/SalesforceSans-Italic.woff2')  format('woff2'); }
-    @font-face { font-family: 'Salesforce Sans'; font-weight: 600; font-style: normal; font-display: swap; src: url('assets/fonts/SalesforceSans-Semibold.woff2') format('woff2'); }
-    @font-face { font-family: 'Salesforce Sans'; font-weight: 700; font-style: normal; font-display: swap; src: url('assets/fonts/SalesforceSans-Bold.woff2') format('woff2'); }
-    @font-face { font-family: 'Avant Garde For Salesforce'; font-weight: 600; font-style: normal; font-display: swap; src: url('assets/fonts/AvantGardeForSalesforceW05-Dm.woff2') format('woff2'); }
+    @font-face { font-family: 'Salesforce Sans'; font-weight: 300; font-style: normal; font-display: swap; src: url('./assets/fonts/SalesforceSans-Light.woff2') format('woff2'); }
+    @font-face { font-family: 'Salesforce Sans'; font-weight: 400; font-style: normal; font-display: swap; src: url('./assets/fonts/SalesforceSans-Regular.woff2') format('woff2'); }
+    @font-face { font-family: 'Salesforce Sans'; font-weight: 400; font-style: italic;  font-display: swap; src: url('./assets/fonts/SalesforceSans-Italic.woff2')  format('woff2'); }
+    @font-face { font-family: 'Salesforce Sans'; font-weight: 600; font-style: normal; font-display: swap; src: url('./assets/fonts/SalesforceSans-Semibold.woff2') format('woff2'); }
+    @font-face { font-family: 'Salesforce Sans'; font-weight: 700; font-style: normal; font-display: swap; src: url('./assets/fonts/SalesforceSans-Bold.woff2') format('woff2'); }
+    @font-face { font-family: 'Avant Garde For Salesforce'; font-weight: 600; font-style: normal; font-display: swap; src: url('./assets/fonts/AvantGardeForSalesforceW05-Dm.woff2') format('woff2'); }
 
     /* ── Salesforce Brand Tokens (2026) ─────────────────────────── */
     :root {
@@ -104,6 +104,31 @@
     .drop-zone-sf { border: 2px dashed rgba(0,30,91,0.20); background: #FAFCFF; border-radius: var(--radius-lg); transition: border-color 0.18s ease, background 0.18s ease; }
     .drop-zone-sf:hover { border-color: var(--sf-blue-m); background: var(--cloud-95); }
 
+    /* ── Quick Start (AI URL analysis) ──────────────────────────── */
+    .quickstart { position: relative; border-radius: var(--radius-xl); padding: 20px; margin-bottom: 22px; overflow: hidden; color: #fff; background: linear-gradient(135deg, #001E5B 0%, #022AC0 55%, #066AFE 100%); box-shadow: 0 8px 24px -6px rgba(0,30,91,0.30); }
+    .quickstart::after { content: ''; position: absolute; inset: 0; background-image: radial-gradient(circle at 90% 10%, rgba(255,255,255,0.14), transparent 45%), radial-gradient(circle at 10% 100%, rgba(0,179,255,0.20), transparent 40%); pointer-events: none; }
+    .quickstart-inner { position: relative; z-index: 1; }
+    .quickstart-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--sf-blue-l); }
+    .quickstart-title { color: #fff; font-family: var(--font-display); font-weight: 600; font-size: 18px; letter-spacing: -0.01em; margin-top: 4px; }
+    .quickstart-sub { color: rgba(255,255,255,0.75); font-size: 12.5px; margin-top: 4px; line-height: 1.5; }
+    .quickstart-row { display: flex; gap: 8px; margin-top: 12px; }
+    .quickstart-input { flex: 1; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.25); color: #fff; padding: 10px 14px; border-radius: 999px; font-size: 13px; outline: none; transition: background 0.18s ease, border-color 0.18s ease; }
+    .quickstart-input::placeholder { color: rgba(255,255,255,0.55); }
+    .quickstart-input:focus { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.55); box-shadow: 0 0 0 3px rgba(0,179,255,0.25); }
+    .quickstart-btn { background: var(--sf-blue-l); color: var(--sf-navy); border: none; font-weight: 700; padding: 10px 20px; border-radius: 999px; cursor: pointer; font-size: 13px; letter-spacing: 0.01em; transition: background 0.18s ease, transform 0.12s ease, box-shadow 0.2s ease; box-shadow: 0 4px 12px -2px rgba(0,179,255,0.5); }
+    .quickstart-btn:hover:not(:disabled) { background: #66D0FF; transform: translateY(-1px); }
+    .quickstart-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .quickstart-status { margin-top: 10px; font-size: 12px; color: rgba(255,255,255,0.85); min-height: 16px; display: flex; align-items: center; gap: 8px; }
+    .quickstart-status .spinner { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.30); border-top-color: #fff; border-radius: 50%; animation: qs-spin 0.7s linear infinite; }
+    @keyframes qs-spin { to { transform: rotate(360deg); } }
+    .quickstart-error { color: #FFD5CE; font-size: 12px; margin-top: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); padding: 8px 12px; border-radius: 10px; line-height: 1.4; }
+    .quickstart-note { color: rgba(255,255,255,0.65); font-size: 11px; margin-top: 10px; font-style: italic; }
+    .quickstart-settings { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.15); font-size: 11px; color: rgba(255,255,255,0.65); }
+    .quickstart-settings.open { display: block; }
+    .quickstart-settings input { background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.20); color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; width: 100%; margin-top: 4px; }
+    .quickstart-settings-toggle { background: none; border: none; color: rgba(255,255,255,0.60); font-size: 11px; cursor: pointer; text-decoration: underline; padding: 0; margin-top: 8px; }
+    .quickstart-settings-toggle:hover { color: rgba(255,255,255,0.90); }
+
     /* ── Utility classes still relying on tailwind bg-*/text-* colours don't need remapping;
          these overrides target only the wizard shell so the generated portal stays untouched. */
   </style>
@@ -158,6 +183,27 @@
 
         <!-- STEP 1: Brand & Identity -->
         <div class="step-panel active fade-in" data-step="0">
+          <!-- Quick Start (AI URL analysis) — only meaningful on Page Host -->
+          <div class="quickstart" id="quickstart-panel">
+            <div class="quickstart-inner">
+              <div class="quickstart-eyebrow">⚡ Quick Start</div>
+              <div class="quickstart-title">Analyze customer URL with AI</div>
+              <div class="quickstart-sub">Paste the customer's homepage — AI extracts brand identity, colors, and generates industry-appropriate vouchers, offers, badges, and copy. You can still edit anything after.</div>
+              <div class="quickstart-row">
+                <input type="text" id="quickstart-url" class="quickstart-input" placeholder="https://expresswashconcepts.com" spellcheck="false" autocomplete="off">
+                <button id="quickstart-btn" class="quickstart-btn" onclick="onQuickStartAnalyze()">Analyze →</button>
+              </div>
+              <div class="quickstart-status" id="quickstart-status"></div>
+              <div class="quickstart-error" id="quickstart-error" style="display:none;"></div>
+              <div id="quickstart-note" class="quickstart-note" style="display:none;">🔒 This feature runs on Page Host with the AI + proxy connection configured. You can still fill out the wizard by hand.</div>
+              <button class="quickstart-settings-toggle" onclick="toggleQuickStartSettings()">Advanced · manual override</button>
+              <div class="quickstart-settings" id="quickstart-settings">
+                <div>Upload ID (only if auto-detection fails):</div>
+                <input type="text" id="quickstart-upload-id" placeholder="e.g. abc123-def456" oninput="onQuickStartSettingsChange()">
+              </div>
+            </div>
+          </div>
+
           <div class="wizard-card p-7">
             <div class="wizard-eyebrow mb-2">Step 1 of 7</div>
             <h2 class="wizard-title mb-1">Brand & Identity</h2>
@@ -488,9 +534,10 @@
   </div>
 
   <!-- Scripts -->
-  <script src="js/defaults.js?v=20260717b"></script>
-  <script src="js/images.js?v=20260717b"></script>
-  <script src="js/generator.js?v=20260717b"></script>
-  <script src="js/app.js?v=20260717b"></script>
+  <script src="./js/defaults.js?v=20260717c"></script>
+  <script src="./js/images.js?v=20260717c"></script>
+  <script src="./js/generator.js?v=20260717c"></script>
+  <script src="./js/pagehost.js?v=20260717c"></script>
+  <script src="./js/app.js?v=20260717c"></script>
 </body>
 </html>
