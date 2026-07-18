@@ -103,6 +103,9 @@ function initQuickStart() {
       if (e.key === 'Enter') { e.preventDefault(); onQuickStartAnalyze(); }
     });
   }
+
+  // Reflect provider tag on load
+  updateProviderTag();
 }
 
 function onLocalAIKeyChange() {
@@ -114,12 +117,30 @@ function onLocalAIKeyChange() {
     errEl.style.display = 'none';
     errEl.textContent = '';
   }
+  updateProviderTag();
+}
+
+function updateProviderTag() {
+  const tag = document.getElementById('quickstart-provider-tag');
+  if (!tag || !window.LocalAI) return;
+  const provider = window.LocalAI.currentProvider();
+  tag.classList.remove('active', 'gateway');
+  if (provider === 'anthropic') {
+    tag.textContent = 'Anthropic Direct';
+    tag.classList.add('active');
+  } else if (provider === 'sfgateway') {
+    tag.textContent = 'SF LLM Gateway';
+    tag.classList.add('active', 'gateway');
+  } else {
+    tag.textContent = '';
+  }
 }
 
 function clearLocalAIKey() {
   if (window.LocalAI) window.LocalAI.setApiKey('');
   const el = document.getElementById('quickstart-api-key');
-  if (el) { el.value = ''; el.placeholder = 'sk-ant-…'; }
+  if (el) { el.value = ''; el.placeholder = 'sk-ant-… (Anthropic) or sk-… (Salesforce LLM Gateway)'; }
+  updateProviderTag();
 }
 
 function toggleQuickStartSettings() {

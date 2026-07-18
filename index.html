@@ -138,6 +138,11 @@
     .quickstart-byok-row input:focus { border-color: rgba(0,179,255,0.6); background: rgba(0,0,0,0.30); }
     .quickstart-byok-clear { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: rgba(255,255,255,0.75); padding: 6px 12px; border-radius: 8px; font-size: 11px; cursor: pointer; transition: background 0.18s ease; }
     .quickstart-byok-clear:hover { background: rgba(255,255,255,0.15); color: #fff; }
+    .quickstart-byok-help { margin-top: 8px; color: rgba(255,255,255,0.55); font-size: 10.5px; line-height: 1.5; }
+    .quickstart-byok-help strong { color: rgba(255,255,255,0.85); font-weight: 600; }
+    .quickstart-provider-tag { display: none; margin-left: 6px; padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; background: rgba(0,179,255,0.20); color: var(--sf-blue-l); border: 1px solid rgba(0,179,255,0.40); }
+    .quickstart-provider-tag.active { display: inline-block; }
+    .quickstart-provider-tag.gateway { background: rgba(228,162,1,0.20); color: #FCC003; border-color: rgba(252,192,3,0.40); }
 
     /* ── Utility classes still relying on tailwind bg-*/text-* colours don't need remapping;
          these overrides target only the wizard shell so the generated portal stays untouched. */
@@ -210,10 +215,17 @@
 
               <!-- BYOK panel (shown when NOT on Page Host) -->
               <div id="quickstart-byok" class="quickstart-byok" style="display:none;">
-                <label class="quickstart-byok-label">Anthropic API Key <span class="quickstart-byok-hint">— stored in this browser only, sent only to api.anthropic.com</span></label>
+                <label class="quickstart-byok-label">
+                  API Key
+                  <span id="quickstart-provider-tag" class="quickstart-provider-tag"></span>
+                  <span class="quickstart-byok-hint">— stored in this browser only</span>
+                </label>
                 <div class="quickstart-byok-row">
-                  <input type="password" id="quickstart-api-key" placeholder="sk-ant-…" spellcheck="false" autocomplete="off" oninput="onLocalAIKeyChange()">
+                  <input type="password" id="quickstart-api-key" placeholder="sk-ant-… (Anthropic) or sk-… (Salesforce LLM Gateway)" spellcheck="false" autocomplete="off" oninput="onLocalAIKeyChange()">
                   <button class="quickstart-byok-clear" onclick="clearLocalAIKey()" title="Clear stored key">Clear</button>
+                </div>
+                <div class="quickstart-byok-help">
+                  <strong>sk-ant-…</strong> → Anthropic direct API · <strong>sk-…</strong> → Salesforce LLM Gateway (requires VPN)
                 </div>
               </div>
 
@@ -606,11 +618,11 @@
   </div>
 
   <!-- Scripts -->
-  <script src="./js/defaults.js?v=20260717f"></script>
-  <script src="./js/images.js?v=20260717f"></script>
-  <script src="./js/generator.js?v=20260717f"></script>
-  <script src="./js/pagehost.js?v=20260717f"></script>
-  <script src="./js/localai.js?v=20260717f"></script>
-  <script src="./js/app.js?v=20260717f"></script>
+  <script src="./js/defaults.js?v=20260717g"></script>
+  <script src="./js/images.js?v=20260717g"></script>
+  <script src="./js/generator.js?v=20260717g"></script>
+  <script src="./js/pagehost.js?v=20260717g"></script>
+  <script src="./js/localai.js?v=20260717g"></script>
+  <script src="./js/app.js?v=20260717g"></script>
 </body>
 </html>

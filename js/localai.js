@@ -21,14 +21,33 @@
   const KEY_STORAGE = 'anthropic_api_key';
   const MODEL_STORAGE = 'anthropic_model';
 
-  // Model IDs current as of the assistant knowledge cutoff (Jan 2026).
-  // Tier -> model mapping mirrors Page Host's fast/balanced/powerful triad.
-  const TIER_MODELS = {
+  // Two supported providers, auto-detected from key prefix.
+  const SF_GATEWAY_BASE = 'https://eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl';
+
+  // Model IDs — one map per provider. Tier -> concrete model.
+  const TIER_MODELS_ANTHROPIC = {
     fast:      'claude-haiku-4-5-20251001',
     balanced:  'claude-sonnet-5',
     powerful:  'claude-opus-4-8'
   };
-  const DEFAULT_MODEL = TIER_MODELS.balanced;
+  const TIER_MODELS_SF_GATEWAY = {
+    // Gateway exposes older-suffixed model IDs; the gateway handles fallback
+    // if a specific ID is unavailable (see request/fallback pairs in docs).
+    fast:      'claude-3-5-sonnet-20241022',
+    balanced:  'claude-sonnet-4-5-20250929',
+    powerful:  'claude-sonnet-4-5-20250929'
+  };
+  const DEFAULT_MODEL = TIER_MODELS_ANTHROPIC.balanced;
+
+  // ---- PROVIDER DETECTION ----
+  function detectProvider(key) {
+    if (!key) return null;
+    // Anthropic direct keys are `sk-ant-...`
+    if (/^sk-ant-/i.test(key)) return 'anthropic';
+    // Anything else with sk- prefix (or otherwise) → SF Gateway
+    return 'sfgateway';
+  }
+  function currentProvider() { return detectProvider(getApiKey()); }
 
   // Public CORS proxies, tried in order. Corporate networks often block
   // arbitrary third-party proxies as security policy — hence multiple
@@ -106,12 +125,24 @@
     throw lastError || localError('proxy_all_failed');
   }
 
-  // ---- ANTHROPIC API ----
-  async function callAnthropic({ prompt, system, tier = 'balanced', model, maxTokens = 4000 }) {
+  // ---- ROUTER ----
+  // Picks Anthropic-direct or SF Gateway based on key prefix. Same signature
+  // and same return shape either way so callers don't need to care.
+  async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 4000 }) {
+    const provider = currentProvider();
+    if (!provider) throw localError('missing_api_key');
+    if (provider === 'anthropic') {
+      return callAnthropicDirect({ prompt, system, tier, model, maxTokens });
+    }
+    return callSFGateway({ prompt, system, tier, model, maxTokens });
+  }
+
+  // ---- ANTHROPIC DIRECT ----
+  async function callAnthropicDirect({ prompt, system, tier = 'balanced', model, maxTokens = 4000 }) {
     const key = getApiKey();
     if (!key) throw localError('missing_api_key');
 
-    const chosenModel = model || getModel() || TIER_MODELS[tier] || DEFAULT_MODEL;
+    const chosenModel = model || getModel() || TIER_MODELS_ANTHROPIC[tier] || DEFAULT_MODEL;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -139,7 +170,6 @@
     }
 
     const data = await res.json();
-    // Response shape: { content: [{ type: 'text', text: '...' }], model, usage, ... }
     const text = Array.isArray(data.content)
       ? data.content.filter(b => b.type === 'text').map(b => b.text).join('')
       : '';
@@ -147,6 +177,58 @@
 
     return { text, model_used: data.model, usage: data.usage };
   }
+
+  // ---- SALESFORCE LLM GATEWAY EXPRESS ----
+  // OpenAI-compatible: POST /v1/chat/completions
+  // Body:   { model, messages: [{role, content}], max_tokens }
+  // Auth:   Authorization: Bearer <key>
+  // Reply:  { choices: [{ message: { content, role }, finish_reason }], model, usage }
+  async function callSFGateway({ prompt, system, tier = 'balanced', model, maxTokens = 4000 }) {
+    const key = getApiKey();
+    if (!key) throw localError('missing_api_key');
+
+    const chosenModel = model || getModel() || TIER_MODELS_SF_GATEWAY[tier] || TIER_MODELS_SF_GATEWAY.balanced;
+
+    // Prepend the system prompt as messages[0] per OpenAI convention
+    const messages = [];
+    if (system) messages.push({ role: 'system', content: system });
+    messages.push({ role: 'user', content: prompt });
+
+    const res = await fetch(`${SF_GATEWAY_BASE}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: chosenModel,
+        messages,
+        max_tokens: maxTokens
+      })
+    });
+
+    if (res.status === 0)   throw localError('sfgateway_network');
+    if (res.status === 401) throw localError('sfgateway_bad_key');
+    if (res.status === 403) throw localError('sfgateway_forbidden');
+    if (res.status === 404) throw localError('sfgateway_model_not_found', { model: chosenModel });
+    if (res.status === 429) throw localError('sfgateway_rate_limited');
+    if (res.status === 502 || res.status === 503 || res.status === 504) throw localError('sfgateway_unavailable', { status: res.status });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw localError('sfgateway_failed', { status: res.status, body: body.slice(0, 200) });
+    }
+
+    const data = await res.json();
+    const text = data && data.choices && data.choices[0] && data.choices[0].message
+      ? (data.choices[0].message.content || '')
+      : '';
+    if (!text) throw localError('sfgateway_empty_response');
+
+    return { text, model_used: data.model || chosenModel, usage: data.usage };
+  }
+
+  // Backward compat: some callers may still reference callAnthropic
+  const callAnthropic = callLLM;
 
   // ---- MAIN ORCHESTRATION ----
   async function analyzeCustomerURL(rawUrl, opts = {}) {
@@ -179,7 +261,8 @@
     if (!scraped) scraped = { url, title: '', bodyText: '', headings: '', favicon: '', ogImage: '', navLinkCandidates: [] };
 
     onStatus('analyzing');
-    const { text, model_used } = await callAnthropic({
+    const provider = currentProvider();
+    const { text, model_used } = await callLLM({
       prompt: shared.buildUserPrompt(scraped),
       system: shared.SYSTEM_PROMPT,
       tier: opts.tier || 'balanced',
@@ -193,6 +276,7 @@
       og_image: scraped.ogImage,
       model_used,
       tier: opts.tier || 'balanced',
+      provider,
       mode: fallbackReason ? 'local-url-only' : 'local',
       fallback_reason: fallbackReason
     };
@@ -211,9 +295,10 @@
     const code = err.code || err.message;
     switch (code) {
       case 'missing_api_key':
-        return 'Paste your Anthropic API key below to enable AI analysis. Your key stays in this browser.';
+        return 'Paste an Anthropic key (sk-ant-…) or a Salesforce LLM Gateway key (sk-…) below to enable AI analysis. Your key stays in this browser.';
       case 'invalid_url':
         return 'That URL doesn\'t look right. Try `https://example.com`.';
+      // Anthropic direct
       case 'anthropic_bad_key':
         return 'Anthropic rejected the API key. Check that it starts with `sk-ant-` and is still active.';
       case 'anthropic_forbidden':
@@ -226,6 +311,23 @@
         return 'Anthropic returned no text. Retry — usually transient.';
       case 'anthropic_failed':
         return `Anthropic call failed (status ${err.status}).`;
+      // Salesforce LLM Gateway Express
+      case 'sfgateway_network':
+        return 'Can\'t reach the Salesforce LLM Gateway. Confirm you\'re on VPN and the gateway URL is correct.';
+      case 'sfgateway_bad_key':
+        return 'Salesforce LLM Gateway rejected the key (401). Check that it\'s still active.';
+      case 'sfgateway_forbidden':
+        return 'Salesforce LLM Gateway returned 403 — key doesn\'t have access to that model.';
+      case 'sfgateway_model_not_found':
+        return `Model "${err.model}" isn\'t available on the gateway. Try a different model name in Advanced.`;
+      case 'sfgateway_rate_limited':
+        return 'Salesforce LLM Gateway rate limited. Wait a moment and try again.';
+      case 'sfgateway_unavailable':
+        return `Salesforce LLM Gateway temporarily unavailable (status ${err.status}). Try again shortly.`;
+      case 'sfgateway_empty_response':
+        return 'Salesforce LLM Gateway returned no text. Retry — usually transient.';
+      case 'sfgateway_failed':
+        return `Salesforce LLM Gateway call failed (status ${err.status}).`;
       case 'proxy_fetch_failed':
         return `Couldn't fetch the site through ${err.proxy} (status ${err.status}). Trying another proxy…`;
       case 'proxy_empty_response':
@@ -249,9 +351,16 @@
     setApiKey,
     getModel,
     setModel,
-    TIER_MODELS,
-    scrapeViaCorsProxy,
+    detectProvider,
+    currentProvider,
+    TIER_MODELS_ANTHROPIC,
+    TIER_MODELS_SF_GATEWAY,
+    // Public alias — historical name, now routes based on key prefix
     callAnthropic,
+    callLLM,
+    callAnthropicDirect,
+    callSFGateway,
+    scrapeViaCorsProxy,
     analyzeCustomerURL,
     humanErrorMessage
   };
