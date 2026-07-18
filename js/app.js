@@ -395,13 +395,32 @@ function populateFormFromState() {
     if (el) el.checked = state.sections[k];
   });
 
-  // Upsell
+  // Upsell — text
   setVal('upsell-title', state.upsell.title || '');
   setVal('upsell-subtitle', state.upsell.subtitle || '');
   setVal('upsell-price', state.upsell.price || '');
   setVal('upsell-period', state.upsell.period || '');
   setVal('upsell-tagline', state.upsell.tagline || '');
   setVal('upsell-cta', state.upsell.cta || '');
+  // Upsell — colors (with defaults)
+  const uBg = state.upsell.bgColor || '#7C1D1D';
+  const uTitle = state.upsell.titleColor || state.colors.accent || '#E8B931';
+  const uSub = state.upsell.subtitleColor || '#FFFFFF';
+  const uPrice = state.upsell.priceColor || '#FFFFFF';
+  const uPeriod = state.upsell.periodColor || '#E5E7EB';
+  setVal('color-upsell-bg', uBg);            setVal('hex-upsell-bg', uBg);
+  setVal('color-upsell-title', uTitle);      setVal('hex-upsell-title', uTitle);
+  setVal('color-upsell-subtitle', uSub);     setVal('hex-upsell-subtitle', uSub);
+  setVal('color-upsell-price', uPrice);      setVal('hex-upsell-price', uPrice);
+  setVal('color-upsell-period', uPeriod);    setVal('hex-upsell-period', uPeriod);
+  // Upsell — bg image
+  const upsellBgSrc = state.upsell.bgImageData || state.upsell.bgImageUrl || '';
+  const upsellBgPrev = document.getElementById('preview-upsell-bg');
+  if (upsellBgPrev) {
+    if (upsellBgSrc) { upsellBgPrev.src = upsellBgSrc; upsellBgPrev.classList.remove('hidden'); }
+    else { upsellBgPrev.src = ''; upsellBgPrev.classList.add('hidden'); }
+  }
+  setVal('url-upsell-bg', state.upsell.bgImageUrl || '');
 }
 
 function setVal(id, val) {
@@ -435,15 +454,33 @@ function onFieldChange() {
   state.member.phone = getVal('member-phone');
   state.member.joinDate = getVal('member-join');
 
-  // Upsell
+  // Upsell — text
   state.upsell.title = getVal('upsell-title');
   state.upsell.subtitle = getVal('upsell-subtitle');
   state.upsell.price = getVal('upsell-price');
   state.upsell.period = getVal('upsell-period');
   state.upsell.tagline = getVal('upsell-tagline');
   state.upsell.cta = getVal('upsell-cta');
+  // Upsell — colors (only if the DOM has them yet)
+  ['bg', 'title', 'subtitle', 'price', 'period'].forEach(part => {
+    const c = getVal('color-upsell-' + part);
+    if (c) state.upsell[part + 'Color'] = c;
+    // reflect in hex mirror
+    const hexEl = document.getElementById('hex-upsell-' + part);
+    if (hexEl && c) hexEl.value = c;
+  });
 
   schedulePreview();
+}
+
+function onUpsellHexChange(part) {
+  let hex = (getVal('hex-upsell-' + part) || '').trim();
+  if (!hex.startsWith('#')) hex = '#' + hex;
+  if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    state.upsell[part + 'Color'] = hex;
+    setVal('color-upsell-' + part, hex);
+    schedulePreview();
+  }
 }
 
 function onIndustryChange() {
@@ -695,19 +732,23 @@ function renderBadges() {
   const c = document.getElementById('badges-container');
   if (!c) return;
   c.innerHTML = state.badges.map((b, i) => `
-    <div class="bg-gray-50 rounded-lg p-3 flex items-center gap-3 relative">
+    <div class="bg-gray-50 rounded-lg p-3 relative">
       <button onclick="removeItem('badges',${i})" class="absolute top-1 right-2 text-red-400 hover:text-red-600 text-sm font-bold leading-none">&times;</button>
-      <input type="text" value="${esc(b.emoji||'')}" onchange="updateItem('badges',${i},'emoji',this.value)" class="w-12 px-2 py-2 border border-gray-300 rounded-lg text-center text-lg outline-none focus:ring-2 focus:ring-blue-400/50" title="Emoji">
-      <input type="text" value="${esc(b.name)}" onchange="updateItem('badges',${i},'name',this.value)" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="Badge name">
-      <select onchange="updateItem('badges',${i},'color',this.value)" class="px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50 bg-white">
-        ${GRADIENT_COLORS.map(c2 => `<option value="${c2}" ${b.color===c2?'selected':''}>${c2}</option>`).join('')}
-      </select>
+      <div class="flex items-center gap-3">
+        <input type="text" value="${esc(b.emoji||'')}" onchange="updateItem('badges',${i},'emoji',this.value)" class="w-12 px-2 py-2 border border-gray-300 rounded-lg text-center text-lg outline-none focus:ring-2 focus:ring-blue-400/50" title="Emoji (fallback if no image)">
+        <input type="text" value="${esc(b.name)}" onchange="updateItem('badges',${i},'name',this.value)" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="Badge name">
+        <select onchange="updateItem('badges',${i},'color',this.value)" class="px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50 bg-white">
+          ${GRADIENT_COLORS.map(c2 => `<option value="${c2}" ${b.color===c2?'selected':''}>${c2}</option>`).join('')}
+        </select>
+      </div>
+      ${imageUploadHTML('badge-'+i, 'Badge Image (optional — replaces emoji)', b.imageData||b.imageUrl||'')}
     </div>
   `).join('');
+  reinitDynamicImageUploads();
 }
 
 function addBadge() {
-  state.badges.push({ name: '', emoji: '⭐', color: 'amber' });
+  state.badges.push({ name: '', emoji: '⭐', color: 'amber', imageUrl: '', imageData: '' });
   renderBadges();
 }
 
@@ -740,16 +781,20 @@ function renderBenefits() {
   const c = document.getElementById('benefits-container');
   if (!c) return;
   c.innerHTML = state.benefits.map((b, i) => `
-    <div class="bg-gray-50 rounded-lg p-3 flex items-center gap-3 relative">
+    <div class="bg-gray-50 rounded-lg p-3 relative">
       <button onclick="removeItem('benefits',${i})" class="absolute top-1 right-2 text-red-400 hover:text-red-600 text-sm font-bold leading-none">&times;</button>
-      <input type="text" value="${esc(b.emoji||'')}" onchange="updateItem('benefits',${i},'emoji',this.value)" class="w-12 px-2 py-2 border border-gray-300 rounded-lg text-center text-lg outline-none focus:ring-2 focus:ring-blue-400/50" title="Emoji">
-      <input type="text" value="${esc(b.name)}" onchange="updateItem('benefits',${i},'name',this.value)" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="Benefit name">
+      <div class="flex items-center gap-3">
+        <input type="text" value="${esc(b.emoji||'')}" onchange="updateItem('benefits',${i},'emoji',this.value)" class="w-12 px-2 py-2 border border-gray-300 rounded-lg text-center text-lg outline-none focus:ring-2 focus:ring-blue-400/50" title="Emoji (fallback if no image)">
+        <input type="text" value="${esc(b.name)}" onchange="updateItem('benefits',${i},'name',this.value)" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="Benefit name">
+      </div>
+      ${imageUploadHTML('benefit-'+i, 'Icon Image (optional — replaces emoji)', b.imageData||b.imageUrl||'')}
     </div>
   `).join('');
+  reinitDynamicImageUploads();
 }
 
 function addBenefit() {
-  state.benefits.push({ name: '', emoji: '✨' });
+  state.benefits.push({ name: '', emoji: '✨', imageUrl: '', imageData: '' });
   renderBenefits();
 }
 
@@ -890,6 +935,31 @@ function reinitDynamicImageUploads() {
       schedulePreview();
     });
   });
+  // Benefit icons
+  state.benefits.forEach((b, i) => {
+    initImageUpload('drop-benefit-'+i, 'preview-benefit-'+i, 'url-benefit-'+i, (data) => {
+      if (data && data.startsWith('data:')) { b.imageData = data; b.imageUrl = ''; }
+      else { b.imageUrl = data; b.imageData = ''; }
+      schedulePreview();
+    });
+  });
+  // Badge icons
+  state.badges.forEach((b, i) => {
+    initImageUpload('drop-badge-'+i, 'preview-badge-'+i, 'url-badge-'+i, (data) => {
+      if (data && data.startsWith('data:')) { b.imageData = data; b.imageUrl = ''; }
+      else { b.imageUrl = data; b.imageData = ''; }
+      schedulePreview();
+    });
+  });
+  // Upsell bg image
+  const uEl = document.getElementById('drop-upsell-bg');
+  if (uEl) {
+    initImageUpload('drop-upsell-bg', 'preview-upsell-bg', 'url-upsell-bg', (data) => {
+      if (data && data.startsWith('data:')) { state.upsell.bgImageData = data; state.upsell.bgImageUrl = ''; }
+      else { state.upsell.bgImageUrl = data; state.upsell.bgImageData = ''; }
+      schedulePreview();
+    });
+  }
 }
 
 // ---- LIVE PREVIEW ----

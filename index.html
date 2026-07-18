@@ -492,6 +492,57 @@
                 <div><label class="block text-xs font-600 text-gray-600 mb-1">Tagline</label><input type="text" id="upsell-tagline" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
                 <div><label class="block text-xs font-600 text-gray-600 mb-1">CTA Button</label><input type="text" id="upsell-cta" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
               </div>
+
+              <!-- Upsell — background + text colors + bg image -->
+              <div class="mt-5 pt-4 border-t border-gray-100">
+                <h4 class="text-xs font-700 text-gray-800 uppercase tracking-wider mb-3">Upsell Appearance</h4>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-600 text-gray-600 mb-1">Background Color</label>
+                    <div class="flex items-center gap-2">
+                      <input type="color" id="color-upsell-bg" value="#7C1D1D" onchange="onFieldChange()">
+                      <input type="text" id="hex-upsell-bg" value="#7C1D1D" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onUpsellHexChange('bg')">
+                    </div>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-600 text-gray-600 mb-1">Title Color</label>
+                    <div class="flex items-center gap-2">
+                      <input type="color" id="color-upsell-title" value="#E8B931" onchange="onFieldChange()">
+                      <input type="text" id="hex-upsell-title" value="#E8B931" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onUpsellHexChange('title')">
+                    </div>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-600 text-gray-600 mb-1">Subtitle Color</label>
+                    <div class="flex items-center gap-2">
+                      <input type="color" id="color-upsell-subtitle" value="#FFFFFF" onchange="onFieldChange()">
+                      <input type="text" id="hex-upsell-subtitle" value="#FFFFFF" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onUpsellHexChange('subtitle')">
+                    </div>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-600 text-gray-600 mb-1">Price Color</label>
+                    <div class="flex items-center gap-2">
+                      <input type="color" id="color-upsell-price" value="#FFFFFF" onchange="onFieldChange()">
+                      <input type="text" id="hex-upsell-price" value="#FFFFFF" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onUpsellHexChange('price')">
+                    </div>
+                  </div>
+                  <div class="col-span-2">
+                    <label class="block text-xs font-600 text-gray-600 mb-1">Period Color</label>
+                    <div class="flex items-center gap-2">
+                      <input type="color" id="color-upsell-period" value="#E5E7EB" onchange="onFieldChange()">
+                      <input type="text" id="hex-upsell-period" value="#E5E7EB" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onUpsellHexChange('period')">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="mt-4">
+                  <label class="block text-xs font-600 text-gray-600 mb-1">Background Image <span class="text-gray-400 font-500">(optional — layered under the color gradient with a scrim)</span></label>
+                  <div id="drop-upsell-bg" class="drop-zone-sf p-4 text-center cursor-pointer">
+                    <img id="preview-upsell-bg" src="" class="hidden w-full h-24 object-cover rounded mx-auto mb-2">
+                    <p class="text-xs text-gray-500">📷 Drop image or click to upload</p>
+                  </div>
+                  <input type="text" id="url-upsell-bg" placeholder="Or paste image URL" class="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none">
+                </div>
+              </div>
             </div>
 
             <!-- Nav Links -->
@@ -555,11 +606,11 @@
   </div>
 
   <!-- Scripts -->
-  <script src="./js/defaults.js?v=20260717d"></script>
-  <script src="./js/images.js?v=20260717d"></script>
-  <script src="./js/generator.js?v=20260717d"></script>
-  <script src="./js/pagehost.js?v=20260717d"></script>
-  <script src="./js/localai.js?v=20260717d"></script>
-  <script src="./js/app.js?v=20260717d"></script>
+  <script src="./js/defaults.js?v=20260717e"></script>
+  <script src="./js/images.js?v=20260717e"></script>
+  <script src="./js/generator.js?v=20260717e"></script>
+  <script src="./js/pagehost.js?v=20260717e"></script>
+  <script src="./js/localai.js?v=20260717e"></script>
+  <script src="./js/app.js?v=20260717e"></script>
 </body>
 </html>

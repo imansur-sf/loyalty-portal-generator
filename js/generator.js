@@ -121,10 +121,12 @@ function buildHeader(s, logoSrc, programName, brandAbbr, menuColor) {
     `<a href="#" class="nav-link text-white/90 hover:text-white text-sm font-600 transition-colors">${n}</a>`
   ).join('\n            ');
 
+  const rawName = (s.brand.name && s.brand.name.trim()) || 'Loyalty';
+  const displayName = rawName.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const logoHTML = logoSrc
-    ? `<img src="${logoSrc}" alt="${s.brand.name}" class="h-10 w-auto object-contain" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-          <div class="items-center gap-1 hidden"><span class="text-xl font-800 tracking-tight text-white">${brandAbbr}</span><span class="text-lg font-800 tracking-wide text-white ml-1">PERKS</span></div>`
-    : `<div class="flex items-center gap-1"><span class="text-xl font-800 tracking-tight text-white">${brandAbbr}</span><span class="text-lg font-800 tracking-wide text-white ml-1">PERKS</span></div>`;
+    ? `<img src="${logoSrc}" alt="${displayName}" class="h-10 w-auto object-contain" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
+          <span class="text-xl font-800 tracking-tight text-white hidden" style="display:none;">${displayName}</span>`
+    : `<span class="text-xl font-800 tracking-tight text-white">${displayName}</span>`;
 
   const menuAccent = s.colors.accent || '#4299E1';
 
@@ -253,11 +255,17 @@ function buildProfile(s) {
 
 // ---- MY BENEFITS (Expandable) ----
 function buildBenefits(s) {
-  const items = (s.benefits||[]).map(b => `
+  const items = (s.benefits||[]).map(b => {
+    const imgSrc = b.imageData || b.imageUrl || '';
+    const iconInner = imgSrc
+      ? `<img src="${imgSrc}" alt="${(b.name||'').replace(/"/g,'&quot;')}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-lg hidden">${b.emoji || '✨'}</span>`
+      : `<span class="text-lg">${b.emoji || '✨'}</span>`;
+    return `
             <div class="flex items-center gap-3 p-3 rounded-xl bg-page-bg transition-colors hover:bg-gray-100">
-              <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style="background-color: ${s.colors.primary}12;"><span class="text-lg">${b.emoji}</span></div>
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style="background-color: ${s.colors.primary}12;">${iconInner}</div>
               <div><p class="text-sm font-700 text-dark">${b.name}</p></div>
-            </div>`).join('');
+            </div>`;
+  }).join('');
 
   return `<div class="card mb-8 overflow-hidden">
       <button onclick="toggleSection('benefits')" class="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/60 transition-colors">
@@ -408,8 +416,12 @@ function buildBadges(s) {
   if (!s.badges || s.badges.length === 0) return '';
   const items = s.badges.map(b => {
     const c = b.color || 'amber';
+    const imgSrc = b.imageData || b.imageUrl || '';
+    const inner = imgSrc
+      ? `<img src="${imgSrc}" alt="${(b.name||'').replace(/"/g,'&quot;')}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-2xl drop-shadow-sm hidden">${b.emoji||'⭐'}</span>`
+      : `<span class="text-2xl drop-shadow-sm">${b.emoji||'⭐'}</span>`;
     return `<div class="flex flex-col items-center gap-2 group">
-              <div class="w-16 h-16 rounded-full bg-gradient-to-br from-${c}-400 to-${c}-600 flex items-center justify-center transition-transform group-hover:scale-105" style="box-shadow: 0 0 0 3px #fff, 0 0 0 5px rgb(var(--tw-${c}-300, 251 191 36 / 0.7) / 0.6), 0 8px 16px -6px rgba(0,0,0,0.15);"><span class="text-2xl drop-shadow-sm">${b.emoji||'⭐'}</span></div>
+              <div class="w-16 h-16 rounded-full bg-gradient-to-br from-${c}-400 to-${c}-600 flex items-center justify-center overflow-hidden transition-transform group-hover:scale-105" style="box-shadow: 0 0 0 3px #fff, 0 0 0 5px rgb(var(--tw-${c}-300, 251 191 36 / 0.7) / 0.6), 0 8px 16px -6px rgba(0,0,0,0.15);">${inner}</div>
               <span class="text-[11px] font-700 text-center text-dark leading-tight">${(b.name||'Badge').replace(/ /g,'<br>')}</span>
             </div>`;
   }).join('');
@@ -454,14 +466,28 @@ function buildClubs(s) {
 function buildUpsell(s) {
   if (!s.upsell || !s.upsell.title) return '';
   const u = s.upsell;
+
+  const bgColor = u.bgColor || '#7C1D1D';
+  const bgColorDark = darkenColor(bgColor, 15);
+  const bgImage = u.bgImageData || u.bgImageUrl || '';
+  const titleColor = u.titleColor || s.colors.accent;
+  const subtitleColor = u.subtitleColor || '#FFFFFF';
+  const priceColor = u.priceColor || '#FFFFFF';
+  const periodColor = u.periodColor || 'rgba(255,255,255,0.80)';
+
+  // When there's a bg image, put a subtle scrim over it so text stays legible.
+  const bgLayers = bgImage
+    ? `background-image: linear-gradient(135deg, ${bgColor}CC 0%, ${bgColorDark}CC 100%), url('${bgImage.replace(/'/g, "\\'")}'); background-size: cover, cover; background-position: center, center;`
+    : `background-image: linear-gradient(135deg, ${bgColor} 0%, ${bgColorDark} 100%);`;
+
   return `<section id="section-upsell" class="card overflow-hidden">
-          <div class="relative p-7 text-center overflow-hidden" style="background: linear-gradient(135deg, #7C1D1D 0%, #4A0E0E 100%);">
+          <div class="relative p-7 text-center overflow-hidden" style="${bgLayers}">
             <div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.2), transparent 40%), radial-gradient(circle at 80% 80%, rgba(255,255,255,0.15), transparent 40%);"></div>
             <div class="relative">
-              <div class="text-2xl font-900 mb-1 italic" style="color: ${s.colors.accent}; font-family: 'Georgia', serif; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">${u.title}</div>
-              <div class="text-white text-xs font-800 uppercase tracking-[0.2em] mt-2">${u.subtitle||''}</div>
-              <div class="mt-4 text-white flex items-start justify-center gap-1"><span class="text-2xl font-700 mt-2">$</span><span class="text-6xl font-900 leading-none">${(u.price||'$29').replace(/^\$/,'')}</span></div>
-              <div class="text-white/80 text-[11px] mt-2 uppercase tracking-[0.15em] font-700">${u.period||'Monthly'}</div>
+              <div class="text-2xl font-900 mb-1 italic" style="color: ${titleColor}; font-family: 'Georgia', serif; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">${u.title}</div>
+              <div class="text-xs font-800 uppercase tracking-[0.2em] mt-2" style="color: ${subtitleColor};">${u.subtitle||''}</div>
+              <div class="mt-4 flex items-start justify-center gap-1" style="color: ${priceColor};"><span class="text-2xl font-700 mt-2">$</span><span class="text-6xl font-900 leading-none">${(u.price||'$29').replace(/^\$/,'')}</span></div>
+              <div class="text-[11px] mt-2 uppercase tracking-[0.15em] font-700" style="color: ${periodColor};">${u.period||'Monthly'}</div>
             </div>
           </div>
           <div class="p-5 text-center">
