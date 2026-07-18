@@ -302,7 +302,7 @@
 
 You will receive scraped content from a customer's website — including a list of image URLs found on the page. Extract brand identity and generate realistic, on-brand loyalty program content, and assign the most appropriate image to each content slot.
 
-Return ONLY a single JSON object matching the schema below. No preamble, no markdown fences, no trailing prose — just the JSON.
+CRITICAL OUTPUT FORMAT: Your entire response must be exactly one valid JSON object matching the schema below. Your first character must be an opening curly brace and your last character must be a closing curly brace. No preamble, no explanation, no markdown code fences, no trailing prose, no comments — nothing but the JSON. If you need to convey uncertainty, do it inside a JSON string field, never outside the JSON.
 
 Schema:
 {
@@ -410,29 +410,119 @@ ${scraped.bodyText}${imageBlock}
 Now return the JSON per the schema. Return ONLY the JSON.`;
   }
 
-  // ---- JSON PARSER (tolerant of stray whitespace / fences) ----
+  // ---- JSON PARSER (tolerant of stray whitespace / fences / truncation) ----
   function parseAIResponseText(text) {
     if (!text) throw pageHostError('empty_ai_response');
+
+    // 1) Strip common wrappers the model adds despite instructions
     let t = text.trim();
-    // Strip ```json fences if the model added them despite instructions
     if (t.startsWith('```')) {
-      t = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/,'').trim();
+      t = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
     }
-    // If the model added leading prose, grab from first { to matching } via best-effort
+
+    // 2) Grab from the first { to the last } — cuts leading/trailing prose
     const firstBrace = t.indexOf('{');
     const lastBrace = t.lastIndexOf('}');
-    if (firstBrace > 0 || lastBrace < t.length - 1) {
+    if (firstBrace > 0 || (lastBrace >= 0 && lastBrace < t.length - 1)) {
       if (firstBrace >= 0 && lastBrace > firstBrace) {
         t = t.slice(firstBrace, lastBrace + 1);
       }
     }
-    try {
-      return JSON.parse(t);
-    } catch (e) {
-      const err = pageHostError('ai_bad_json');
-      err.raw = text.slice(0, 500);
-      throw err;
+
+    // 3) Straight parse first — the happy path
+    try { return JSON.parse(t); } catch (_) { /* fall through */ }
+
+    // 4) Truncation-recovery: if the model hit max_tokens mid-object, the
+    //    string ends inside an open string / array / object. Walk forward,
+    //    track depth, and truncate to the last well-formed prefix, then
+    //    close any still-open braces/brackets.
+    const recovered = attemptTruncationRecovery(t);
+    if (recovered) {
+      try { return JSON.parse(recovered); } catch (_) { /* fall through */ }
     }
+
+    // 5) Give up — surface diagnostics so the caller can log/inspect.
+    console.error('[PageHost] JSON parse failed. Raw model output:', text);
+    const err = pageHostError('ai_bad_json');
+    err.raw = text;                       // full raw (not truncated) for retry logic
+    err.rawPreview = text.slice(0, 500);
+    err.recoveredAttempt = recovered ? recovered.slice(0, 500) : null;
+    throw err;
+  }
+
+  // Walk `s` character-by-character honoring string/escape state; find the
+  // last "safe" position where every open construct is either closed or can
+  // be closed by appending matching brackets. Return the recovered string,
+  // or null if nothing sensible can be produced.
+  function attemptTruncationRecovery(s) {
+    let inString = false;
+    let escape = false;
+    const stack = []; // '{' or '['
+    let lastSafe = -1; // index right after the last balanced value
+
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (escape) { escape = false; continue; }
+      if (inString) {
+        if (c === '\\') { escape = true; continue; }
+        if (c === '"') { inString = false; }
+        continue;
+      }
+      if (c === '"') { inString = true; continue; }
+      if (c === '{' || c === '[') { stack.push(c); continue; }
+      if (c === '}' || c === ']') {
+        const want = c === '}' ? '{' : '[';
+        if (stack.length && stack[stack.length - 1] === want) {
+          stack.pop();
+          if (stack.length === 0) lastSafe = i + 1;
+        }
+      }
+    }
+
+    // If we ended inside a string, truncate BEFORE that string opened
+    // (find the last unescaped `"` at safe depth). Simpler: walk backward
+    // to the last comma or open-brace we saw at the top of the stack.
+    if (inString) {
+      // Cut everything after the last comma we know was at safe nesting
+      const cutIdx = s.lastIndexOf(',', s.length - 1);
+      if (cutIdx > 0) {
+        s = s.slice(0, cutIdx);
+        // Rewalk to update the stack
+        return attemptTruncationRecovery(s);
+      }
+      return null;
+    }
+
+    // If nothing is open, we shouldn't be here (straight parse would have worked)
+    if (stack.length === 0) return null;
+
+    // Cut off trailing incomplete value: from lastSafe onward there's some
+    // half-emitted key/value. Trim to last complete comma before end.
+    let truncated = s;
+    if (lastSafe > 0) {
+      // Keep everything up to lastSafe, then trailing partial content only
+      // to the last balanced-depth comma.
+      truncated = s.slice(0, lastSafe) + trailingBalance(s.slice(lastSafe), stack);
+    } else {
+      // Never saw a complete top-level value; try to just close what's open
+      truncated = trimToLastComma(s);
+    }
+
+    // Append the appropriate closers for whatever's still open
+    let closer = '';
+    for (let i = stack.length - 1; i >= 0; i--) closer += (stack[i] === '{' ? '}' : ']');
+    return truncated.replace(/,\s*$/, '') + closer;
+  }
+
+  function trimToLastComma(s) {
+    const idx = s.lastIndexOf(',');
+    return idx > 0 ? s.slice(0, idx) : s;
+  }
+
+  function trailingBalance(tail, stack) {
+    // For tail content after lastSafe: keep only up to the last comma so
+    // we're always ending at a clean key/value boundary.
+    return trimToLastComma(tail);
   }
 
   // ---- MAIN ORCHESTRATION ----

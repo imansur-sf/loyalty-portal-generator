@@ -22,6 +22,11 @@
   const MODEL_STORAGE = 'anthropic_model';
   const SCRAPER_URL_STORAGE = 'scraper_endpoint_url';
 
+  // Default Cloudflare Worker URL — used when the user hasn't set a custom one.
+  // Anyone can override via Advanced → Scraper Endpoint (or by calling
+  // window.LocalAI.setScraperEndpoint) to point at their own deployment.
+  const DEFAULT_SCRAPER_URL = 'https://loyalty-scraper.imansur.workers.dev';
+
   // Two supported providers, auto-detected from key prefix.
   const SF_GATEWAY_BASE = 'https://eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl';
 
@@ -108,8 +113,15 @@
   // control). Falls back to public CORS proxies if the Worker isn't
   // configured or unreachable.
   function getScraperEndpoint() {
-    try { return (localStorage.getItem(SCRAPER_URL_STORAGE) || '').trim(); }
-    catch (_) { return ''; }
+    try {
+      const override = (localStorage.getItem(SCRAPER_URL_STORAGE) || '').trim();
+      return override || DEFAULT_SCRAPER_URL;
+    } catch (_) { return DEFAULT_SCRAPER_URL; }
+  }
+  function getDefaultScraperEndpoint() { return DEFAULT_SCRAPER_URL; }
+  function hasCustomScraperEndpoint() {
+    try { return Boolean((localStorage.getItem(SCRAPER_URL_STORAGE) || '').trim()); }
+    catch (_) { return false; }
   }
   function setScraperEndpoint(url) {
     try {
@@ -170,7 +182,7 @@
   // ---- ROUTER ----
   // Picks Anthropic-direct or SF Gateway based on key prefix. Same signature
   // and same return shape either way so callers don't need to care.
-  async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 4000 }) {
+  async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
     const provider = currentProvider();
     if (!provider) throw localError('missing_api_key');
     if (provider === 'anthropic') {
@@ -182,7 +194,7 @@
   // ---- ANTHROPIC DIRECT ----
   // If content is a string → plain text prompt.
   // If content is an array → user provided structured content (e.g. a document URL block).
-  async function callAnthropicDirect({ prompt, system, tier = 'balanced', model, maxTokens = 4000, userContent }) {
+  async function callAnthropicDirect({ prompt, system, tier = 'balanced', model, maxTokens = 8000, userContent }) {
     const key = getApiKey();
     if (!key) throw localError('missing_api_key');
 
@@ -232,7 +244,7 @@
   // Body:   { model, messages: [{role, content}], max_tokens }
   // Auth:   Authorization: Bearer <key>
   // Reply:  { choices: [{ message: { content, role }, finish_reason }], model, usage }
-  async function callSFGateway({ prompt, system, tier = 'balanced', model, maxTokens = 4000 }) {
+  async function callSFGateway({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
     const key = getApiKey();
     if (!key) throw localError('missing_api_key');
 
@@ -346,7 +358,7 @@
       prompt: shared.buildUserPrompt(scraped),
       system: shared.SYSTEM_PROMPT,
       tier,
-      maxTokens: 4000
+      maxTokens: 8000
     });
 
     const parsed = shared.parseAIResponseText(text);
@@ -388,7 +400,7 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
       system: shared.SYSTEM_PROMPT,
       userContent,
       tier,
-      maxTokens: 4000
+      maxTokens: 8000
     });
 
     const parsed = shared.parseAIResponseText(text);
@@ -457,7 +469,7 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
       case 'own_scraper_empty':
         return `Your scraper at ${err.endpoint} returned an empty response.`;
       case 'ai_bad_json':
-        return 'AI returned malformed JSON. Try again — usually transient.';
+        return 'AI returned malformed JSON — likely truncated mid-response or wrapped in prose. Open DevTools → Console to see the raw model output. Try Analyze again; if it repeats, try a shorter customer URL or a different tier.';
       case 'empty_ai_response':
         return 'AI returned nothing. Retry.';
       default:
@@ -475,6 +487,8 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
     currentProvider,
     getScraperEndpoint,
     setScraperEndpoint,
+    getDefaultScraperEndpoint,
+    hasCustomScraperEndpoint,
     TIER_MODELS_ANTHROPIC,
     TIER_MODELS_SF_GATEWAY,
     // Public alias — historical name, now routes based on key prefix
