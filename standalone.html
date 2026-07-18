@@ -237,7 +237,12 @@
 
               <button class="quickstart-settings-toggle" onclick="toggleQuickStartSettings()">Advanced</button>
               <div class="quickstart-settings" id="quickstart-settings">
-                <div>Upload ID (Page Host — only if auto-detection fails):</div>
+                <div style="margin-bottom: 12px;">
+                  <div style="margin-bottom: 4px;">Scraper Endpoint (Cloudflare Worker URL — bypasses CORS proxy blocking):</div>
+                  <input type="text" id="quickstart-scraper-url" placeholder="https://loyalty-scraper.<subdomain>.workers.dev" oninput="onScraperEndpointChange()">
+                  <div style="font-size: 10px; color: rgba(255,255,255,0.50); margin-top: 4px; font-style: italic;">Deploy the worker in <code>worker/</code> — see worker/README.md.</div>
+                </div>
+                <div style="margin-bottom: 4px;">Upload ID (Page Host — only if auto-detection fails):</div>
                 <input type="text" id="quickstart-upload-id" placeholder="e.g. abc123-def456" oninput="onQuickStartSettingsChange()">
               </div>
             </div>
@@ -2333,6 +2338,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
 
   const KEY_STORAGE = 'anthropic_api_key';
   const MODEL_STORAGE = 'anthropic_model';
+  const SCRAPER_URL_STORAGE = 'scraper_endpoint_url';
 
   // Two supported providers, auto-detected from key prefix.
   const SF_GATEWAY_BASE = 'https://eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl';
@@ -2415,9 +2421,50 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     } catch (_) { /* ignore */ }
   }
 
-  // ---- SCRAPING VIA CORS PROXY ----
+  // ---- SCRAPING ----
+  // Preferred path: user-deployed Cloudflare Worker (or any endpoint they
+  // control). Falls back to public CORS proxies if the Worker isn't
+  // configured or unreachable.
+  function getScraperEndpoint() {
+    try { return (localStorage.getItem(SCRAPER_URL_STORAGE) || '').trim(); }
+    catch (_) { return ''; }
+  }
+  function setScraperEndpoint(url) {
+    try {
+      const t = (url || '').trim();
+      if (t) localStorage.setItem(SCRAPER_URL_STORAGE, t.replace(/\/+$/, ''));
+      else localStorage.removeItem(SCRAPER_URL_STORAGE);
+    } catch (_) { /* ignore */ }
+  }
+
   async function scrapeViaCorsProxy(url) {
     let lastError = null;
+
+    // 1) Try the user's own scraper endpoint first if configured
+    const own = getScraperEndpoint();
+    if (own) {
+      try {
+        const res = await fetch(`${own}/scrape?url=${encodeURIComponent(url)}`, { method: 'GET' });
+        if (res.ok) {
+          const ct = res.headers.get('content-type') || '';
+          const html = await res.text();
+          if (html && html.length >= 40) {
+            // Worker returns text/html or json errors — a json response starting
+            // with { and no `<` means it's likely a structured error, not HTML.
+            const looksJson = /application\/json/i.test(ct) || (html.trim().startsWith('{') && !html.trim().startsWith('{"contents"'));
+            if (!looksJson) return html;
+          }
+          lastError = localError('own_scraper_empty', { endpoint: own });
+        } else {
+          const body = await res.text().catch(() => '');
+          lastError = localError('own_scraper_status', { status: res.status, endpoint: own, body: body.slice(0, 160) });
+        }
+      } catch (err) {
+        lastError = localError('own_scraper_network', { endpoint: own, cause: err.message });
+      }
+    }
+
+    // 2) Fallback to public CORS proxies
     for (const proxy of CORS_PROXIES) {
       try {
         const res = await fetch(proxy.wrap(url), { method: 'GET' });
@@ -2451,11 +2498,18 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
   }
 
   // ---- ANTHROPIC DIRECT ----
-  async function callAnthropicDirect({ prompt, system, tier = 'balanced', model, maxTokens = 4000 }) {
+  // If content is a string → plain text prompt.
+  // If content is an array → user provided structured content (e.g. a document URL block).
+  async function callAnthropicDirect({ prompt, system, tier = 'balanced', model, maxTokens = 4000, userContent }) {
     const key = getApiKey();
     if (!key) throw localError('missing_api_key');
 
     const chosenModel = model || getModel() || TIER_MODELS_ANTHROPIC[tier] || DEFAULT_MODEL;
+
+    const messages = [{
+      role: 'user',
+      content: userContent || prompt
+    }];
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -2469,7 +2523,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
         model: chosenModel,
         max_tokens: maxTokens,
         system,
-        messages: [{ role: 'user', content: prompt }]
+        messages
       })
     });
 
@@ -2544,16 +2598,50 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
   const callAnthropic = callLLM;
 
   // ---- MAIN ORCHESTRATION ----
+  //
+  // Path selection (in order of preference):
+  //
+  //   1. Anthropic URL-document (sk-ant-* keys only). Anthropic's server
+  //      fetches the URL — zero CORS, zero infra. Best quality, most
+  //      reliable. Falls through if API returns "unsupported" error.
+  //   2. Client-side scrape → prompt with candidates. Uses the user's
+  //      scraper endpoint if configured, else public CORS proxies.
+  //   3. URL-only (Claude training knowledge). Last resort.
+  //
   async function analyzeCustomerURL(rawUrl, opts = {}) {
     const url = shared.normalizeURL(rawUrl);
     if (!url) throw localError('invalid_url');
     if (!hasKey()) throw localError('missing_api_key');
 
     const onStatus = opts.onStatus || (() => {});
+    const provider = currentProvider();
+    const tier = opts.tier || 'balanced';
+
+    // Path 1: Anthropic URL-document (server-side fetch by Anthropic)
+    if (provider === 'anthropic' && !opts.skipScraping && !opts.disableUrlDoc) {
+      onStatus('anthropic_url_doc');
+      try {
+        const parsed = await analyzeViaAnthropicUrlDoc(url, { tier });
+        parsed._meta = {
+          source_url: url,
+          model_used: parsed._meta && parsed._meta.model_used,
+          tier,
+          provider,
+          mode: 'local-anthropic-url-doc',
+          fallback_reason: null
+        };
+        return parsed;
+      } catch (err) {
+        // If Anthropic returns "document fetch not supported for URL" or a
+        // 400-family error, gracefully fall through to the scrape path.
+        console.warn('[LocalAI] Anthropic URL-doc unsupported, falling back to scrape path:', err.code || err.message);
+      }
+    }
+
+    // Path 2: Client-side scrape → prompt
     let scraped = null;
     let fallbackReason = null;
 
-    // Try to scrape unless caller explicitly disabled it
     if (opts.skipScraping) {
       fallbackReason = 'skipped';
     } else {
@@ -2562,23 +2650,20 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
         const html = await scrapeViaCorsProxy(url);
         scraped = shared.extractCoreHTML(html, url);
       } catch (scrapeErr) {
-        // All proxies failed (or corp firewall blocks them). Instead of hard-failing,
-        // fall back to URL-only analysis — Claude uses training knowledge.
         console.warn('[LocalAI] scraping failed, falling back to URL-only:', scrapeErr.code || scrapeErr.message);
         fallbackReason = scrapeErr.code || 'scrape_failed';
         onStatus('fallback_url_only');
       }
     }
 
-    // In URL-only mode we still hand Claude the URL so prompts work
+    // Path 3 (implicit): if no scrape, hand Claude just the URL
     if (!scraped) scraped = { url, title: '', bodyText: '', headings: '', favicon: '', ogImage: '', navLinkCandidates: [] };
 
     onStatus('analyzing');
-    const provider = currentProvider();
     const { text, model_used } = await callLLM({
       prompt: shared.buildUserPrompt(scraped),
       system: shared.SYSTEM_PROMPT,
-      tier: opts.tier || 'balanced',
+      tier,
       maxTokens: 4000
     });
 
@@ -2591,11 +2676,42 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
       twitter_image: scraped.twitterImage,
       image_count: (scraped.images || []).length,
       model_used,
-      tier: opts.tier || 'balanced',
+      tier,
       provider,
       mode: fallbackReason ? 'local-url-only' : 'local',
       fallback_reason: fallbackReason
     };
+    return parsed;
+  }
+
+  // ---- ANTHROPIC URL-DOCUMENT PATH ----
+  // Wraps callAnthropicDirect but sends the URL as a content-block document.
+  // Anthropic fetches the URL server-side and hands the content to Claude —
+  // no client-side scraping, no CORS.
+  async function analyzeViaAnthropicUrlDoc(url, { tier }) {
+    const userContent = [
+      {
+        type: 'document',
+        source: { type: 'url', url }
+      },
+      {
+        type: 'text',
+        text: `The document above is the customer's homepage HTML fetched from ${url}. Analyze it per the schema — extract brand identity, colors, and generate loyalty content. For imageUrl fields, use ONLY absolute image URLs you can see referenced in the HTML (typically <img src="..."> or CSS background-image url("...")). Never invent URLs. If unsure, use "".
+
+Return ONLY the JSON per the schema. Return ONLY the JSON.`
+      }
+    ];
+
+    const { text, model_used } = await callAnthropicDirect({
+      system: shared.SYSTEM_PROMPT,
+      userContent,
+      tier,
+      maxTokens: 4000
+    });
+
+    const parsed = shared.parseAIResponseText(text);
+    parsed._meta = parsed._meta || {};
+    parsed._meta.model_used = model_used;
     return parsed;
   }
 
@@ -2651,7 +2767,13 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
       case 'proxy_network_error':
         return `Network error via ${err.proxy}: ${err.cause}.`;
       case 'proxy_all_failed':
-        return 'All CORS proxies failed. The customer site may block anonymous fetches — try a different URL or use Page Host mode.';
+        return 'All CORS proxies failed. The customer site may block anonymous fetches — try a different URL, deploy the Cloudflare Worker (see worker/README.md) and paste its URL in Advanced → Scraper Endpoint, or use Page Host mode.';
+      case 'own_scraper_status':
+        return `Your scraper endpoint returned ${err.status}. Check that ${err.endpoint} is reachable and running the latest worker code.`;
+      case 'own_scraper_network':
+        return `Can't reach your scraper endpoint at ${err.endpoint}. Check the URL in Advanced → Scraper Endpoint.`;
+      case 'own_scraper_empty':
+        return `Your scraper at ${err.endpoint} returned an empty response.`;
       case 'ai_bad_json':
         return 'AI returned malformed JSON. Try again — usually transient.';
       case 'empty_ai_response':
@@ -2669,6 +2791,8 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     setModel,
     detectProvider,
     currentProvider,
+    getScraperEndpoint,
+    setScraperEndpoint,
     TIER_MODELS_ANTHROPIC,
     TIER_MODELS_SF_GATEWAY,
     // Public alias — historical name, now routes based on key prefix
@@ -2768,6 +2892,11 @@ function initQuickStart() {
   const storedUploadId = localStorage.getItem('pagehost_upload_id');
   if (storedUploadId && settingsInput) settingsInput.value = storedUploadId;
 
+  // Pre-fill scraper endpoint from localStorage
+  const storedScraper = window.LocalAI && window.LocalAI.getScraperEndpoint();
+  const scraperInput = document.getElementById('quickstart-scraper-url');
+  if (storedScraper && scraperInput) scraperInput.value = storedScraper;
+
   // Pre-fill masked API key indicator if a key is stored (don't reveal it)
   if (window.LocalAI && window.LocalAI.hasKey() && keyInput) {
     keyInput.placeholder = 'sk-ant-…' + window.LocalAI.getApiKey().slice(-4).padStart(8, '•');
@@ -2842,6 +2971,13 @@ function onQuickStartSettingsChange() {
   }
 }
 
+function onScraperEndpointChange() {
+  const val = document.getElementById('quickstart-scraper-url')?.value?.trim() || '';
+  if (window.LocalAI && window.LocalAI.setScraperEndpoint) {
+    window.LocalAI.setScraperEndpoint(val);
+  }
+}
+
 function setQuickStartStatus(msg, busy) {
   const s = document.getElementById('quickstart-status');
   if (!s) return;
@@ -2889,7 +3025,8 @@ async function onQuickStartAnalyze() {
     setQuickStartStatus(fetchLabel, true);
     const data = await client.analyzeCustomerURL(url, {
       onStatus: (phase) => {
-        if (phase === 'fetching') setQuickStartStatus(fetchLabel, true);
+        if (phase === 'anthropic_url_doc') setQuickStartStatus('Anthropic is fetching the site server-side + analyzing…', true);
+        else if (phase === 'fetching') setQuickStartStatus(fetchLabel, true);
         else if (phase === 'fallback_url_only') setQuickStartStatus('Site couldn\'t be scraped — Claude will use training knowledge instead…', true);
         else if (phase === 'analyzing') setQuickStartStatus('Claude is analyzing brand and generating content…', true);
       }
@@ -2898,7 +3035,10 @@ async function onQuickStartAnalyze() {
     applyAnalysis(data);
     const host = new URL(data._meta.source_url).hostname;
     const isUrlOnly = /url-only/.test(data._meta.mode || '');
-    if (isUrlOnly) {
+    const isAnthropicDoc = data._meta.mode === 'local-anthropic-url-doc';
+    if (isAnthropicDoc) {
+      setQuickStartStatus(`✓ Populated from ${host} via Anthropic URL-document fetch. Review each step and tweak.`, false);
+    } else if (isUrlOnly) {
       setQuickStartStatus(`✓ Populated for ${host} using Claude's brand knowledge (site couldn't be scraped). Review carefully — accuracy depends on how well-known the brand is.`, false);
     } else {
       const modeTag = data._meta.mode === 'local' ? 'local' : 'Page Host';

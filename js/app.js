@@ -81,6 +81,11 @@ function initQuickStart() {
   const storedUploadId = localStorage.getItem('pagehost_upload_id');
   if (storedUploadId && settingsInput) settingsInput.value = storedUploadId;
 
+  // Pre-fill scraper endpoint from localStorage
+  const storedScraper = window.LocalAI && window.LocalAI.getScraperEndpoint();
+  const scraperInput = document.getElementById('quickstart-scraper-url');
+  if (storedScraper && scraperInput) scraperInput.value = storedScraper;
+
   // Pre-fill masked API key indicator if a key is stored (don't reveal it)
   if (window.LocalAI && window.LocalAI.hasKey() && keyInput) {
     keyInput.placeholder = 'sk-ant-…' + window.LocalAI.getApiKey().slice(-4).padStart(8, '•');
@@ -155,6 +160,13 @@ function onQuickStartSettingsChange() {
   }
 }
 
+function onScraperEndpointChange() {
+  const val = document.getElementById('quickstart-scraper-url')?.value?.trim() || '';
+  if (window.LocalAI && window.LocalAI.setScraperEndpoint) {
+    window.LocalAI.setScraperEndpoint(val);
+  }
+}
+
 function setQuickStartStatus(msg, busy) {
   const s = document.getElementById('quickstart-status');
   if (!s) return;
@@ -202,7 +214,8 @@ async function onQuickStartAnalyze() {
     setQuickStartStatus(fetchLabel, true);
     const data = await client.analyzeCustomerURL(url, {
       onStatus: (phase) => {
-        if (phase === 'fetching') setQuickStartStatus(fetchLabel, true);
+        if (phase === 'anthropic_url_doc') setQuickStartStatus('Anthropic is fetching the site server-side + analyzing…', true);
+        else if (phase === 'fetching') setQuickStartStatus(fetchLabel, true);
         else if (phase === 'fallback_url_only') setQuickStartStatus('Site couldn\'t be scraped — Claude will use training knowledge instead…', true);
         else if (phase === 'analyzing') setQuickStartStatus('Claude is analyzing brand and generating content…', true);
       }
@@ -211,7 +224,10 @@ async function onQuickStartAnalyze() {
     applyAnalysis(data);
     const host = new URL(data._meta.source_url).hostname;
     const isUrlOnly = /url-only/.test(data._meta.mode || '');
-    if (isUrlOnly) {
+    const isAnthropicDoc = data._meta.mode === 'local-anthropic-url-doc';
+    if (isAnthropicDoc) {
+      setQuickStartStatus(`✓ Populated from ${host} via Anthropic URL-document fetch. Review each step and tweak.`, false);
+    } else if (isUrlOnly) {
       setQuickStartStatus(`✓ Populated for ${host} using Claude's brand knowledge (site couldn't be scraped). Review carefully — accuracy depends on how well-known the brand is.`, false);
     } else {
       const modeTag = data._meta.mode === 'local' ? 'local' : 'Page Host';

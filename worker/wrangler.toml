@@ -1,0 +1,16 @@
+# Cloudflare Worker config for the loyalty-portal scraper.
+# Deploy with:
+#   cd worker
+#   wrangler login          # opens browser once, signs in to your Cloudflare account
+#   wrangler deploy         # publishes; prints the live URL
+
+name = "loyalty-scraper"
+main = "scrape.js"
+
+# Modern Workers runtime — needed for AbortSignal.timeout, streams, etc.
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Free-tier friendly settings. No env vars, no bindings needed.
+[observability]
+enabled = true

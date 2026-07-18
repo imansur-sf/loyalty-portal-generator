@@ -231,7 +231,12 @@
 
               <button class="quickstart-settings-toggle" onclick="toggleQuickStartSettings()">Advanced</button>
               <div class="quickstart-settings" id="quickstart-settings">
-                <div>Upload ID (Page Host — only if auto-detection fails):</div>
+                <div style="margin-bottom: 12px;">
+                  <div style="margin-bottom: 4px;">Scraper Endpoint (Cloudflare Worker URL — bypasses CORS proxy blocking):</div>
+                  <input type="text" id="quickstart-scraper-url" placeholder="https://loyalty-scraper.<subdomain>.workers.dev" oninput="onScraperEndpointChange()">
+                  <div style="font-size: 10px; color: rgba(255,255,255,0.50); margin-top: 4px; font-style: italic;">Deploy the worker in <code>worker/</code> — see worker/README.md.</div>
+                </div>
+                <div style="margin-bottom: 4px;">Upload ID (Page Host — only if auto-detection fails):</div>
                 <input type="text" id="quickstart-upload-id" placeholder="e.g. abc123-def456" oninput="onQuickStartSettingsChange()">
               </div>
             </div>
@@ -618,11 +623,11 @@
   </div>
 
   <!-- Scripts -->
-  <script src="./js/defaults.js?v=20260717h"></script>
-  <script src="./js/images.js?v=20260717h"></script>
-  <script src="./js/generator.js?v=20260717h"></script>
-  <script src="./js/pagehost.js?v=20260717h"></script>
-  <script src="./js/localai.js?v=20260717h"></script>
-  <script src="./js/app.js?v=20260717h"></script>
+  <script src="./js/defaults.js?v=20260717i"></script>
+  <script src="./js/images.js?v=20260717i"></script>
+  <script src="./js/generator.js?v=20260717i"></script>
+  <script src="./js/pagehost.js?v=20260717i"></script>
+  <script src="./js/localai.js?v=20260717i"></script>
+  <script src="./js/app.js?v=20260717i"></script>
 </body>
 </html>
