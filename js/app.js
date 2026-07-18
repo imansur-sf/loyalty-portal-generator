@@ -313,7 +313,7 @@ function renderPaletteButtons() {
   Object.keys(INDUSTRY_DEFAULTS).forEach(key => {
     const d = INDUSTRY_DEFAULTS[key];
     const btn = document.createElement('button');
-    btn.className = 'flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-blue-400 hover:bg-blue-50/50 transition-all text-xs font-600';
+    btn.className = 'palette-btn flex items-center gap-2 text-xs font-600 text-gray-700';
     btn.innerHTML = `
       <div class="flex gap-0.5">
         <div class="w-4 h-4 rounded-full" style="background:${d.colors.primary}"></div>

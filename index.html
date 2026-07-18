@@ -5,56 +5,141 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Loyalty Portal Generator</title>
   <script src="https://cdn.tailwindcss.com/3.4.16"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; }
+    /* ── Salesforce Brand Tokens (2026) ─────────────────────────── */
+    :root {
+      --sf-navy:    #001E5B;
+      --sf-blue:    #022AC0;
+      --sf-blue-m:  #066AFE;
+      --sf-blue-l:  #00B3FF;
+      --cloud-80:   #90D0FE;
+      --cloud-95:   #EAF5FE;
+      --grad-morning: linear-gradient(180deg, #90D0FE 0%, #EAF5FE 100%);
+      --grad-evening: linear-gradient(135deg, #001E5B 0%, #022AC0 45%, #066AFE 80%, #00B3FF 100%);
+      --off-white:  #EAF5FE;
+      --gray-100:   #F3F3F3;
+      --gray-200:   #E5E5E5;
+      --gray-500:   #737479;
+      --gray-700:   #444447;
+      --text:       #001E5B;
+      --body:       #181818;
+      --muted:      #5A5C61;
+      --font-display: 'Avant Garde For Salesforce', 'Inter', system-ui, -apple-system, sans-serif;
+      --font-body:    'Salesforce Sans', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      --shadow-card:  0 2px 8px -2px rgba(0,30,91,0.06), 0 8px 20px -4px rgba(0,30,91,0.08);
+      --shadow-hover: 0 4px 12px -2px rgba(0,30,91,0.10), 0 14px 30px -6px rgba(0,30,91,0.15);
+    }
+
+    body { font-family: var(--font-body); color: var(--body); -webkit-font-smoothing: antialiased; background: linear-gradient(180deg, #F7FAFF 0%, #EEF4FC 100%); }
+    h1, h2, h3, h4, h5 { font-family: var(--font-display); letter-spacing: -0.01em; color: var(--text); }
+
+    /* ── App shell ─────────────────────────────────────────────── */
+    .app-topbar { background: var(--grad-evening); color: #fff; border-bottom: none; box-shadow: 0 4px 16px -4px rgba(0,30,91,0.25); }
+    .app-topbar h1 { color: #fff; }
+    .app-logo-mark { background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.25); backdrop-filter: blur(4px); }
+    .btn-topbar { background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.25); color: #fff; transition: background 0.2s ease, border-color 0.2s ease; }
+    .btn-topbar:hover { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.4); }
+
+    /* ── Stepper ───────────────────────────────────────────────── */
+    .stepper-shell { background: #fff; border-bottom: 1px solid rgba(0,30,91,0.08); }
+    .step-dot { background-color: #F3F3F3; color: var(--muted); font-weight: 600; border: 1.5px solid transparent; transition: all 0.2s ease; }
+    .step-dot:hover { border-color: var(--cloud-80); }
+    .step-dot.active { background-color: var(--sf-blue); color: white; border-color: var(--sf-blue); box-shadow: 0 0 0 4px rgba(2,42,192,0.15); }
+    .step-dot.completed { background-color: var(--sf-blue-l); color: var(--sf-navy); border-color: var(--sf-blue-l); }
+    .step-dot.completed::after { content: '✓'; }
+    .step-connector { background: linear-gradient(90deg, var(--gray-200), var(--gray-200)); height: 2px; border-radius: 1px; }
+
+    /* ── Panels ────────────────────────────────────────────────── */
     .step-panel { display: none; }
     .step-panel.active { display: block; }
-    .step-dot.active { background-color: #2563eb; color: white; }
-    .step-dot.completed { background-color: #16a34a; color: white; }
-    .step-dot.completed::after { content: '✓'; }
-    .fade-in { animation: fadeIn 0.3s ease-in; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-    .preview-frame { border: 1px solid #e5e7eb; border-radius: 8px; background: white; }
-    input[type="color"] { -webkit-appearance: none; border: none; width: 40px; height: 40px; cursor: pointer; border-radius: 8px; padding: 0; }
+    .fade-in { animation: fadeIn 0.35s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    .wizard-card { background: #fff; border-radius: var(--radius-xl); border: 1px solid rgba(0,30,91,0.08); box-shadow: var(--shadow-card); }
+    .wizard-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--sf-blue); }
+    .wizard-title { font-size: 22px; font-weight: 600; color: var(--text); letter-spacing: -0.015em; }
+    .wizard-sub { color: var(--muted); font-size: 14px; }
+
+    /* ── Inputs ────────────────────────────────────────────────── */
+    input[type="text"], input[type="email"], input[type="number"], select, textarea {
+      transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+    }
+    input[type="text"]:focus, input[type="email"]:focus, input[type="number"]:focus, select:focus, textarea:focus {
+      outline: none !important;
+      border-color: var(--sf-blue-m) !important;
+      box-shadow: 0 0 0 3px rgba(6,106,254,0.15) !important;
+    }
+    input[type="color"] { -webkit-appearance: none; border: none; width: 42px; height: 42px; cursor: pointer; border-radius: 10px; padding: 0; background: transparent; }
     input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
-    input[type="color"]::-webkit-color-swatch { border: 2px solid #e5e7eb; border-radius: 6px; }
+    input[type="color"]::-webkit-color-swatch { border: 2px solid rgba(0,30,91,0.15); border-radius: 8px; }
+
+    /* ── Buttons ───────────────────────────────────────────────── */
+    .btn-primary-sf { background: var(--sf-blue); color: #fff; font-weight: 600; border-radius: 999px; padding: 10px 22px; transition: background 0.18s ease, transform 0.12s ease, box-shadow 0.2s ease; box-shadow: 0 2px 8px -2px rgba(2,42,192,0.35); }
+    .btn-primary-sf:hover { background: var(--sf-blue-m); transform: translateY(-1px); box-shadow: 0 6px 16px -4px rgba(6,106,254,0.45); }
+    .btn-primary-sf:active { transform: translateY(0); }
+    .btn-secondary-sf { background: #fff; color: var(--sf-blue); font-weight: 600; border: 1.5px solid var(--sf-blue); border-radius: 999px; padding: 10px 22px; transition: background 0.18s ease, color 0.18s ease; }
+    .btn-secondary-sf:hover { background: var(--cloud-95); }
+
+    /* ── Preview frame ─────────────────────────────────────────── */
+    .preview-shell { background: #fff; border-radius: var(--radius-xl); border: 1px solid rgba(0,30,91,0.08); box-shadow: var(--shadow-card); overflow: hidden; }
+    .preview-chrome { background: linear-gradient(180deg, #FAFCFF 0%, #F3F7FD 100%); border-bottom: 1px solid rgba(0,30,91,0.08); }
+    .preview-frame { border: 1px solid #e5e7eb; border-radius: 8px; background: white; }
+
+    /* ── Palette buttons (Step 2) ──────────────────────────────── */
+    .palette-btn { border: 1px solid rgba(0,30,91,0.10); background: #fff; border-radius: 10px; padding: 8px 14px; transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease; }
+    .palette-btn:hover { border-color: var(--sf-blue-m); background: var(--cloud-95); box-shadow: 0 2px 8px -2px rgba(2,42,192,0.15); }
+
+    /* ── Drop zones ────────────────────────────────────────────── */
+    .drop-zone-sf { border: 2px dashed rgba(0,30,91,0.20); background: #FAFCFF; border-radius: var(--radius-lg); transition: border-color 0.18s ease, background 0.18s ease; }
+    .drop-zone-sf:hover { border-color: var(--sf-blue-m); background: var(--cloud-95); }
+
+    /* ── Utility classes still relying on tailwind bg-*/text-* colours don't need remapping;
+         these overrides target only the wizard shell so the generated portal stays untouched. */
   </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="min-h-screen">
 
   <!-- TOP BAR -->
-  <div class="bg-white border-b border-gray-200 sticky top-0 z-50">
-    <div class="max-w-[1400px] mx-auto px-4 py-3 flex items-center justify-between">
+  <div class="app-topbar sticky top-0 z-50">
+    <div class="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+        <div class="app-logo-mark w-10 h-10 rounded-xl flex items-center justify-center">
           <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
         </div>
-        <h1 class="text-lg font-700 text-gray-900">Loyalty Portal Generator</h1>
+        <div>
+          <div class="text-[10px] font-700 tracking-[0.18em] uppercase text-white/70">Salesforce · Loyalty Suite</div>
+          <h1 class="text-base font-600 tracking-tight text-white">Loyalty Portal Generator</h1>
+        </div>
       </div>
       <div class="flex items-center gap-2">
-        <button onclick="startOver()" class="px-3 py-1.5 text-xs font-600 text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">Start Over</button>
+        <button onclick="startOver()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Start Over</button>
       </div>
     </div>
   </div>
 
   <!-- STEP INDICATORS -->
-  <div class="bg-white border-b border-gray-100">
-    <div class="max-w-[1400px] mx-auto px-4 py-3">
+  <div class="stepper-shell">
+    <div class="max-w-[1400px] mx-auto px-4 py-4">
       <div class="flex items-center justify-center gap-1" id="step-indicators">
-        <button onclick="goToStep(0)" class="step-dot active w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="0">1</button>
-        <div class="w-8 h-0.5 bg-gray-200"></div>
-        <button onclick="goToStep(1)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="1">2</button>
-        <div class="w-8 h-0.5 bg-gray-200"></div>
-        <button onclick="goToStep(2)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="2">3</button>
-        <div class="w-8 h-0.5 bg-gray-200"></div>
-        <button onclick="goToStep(3)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="3">4</button>
-        <div class="w-8 h-0.5 bg-gray-200"></div>
-        <button onclick="goToStep(4)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="4">5</button>
-        <div class="w-8 h-0.5 bg-gray-200"></div>
-        <button onclick="goToStep(5)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="5">6</button>
-        <div class="w-8 h-0.5 bg-gray-200"></div>
-        <button onclick="goToStep(6)" class="step-dot w-8 h-8 rounded-full text-xs font-700 flex items-center justify-center bg-gray-200 text-gray-500 transition-all hover:scale-110" data-step="6">7</button>
+        <button onclick="goToStep(0)" class="step-dot active w-9 h-9 rounded-full text-xs flex items-center justify-center transition-all hover:scale-105" data-step="0">1</button>
+        <div class="step-connector w-10"></div>
+        <button onclick="goToStep(1)" class="step-dot w-9 h-9 rounded-full text-xs flex items-center justify-center transition-all hover:scale-105" data-step="1">2</button>
+        <div class="step-connector w-10"></div>
+        <button onclick="goToStep(2)" class="step-dot w-9 h-9 rounded-full text-xs flex items-center justify-center transition-all hover:scale-105" data-step="2">3</button>
+        <div class="step-connector w-10"></div>
+        <button onclick="goToStep(3)" class="step-dot w-9 h-9 rounded-full text-xs flex items-center justify-center transition-all hover:scale-105" data-step="3">4</button>
+        <div class="step-connector w-10"></div>
+        <button onclick="goToStep(4)" class="step-dot w-9 h-9 rounded-full text-xs flex items-center justify-center transition-all hover:scale-105" data-step="4">5</button>
+        <div class="step-connector w-10"></div>
+        <button onclick="goToStep(5)" class="step-dot w-9 h-9 rounded-full text-xs flex items-center justify-center transition-all hover:scale-105" data-step="5">6</button>
+        <div class="step-connector w-10"></div>
+        <button onclick="goToStep(6)" class="step-dot w-9 h-9 rounded-full text-xs flex items-center justify-center transition-all hover:scale-105" data-step="6">7</button>
       </div>
     </div>
   </div>
@@ -68,9 +153,10 @@
 
         <!-- STEP 1: Brand & Identity -->
         <div class="step-panel active fade-in" data-step="0">
-          <div class="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 class="text-lg font-700 text-gray-900 mb-1">Step 1: Brand & Identity</h2>
-            <p class="text-sm text-gray-500 mb-5">Tell us about the customer's brand</p>
+          <div class="wizard-card p-7">
+            <div class="wizard-eyebrow mb-2">Step 1 of 7</div>
+            <h2 class="wizard-title mb-1">Brand & Identity</h2>
+            <p class="wizard-sub mb-6">Tell us about the customer's brand — the name, industry, and logo shape every downstream default.</p>
 
             <div class="space-y-4">
               <div>
@@ -98,7 +184,7 @@
 
               <div>
                 <label class="block text-sm font-600 text-gray-700 mb-1">Brand Logo</label>
-                <div id="drop-logo" class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all">
+                <div id="drop-logo" class="drop-zone-sf p-7 text-center cursor-pointer">
                   <img id="preview-logo" src="" class="hidden w-20 h-20 object-contain rounded mx-auto mb-2">
                   <p class="text-sm text-gray-500">📷 Drop image or click to upload</p>
                   <p class="text-xs text-gray-400 mt-1">PNG, JPG, SVG — or use URL below</p>
@@ -111,9 +197,10 @@
 
         <!-- STEP 2: Colors & Theme -->
         <div class="step-panel fade-in" data-step="1">
-          <div class="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 class="text-lg font-700 text-gray-900 mb-1">Step 2: Colors & Theme</h2>
-            <p class="text-sm text-gray-500 mb-5">Set the brand colors for the portal</p>
+          <div class="wizard-card p-7">
+            <div class="wizard-eyebrow mb-2">Step 2 of 7</div>
+            <h2 class="wizard-title mb-1">Colors & Theme</h2>
+            <p class="wizard-sub mb-6">Pick brand colors for the portal. Start from an industry palette, then fine-tune each token.</p>
 
             <div class="mb-4">
               <label class="block text-sm font-600 text-gray-700 mb-2">Quick Industry Palettes</label>
@@ -166,9 +253,10 @@
 
         <!-- STEP 3: Tiers & Member Profile -->
         <div class="step-panel fade-in" data-step="2">
-          <div class="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 class="text-lg font-700 text-gray-900 mb-1">Step 3: Tiers & Member Profile</h2>
-            <p class="text-sm text-gray-500 mb-5">Configure loyalty tiers and demo member</p>
+          <div class="wizard-card p-7">
+            <div class="wizard-eyebrow mb-2">Step 3 of 7</div>
+            <h2 class="wizard-title mb-1">Tiers & Member Profile</h2>
+            <p class="wizard-sub mb-6">Configure loyalty tiers and the demo member the preview will render with.</p>
 
             <h3 class="text-sm font-700 text-gray-800 mb-3">Loyalty Tiers</h3>
             <div class="space-y-3 mb-6">
@@ -203,7 +291,7 @@
 
             <div class="mt-4">
               <label class="block text-xs font-600 text-gray-600 mb-1">Profile Picture <span class="text-gray-400 font-500">(optional)</span></label>
-              <div id="drop-avatar" class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all">
+              <div id="drop-avatar" class="drop-zone-sf p-5 text-center cursor-pointer">
                 <img id="preview-avatar" src="" class="hidden w-16 h-16 object-cover rounded-full mx-auto mb-2 ring-2 ring-gray-200">
                 <p class="text-xs text-gray-500">📷 Drop image or click to upload</p>
                 <p class="text-[10px] text-gray-400 mt-1">Square images work best — or paste a URL below</p>
@@ -215,12 +303,15 @@
 
         <!-- STEP 4: Vouchers -->
         <div class="step-panel fade-in" data-step="3">
-          <div class="bg-white rounded-xl border border-gray-200 p-6">
+          <div class="wizard-card p-7">
             <div class="flex items-center justify-between mb-1">
-              <h2 class="text-lg font-700 text-gray-900">Step 4: Vouchers</h2>
+              <div>
+                <div class="wizard-eyebrow mb-2">Step 4 of 7</div>
+                <h2 class="wizard-title">Vouchers</h2>
+              </div>
               <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="toggle-vouchers" checked onchange="onToggleSection('vouchers')"><span class="font-600 text-gray-600">Include</span></label>
             </div>
-            <p class="text-sm text-gray-500 mb-4">Add reward vouchers members can redeem</p>
+            <p class="wizard-sub mb-5">Add reward vouchers members can redeem.</p>
             <button onclick="autoGenerate('vouchers')" class="mb-4 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-600 rounded-lg hover:bg-blue-100 transition-colors">⚡ Auto-generate from industry</button>
             <div id="vouchers-container" class="space-y-4"></div>
             <button onclick="addVoucher()" class="mt-3 px-4 py-2 border border-dashed border-gray-300 text-gray-500 text-xs font-600 rounded-lg hover:border-blue-400 hover:text-blue-600 w-full">+ Add Voucher</button>
@@ -229,12 +320,15 @@
 
         <!-- STEP 5: Offers, Badges & Clubs -->
         <div class="step-panel fade-in" data-step="4">
-          <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+          <div class="wizard-card p-7 space-y-6">
             <div>
               <div class="flex items-center justify-between mb-1">
-                <h2 class="text-lg font-700 text-gray-900">Step 5: Offers, Badges & Clubs</h2>
+                <div>
+                  <div class="wizard-eyebrow mb-2">Step 5 of 7</div>
+                  <h2 class="wizard-title">Offers, Badges & Clubs</h2>
+                </div>
               </div>
-              <p class="text-sm text-gray-500 mb-4">Configure promotions, achievement badges, and social clubs</p>
+              <p class="wizard-sub mb-5">Configure promotions, achievement badges, and social clubs.</p>
             </div>
 
             <!-- Offers -->
@@ -274,10 +368,11 @@
 
         <!-- STEP 6: Earn More, Benefits & Upsell -->
         <div class="step-panel fade-in" data-step="5">
-          <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+          <div class="wizard-card p-7 space-y-6">
             <div>
-              <h2 class="text-lg font-700 text-gray-900 mb-1">Step 6: More Sections</h2>
-              <p class="text-sm text-gray-500 mb-4">Benefits, earn actions, profile tasks, upsell, and navigation</p>
+              <div class="wizard-eyebrow mb-2">Step 6 of 7</div>
+              <h2 class="wizard-title mb-1">More Sections</h2>
+              <p class="wizard-sub mb-5">Benefits, earn actions, profile tasks, upsell, and navigation.</p>
             </div>
 
             <!-- Benefits -->
@@ -341,16 +436,17 @@
 
         <!-- STEP 7: Preview & Export -->
         <div class="step-panel fade-in" data-step="6">
-          <div class="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 class="text-lg font-700 text-gray-900 mb-1">Step 7: Preview & Export</h2>
-            <p class="text-sm text-gray-500 mb-5">Review your portal and download the HTML file</p>
+          <div class="wizard-card p-7">
+            <div class="wizard-eyebrow mb-2">Step 7 of 7</div>
+            <h2 class="wizard-title mb-1">Preview & Export</h2>
+            <p class="wizard-sub mb-6">Review your portal and download the HTML — it's fully self-contained.</p>
 
             <div class="flex gap-3 mb-4">
-              <button onclick="downloadHTML()" class="flex-1 py-3 bg-blue-600 text-white text-sm font-700 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+              <button onclick="downloadHTML()" class="btn-primary-sf flex-1 py-3 text-sm flex items-center justify-center gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                 Download HTML
               </button>
-              <button onclick="copyHTML()" class="flex-1 py-3 bg-gray-800 text-white text-sm font-700 rounded-lg hover:bg-gray-900 transition-colors flex items-center justify-center gap-2">
+              <button onclick="copyHTML()" class="btn-secondary-sf flex-1 py-3 text-sm flex items-center justify-center gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                 Copy HTML
               </button>
@@ -363,23 +459,23 @@
         </div>
 
         <!-- NAVIGATION BUTTONS -->
-        <div class="flex items-center justify-between mt-4">
-          <button id="btn-prev" onclick="prevStep()" class="px-6 py-2.5 border border-gray-300 text-gray-600 text-sm font-600 rounded-lg hover:bg-gray-50 transition-colors hidden">← Back</button>
+        <div class="flex items-center justify-between mt-5">
+          <button id="btn-prev" onclick="prevStep()" class="btn-secondary-sf text-sm hidden">← Back</button>
           <div class="flex-1"></div>
-          <button id="btn-next" onclick="nextStep()" class="px-6 py-2.5 bg-blue-600 text-white text-sm font-600 rounded-lg hover:bg-blue-700 transition-colors">Next →</button>
+          <button id="btn-next" onclick="nextStep()" class="btn-primary-sf text-sm">Next →</button>
         </div>
       </div>
 
       <!-- RIGHT: LIVE PREVIEW -->
       <div class="hidden lg:block flex-1 sticky top-28 self-start" id="preview-col">
-        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div class="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center gap-2">
+        <div class="preview-shell">
+          <div class="preview-chrome px-4 py-2.5 flex items-center gap-2">
             <div class="w-3 h-3 rounded-full bg-red-400"></div>
             <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
             <div class="w-3 h-3 rounded-full bg-green-400"></div>
-            <span class="text-xs text-gray-400 ml-2">Live Preview</span>
+            <span class="text-[11px] font-600 text-gray-500 ml-2 tracking-wider uppercase">Live Preview</span>
           </div>
-          <iframe id="preview-iframe" class="w-full bg-white" style="height: calc(100vh - 180px);" sandbox="allow-scripts"></iframe>
+          <iframe id="preview-iframe" class="w-full bg-white" style="height: calc(100vh - 200px);" sandbox="allow-scripts"></iframe>
         </div>
       </div>
 
@@ -387,9 +483,9 @@
   </div>
 
   <!-- Scripts -->
-  <script src="js/defaults.js"></script>
-  <script src="js/images.js"></script>
-  <script src="js/generator.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/defaults.js?v=20260717b"></script>
+  <script src="js/images.js?v=20260717b"></script>
+  <script src="js/generator.js?v=20260717b"></script>
+  <script src="js/app.js?v=20260717b"></script>
 </body>
 </html>
