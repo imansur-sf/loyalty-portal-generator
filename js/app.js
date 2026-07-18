@@ -57,23 +57,45 @@ document.addEventListener('DOMContentLoaded', () => {
   initQuickStart();
 });
 
-// ---- QUICK START (Page Host AI URL analysis) ----
+// ---- QUICK START (AI URL analysis) ----
+// Two modes:
+//   Page Host mode — window.__PROXY_TOKEN__ present, uses tile's AI + proxy
+//   Local mode     — BYOK Anthropic key + public CORS proxy for scraping
+// Auto-detected on load.
+function detectQuickStartMode() {
+  if (window.PageHost && window.PageHost.isAvailable()) return 'pagehost';
+  return 'local';
+}
+
 function initQuickStart() {
   const panel = document.getElementById('quickstart-panel');
   const note = document.getElementById('quickstart-note');
-  const btn = document.getElementById('quickstart-btn');
+  const badge = document.getElementById('quickstart-mode-badge');
+  const byokPanel = document.getElementById('quickstart-byok');
+  const keyInput = document.getElementById('quickstart-api-key');
   const input = document.getElementById('quickstart-url');
   const settingsInput = document.getElementById('quickstart-upload-id');
   if (!panel) return;
 
   // Pre-fill manual override input from localStorage if present
-  const stored = localStorage.getItem('pagehost_upload_id');
-  if (stored && settingsInput) settingsInput.value = stored;
+  const storedUploadId = localStorage.getItem('pagehost_upload_id');
+  if (storedUploadId && settingsInput) settingsInput.value = storedUploadId;
 
-  const available = window.PageHost && window.PageHost.isAvailable();
-  if (!available) {
-    if (note) note.style.display = 'block';
-    // Leave input+button active — user may set upload ID manually and try
+  // Pre-fill masked API key indicator if a key is stored (don't reveal it)
+  if (window.LocalAI && window.LocalAI.hasKey() && keyInput) {
+    keyInput.placeholder = 'sk-ant-…' + window.LocalAI.getApiKey().slice(-4).padStart(8, '•');
+  }
+
+  const mode = detectQuickStartMode();
+
+  if (mode === 'pagehost') {
+    if (badge) { badge.textContent = '⚡ Page Host mode · using tile AI'; badge.classList.remove('local'); }
+    if (note) { note.style.display = 'block'; note.innerHTML = 'Running on Page Host — Claude and the CORS proxy are handled by the platform.'; }
+    if (byokPanel) byokPanel.style.display = 'none';
+  } else {
+    if (badge) { badge.textContent = '💻 Local mode · bring your own key'; badge.classList.add('local'); }
+    if (note) { note.style.display = 'block'; note.innerHTML = 'Not on Page Host — using your own Anthropic key + a public CORS proxy for scraping. Fully functional for any customer URL.'; }
+    if (byokPanel) byokPanel.style.display = 'block';
   }
 
   if (input) {
@@ -81,6 +103,23 @@ function initQuickStart() {
       if (e.key === 'Enter') { e.preventDefault(); onQuickStartAnalyze(); }
     });
   }
+}
+
+function onLocalAIKeyChange() {
+  const val = document.getElementById('quickstart-api-key')?.value || '';
+  if (window.LocalAI && val.trim()) window.LocalAI.setApiKey(val.trim());
+  // Clear any lingering "missing key" error surface as soon as they type
+  const errEl = document.getElementById('quickstart-error');
+  if (errEl && /API key/.test(errEl.textContent)) {
+    errEl.style.display = 'none';
+    errEl.textContent = '';
+  }
+}
+
+function clearLocalAIKey() {
+  if (window.LocalAI) window.LocalAI.setApiKey('');
+  const el = document.getElementById('quickstart-api-key');
+  if (el) { el.value = ''; el.placeholder = 'sk-ant-…'; }
 }
 
 function toggleQuickStartSettings() {
@@ -120,26 +159,39 @@ async function onQuickStartAnalyze() {
     setQuickStartError('Enter a customer URL to analyze.');
     return;
   }
-  if (!window.PageHost) {
+
+  const mode = detectQuickStartMode();
+  const client = mode === 'pagehost' ? window.PageHost : window.LocalAI;
+  if (!client) {
     setQuickStartError('AI client not loaded.');
+    return;
+  }
+
+  // Local mode needs a key before we even try
+  if (mode === 'local' && !window.LocalAI.hasKey()) {
+    setQuickStartError('Paste your Anthropic API key below to enable AI analysis.');
     return;
   }
 
   btn.disabled = true;
   try {
-    setQuickStartStatus('Fetching customer site…', true);
-    const data = await window.PageHost.analyzeCustomerURL(url, {
+    const fetchLabel = mode === 'pagehost'
+      ? 'Fetching customer site via Page Host proxy…'
+      : 'Fetching customer site via CORS proxy…';
+    setQuickStartStatus(fetchLabel, true);
+    const data = await client.analyzeCustomerURL(url, {
       onStatus: (phase) => {
-        if (phase === 'fetching') setQuickStartStatus('Fetching customer site…', true);
+        if (phase === 'fetching') setQuickStartStatus(fetchLabel, true);
         else if (phase === 'analyzing') setQuickStartStatus('Claude is analyzing brand and generating content…', true);
       }
     });
     setQuickStartStatus('Populating wizard…', true);
     applyAnalysis(data);
-    setQuickStartStatus(`✓ Populated from ${new URL(data._meta.source_url).hostname}. Review each step and tweak as needed.`, false);
+    const modeTag = data._meta.mode === 'local' ? 'local' : 'Page Host';
+    setQuickStartStatus(`✓ Populated from ${new URL(data._meta.source_url).hostname} (${modeTag}). Review each step and tweak.`, false);
   } catch (err) {
     console.error('[QuickStart] analyze failed:', err);
-    const msg = window.PageHost.humanErrorMessage(err);
+    const msg = client.humanErrorMessage(err);
     setQuickStartError(msg);
     setQuickStartStatus('', false);
   } finally {

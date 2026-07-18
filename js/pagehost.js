@@ -360,6 +360,16 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     proxyFetch,
     callLLM,
     analyzeCustomerURL,
-    humanErrorMessage
+    humanErrorMessage,
+    // Shared building blocks — used by localai.js so we don't duplicate
+    // the prompt / HTML extraction / JSON parsing logic in two places.
+    _analysis: {
+      SYSTEM_PROMPT,
+      extractCoreHTML,
+      buildUserPrompt,
+      parseAIResponseText,
+      normalizeURL,
+      pageHostError
+    }
   };
 })();

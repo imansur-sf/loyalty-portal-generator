@@ -128,6 +128,16 @@
     .quickstart-settings input { background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.20); color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; width: 100%; margin-top: 4px; }
     .quickstart-settings-toggle { background: none; border: none; color: rgba(255,255,255,0.60); font-size: 11px; cursor: pointer; text-decoration: underline; padding: 0; margin-top: 8px; }
     .quickstart-settings-toggle:hover { color: rgba(255,255,255,0.90); }
+    .quickstart-mode-badge { display: inline-block; margin-top: 10px; padding: 3px 10px; border-radius: 999px; background: rgba(0,179,255,0.15); color: var(--sf-blue-l); border: 1px solid rgba(0,179,255,0.35); font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+    .quickstart-mode-badge.local { background: rgba(255,255,255,0.10); color: #fff; border-color: rgba(255,255,255,0.30); }
+    .quickstart-byok { margin-top: 12px; padding: 12px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; }
+    .quickstart-byok-label { display: block; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.85); margin-bottom: 6px; letter-spacing: 0.02em; }
+    .quickstart-byok-hint { font-weight: 400; color: rgba(255,255,255,0.55); font-style: italic; }
+    .quickstart-byok-row { display: flex; gap: 6px; }
+    .quickstart-byok-row input { flex: 1; background: rgba(0,0,0,0.20); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 8px 12px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; outline: none; transition: border-color 0.18s ease, background 0.18s ease; }
+    .quickstart-byok-row input:focus { border-color: rgba(0,179,255,0.6); background: rgba(0,0,0,0.30); }
+    .quickstart-byok-clear { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: rgba(255,255,255,0.75); padding: 6px 12px; border-radius: 8px; font-size: 11px; cursor: pointer; transition: background 0.18s ease; }
+    .quickstart-byok-clear:hover { background: rgba(255,255,255,0.15); color: #fff; }
 
     /* ── Utility classes still relying on tailwind bg-*/text-* colours don't need remapping;
          these overrides target only the wizard shell so the generated portal stays untouched. */
@@ -195,10 +205,21 @@
               </div>
               <div class="quickstart-status" id="quickstart-status"></div>
               <div class="quickstart-error" id="quickstart-error" style="display:none;"></div>
-              <div id="quickstart-note" class="quickstart-note" style="display:none;">🔒 This feature runs on Page Host with the AI + proxy connection configured. You can still fill out the wizard by hand.</div>
-              <button class="quickstart-settings-toggle" onclick="toggleQuickStartSettings()">Advanced · manual override</button>
+              <div id="quickstart-mode-badge" class="quickstart-mode-badge">Detecting mode…</div>
+              <div id="quickstart-note" class="quickstart-note" style="display:none;"></div>
+
+              <!-- BYOK panel (shown when NOT on Page Host) -->
+              <div id="quickstart-byok" class="quickstart-byok" style="display:none;">
+                <label class="quickstart-byok-label">Anthropic API Key <span class="quickstart-byok-hint">— stored in this browser only, sent only to api.anthropic.com</span></label>
+                <div class="quickstart-byok-row">
+                  <input type="password" id="quickstart-api-key" placeholder="sk-ant-…" spellcheck="false" autocomplete="off" oninput="onLocalAIKeyChange()">
+                  <button class="quickstart-byok-clear" onclick="clearLocalAIKey()" title="Clear stored key">Clear</button>
+                </div>
+              </div>
+
+              <button class="quickstart-settings-toggle" onclick="toggleQuickStartSettings()">Advanced</button>
               <div class="quickstart-settings" id="quickstart-settings">
-                <div>Upload ID (only if auto-detection fails):</div>
+                <div>Upload ID (Page Host — only if auto-detection fails):</div>
                 <input type="text" id="quickstart-upload-id" placeholder="e.g. abc123-def456" oninput="onQuickStartSettingsChange()">
               </div>
             </div>
@@ -534,10 +555,11 @@
   </div>
 
   <!-- Scripts -->
-  <script src="./js/defaults.js?v=20260717c"></script>
-  <script src="./js/images.js?v=20260717c"></script>
-  <script src="./js/generator.js?v=20260717c"></script>
-  <script src="./js/pagehost.js?v=20260717c"></script>
-  <script src="./js/app.js?v=20260717c"></script>
+  <script src="./js/defaults.js?v=20260717d"></script>
+  <script src="./js/images.js?v=20260717d"></script>
+  <script src="./js/generator.js?v=20260717d"></script>
+  <script src="./js/pagehost.js?v=20260717d"></script>
+  <script src="./js/localai.js?v=20260717d"></script>
+  <script src="./js/app.js?v=20260717d"></script>
 </body>
 </html>
