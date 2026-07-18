@@ -30,8 +30,9 @@
   };
   const DEFAULT_MODEL = TIER_MODELS.balanced;
 
-  // Corsproxy.io returns the raw body; allorigins.win returns JSON with .contents.
-  // Try corsproxy first (simpler), fall back to allorigins.
+  // Public CORS proxies, tried in order. Corporate networks often block
+  // arbitrary third-party proxies as security policy — hence multiple
+  // fallbacks + a final URL-only mode if all of them fail.
   const CORS_PROXIES = [
     {
       name: 'corsproxy.io',
@@ -45,6 +46,16 @@
         const data = await res.json();
         return data && data.contents ? data.contents : '';
       }
+    },
+    {
+      name: 'codetabs',
+      wrap: (url) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
+      unwrap: async (res) => await res.text()
+    },
+    {
+      name: 'thingproxy',
+      wrap: (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
+      unwrap: async (res) => await res.text()
     }
   ];
 
@@ -144,10 +155,28 @@
     if (!hasKey()) throw localError('missing_api_key');
 
     const onStatus = opts.onStatus || (() => {});
+    let scraped = null;
+    let fallbackReason = null;
 
-    onStatus('fetching');
-    const html = await scrapeViaCorsProxy(url);
-    const scraped = shared.extractCoreHTML(html, url);
+    // Try to scrape unless caller explicitly disabled it
+    if (opts.skipScraping) {
+      fallbackReason = 'skipped';
+    } else {
+      onStatus('fetching');
+      try {
+        const html = await scrapeViaCorsProxy(url);
+        scraped = shared.extractCoreHTML(html, url);
+      } catch (scrapeErr) {
+        // All proxies failed (or corp firewall blocks them). Instead of hard-failing,
+        // fall back to URL-only analysis — Claude uses training knowledge.
+        console.warn('[LocalAI] scraping failed, falling back to URL-only:', scrapeErr.code || scrapeErr.message);
+        fallbackReason = scrapeErr.code || 'scrape_failed';
+        onStatus('fallback_url_only');
+      }
+    }
+
+    // In URL-only mode we still hand Claude the URL so prompts work
+    if (!scraped) scraped = { url, title: '', bodyText: '', headings: '', favicon: '', ogImage: '', navLinkCandidates: [] };
 
     onStatus('analyzing');
     const { text, model_used } = await callAnthropic({
@@ -164,7 +193,8 @@
       og_image: scraped.ogImage,
       model_used,
       tier: opts.tier || 'balanced',
-      mode: 'local'
+      mode: fallbackReason ? 'local-url-only' : 'local',
+      fallback_reason: fallbackReason
     };
     return parsed;
   }

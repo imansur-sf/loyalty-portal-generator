@@ -182,13 +182,20 @@ async function onQuickStartAnalyze() {
     const data = await client.analyzeCustomerURL(url, {
       onStatus: (phase) => {
         if (phase === 'fetching') setQuickStartStatus(fetchLabel, true);
+        else if (phase === 'fallback_url_only') setQuickStartStatus('Site couldn\'t be scraped — Claude will use training knowledge instead…', true);
         else if (phase === 'analyzing') setQuickStartStatus('Claude is analyzing brand and generating content…', true);
       }
     });
     setQuickStartStatus('Populating wizard…', true);
     applyAnalysis(data);
-    const modeTag = data._meta.mode === 'local' ? 'local' : 'Page Host';
-    setQuickStartStatus(`✓ Populated from ${new URL(data._meta.source_url).hostname} (${modeTag}). Review each step and tweak.`, false);
+    const host = new URL(data._meta.source_url).hostname;
+    const isUrlOnly = /url-only/.test(data._meta.mode || '');
+    if (isUrlOnly) {
+      setQuickStartStatus(`✓ Populated for ${host} using Claude's brand knowledge (site couldn't be scraped). Review carefully — accuracy depends on how well-known the brand is.`, false);
+    } else {
+      const modeTag = data._meta.mode === 'local' ? 'local' : 'Page Host';
+      setQuickStartStatus(`✓ Populated from ${host} (${modeTag}, live site). Review each step and tweak.`, false);
+    }
   } catch (err) {
     console.error('[QuickStart] analyze failed:', err);
     const msg = client.humanErrorMessage(err);

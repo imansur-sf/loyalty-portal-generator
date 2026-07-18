@@ -217,7 +217,21 @@ Guidelines:
 - Emoji use: single emoji per item, tasteful, category-appropriate.`;
 
   function buildUserPrompt(scraped) {
-    const nav = scraped.navLinkCandidates.length
+    // URL-only mode: no scraped content, only the URL.
+    if (!scraped || (!scraped.title && !scraped.bodyText && !scraped.headings)) {
+      const urlOnly = (scraped && scraped.url) || '';
+      return `Customer URL: ${urlOnly}
+
+⚠️ Note: I could not scrape the site's HTML directly (network policy blocks third-party CORS proxies in this environment). Please rely on your training knowledge of this brand to generate the loyalty portal content.
+
+- If you recognize the brand from the URL, use everything you know about it: their industry, real service/product names, brand colors (approximate from memory), audience, tone.
+- If you don't recognize it, infer industry from the domain name and TLD (e.g., ".org" often nonprofit/association, ".gov" government, keywords like "wash" → carwash, "clinic" → healthcare). Generate reasonable, on-brand-sounding content.
+- Do NOT hedge or say "I don't have access" — just do your best.
+
+Now return the JSON per the schema. Return ONLY the JSON.`;
+    }
+
+    const nav = scraped.navLinkCandidates && scraped.navLinkCandidates.length
       ? `\nVisible nav links: ${scraped.navLinkCandidates.join(' · ')}`
       : '';
     return `Customer URL: ${scraped.url}
@@ -268,10 +282,26 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     if (!url) throw pageHostError('invalid_url');
 
     const onStatus = opts.onStatus || (() => {});
-    onStatus('fetching');
+    let scraped = null;
+    let fallbackReason = null;
 
-    const html = await proxyFetch(url);
-    const scraped = extractCoreHTML(html, url);
+    if (opts.skipScraping) {
+      fallbackReason = 'skipped';
+    } else {
+      onStatus('fetching');
+      try {
+        const html = await proxyFetch(url);
+        scraped = extractCoreHTML(html, url);
+      } catch (scrapeErr) {
+        // Domain not allowlisted, timeout, etc — fall back to URL-only so the
+        // demo isn't blocked. Claude uses training knowledge.
+        console.warn('[PageHost] scraping failed, falling back to URL-only:', scrapeErr.code || scrapeErr.message);
+        fallbackReason = scrapeErr.code || 'scrape_failed';
+        onStatus('fallback_url_only');
+      }
+    }
+
+    if (!scraped) scraped = { url, title: '', bodyText: '', headings: '', favicon: '', ogImage: '', navLinkCandidates: [] };
 
     onStatus('analyzing');
     const llmResp = await callLLM({
@@ -301,7 +331,9 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
       favicon: scraped.favicon,
       og_image: scraped.ogImage,
       model_used: llmResp.model_used,
-      tier: llmResp.tier || opts.tier || 'balanced'
+      tier: llmResp.tier || opts.tier || 'balanced',
+      mode: fallbackReason ? 'pagehost-url-only' : 'pagehost',
+      fallback_reason: fallbackReason
     };
 
     return parsed;
