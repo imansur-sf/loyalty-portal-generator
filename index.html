@@ -213,29 +213,27 @@
               <div id="quickstart-mode-badge" class="quickstart-mode-badge">Detecting mode…</div>
               <div id="quickstart-note" class="quickstart-note" style="display:none;"></div>
 
-              <!-- BYOK panel (shown when NOT on Page Host) -->
-              <div id="quickstart-byok" class="quickstart-byok" style="display:none;">
-                <label class="quickstart-byok-label">
-                  API Key
-                  <span id="quickstart-provider-tag" class="quickstart-provider-tag"></span>
-                  <span class="quickstart-byok-hint">— stored in this browser only</span>
-                </label>
-                <div class="quickstart-byok-row">
-                  <input type="password" id="quickstart-api-key" placeholder="sk-ant-… (Anthropic) or sk-… (Salesforce LLM Gateway)" spellcheck="false" autocomplete="off" oninput="onLocalAIKeyChange()">
-                  <button class="quickstart-byok-clear" onclick="clearLocalAIKey()" title="Clear stored key">Clear</button>
-                </div>
-                <div class="quickstart-byok-help">
-                  <strong>sk-ant-…</strong> → Anthropic direct API · <strong>sk-…</strong> → Salesforce LLM Gateway (requires VPN)
-                </div>
-              </div>
-
-              <button class="quickstart-settings-toggle" onclick="toggleQuickStartSettings()">Advanced</button>
+              <button class="quickstart-settings-toggle" onclick="toggleQuickStartSettings()">Advanced · use your own key or override endpoints</button>
               <div class="quickstart-settings" id="quickstart-settings">
-                <div style="margin-bottom: 12px;">
-                  <div style="margin-bottom: 4px;">Scraper Endpoint <span style="color: rgba(255,255,255,0.50); font-weight: 400;">(optional — override default)</span>:</div>
-                  <input type="text" id="quickstart-scraper-url" placeholder="Default: https://loyalty-scraper.imansur.workers.dev" oninput="onScraperEndpointChange()">
-                  <div style="font-size: 10px; color: rgba(255,255,255,0.50); margin-top: 4px; font-style: italic;">A default Cloudflare Worker is bundled — leave blank to use it. Deploy your own worker (see <code>worker/README.md</code>) and paste its URL here to route through your account.</div>
+                <!-- BYOK panel — optional override -->
+                <div style="margin-bottom: 14px;">
+                  <div style="margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+                    <span>Your API Key <span style="color: rgba(255,255,255,0.50); font-weight: 400;">(optional — leave blank to use the default backend)</span></span>
+                    <span id="quickstart-provider-tag" class="quickstart-provider-tag"></span>
+                  </div>
+                  <div class="quickstart-byok-row" style="display: flex; gap: 6px;">
+                    <input type="password" id="quickstart-api-key" placeholder="sk-ant-… (Anthropic) or sk-… (SF LLM Gateway)" spellcheck="false" autocomplete="off" oninput="onLocalAIKeyChange()">
+                    <button class="quickstart-byok-clear" onclick="clearLocalAIKey()" title="Clear stored key">Clear</button>
+                  </div>
+                  <div style="font-size: 10px; color: rgba(255,255,255,0.55); margin-top: 4px; line-height: 1.5;"><strong>sk-ant-…</strong> → Anthropic direct API · <strong>sk-…</strong> → Salesforce LLM Gateway (VPN). Key stays in this browser only.</div>
                 </div>
+
+                <div style="margin-bottom: 12px;">
+                  <div style="margin-bottom: 4px;">Scraper / Backend Endpoint <span style="color: rgba(255,255,255,0.50); font-weight: 400;">(optional — override default)</span>:</div>
+                  <input type="text" id="quickstart-scraper-url" placeholder="Default: https://loyalty-scraper.imansur.workers.dev" oninput="onScraperEndpointChange()">
+                  <div style="font-size: 10px; color: rgba(255,255,255,0.50); margin-top: 4px; font-style: italic;">Serves both scraping (<code>/scrape</code>) and the default LLM proxy (<code>/llm</code>). See <code>worker/README.md</code> to run your own.</div>
+                </div>
+
                 <div style="margin-bottom: 4px;">Upload ID (Page Host — only if auto-detection fails):</div>
                 <input type="text" id="quickstart-upload-id" placeholder="e.g. abc123-def456" oninput="onQuickStartSettingsChange()">
               </div>
@@ -623,11 +621,11 @@
   </div>
 
   <!-- Scripts -->
-  <script src="./js/defaults.js?v=20260718b"></script>
-  <script src="./js/images.js?v=20260718b"></script>
-  <script src="./js/generator.js?v=20260718b"></script>
-  <script src="./js/pagehost.js?v=20260718b"></script>
-  <script src="./js/localai.js?v=20260718b"></script>
-  <script src="./js/app.js?v=20260718b"></script>
+  <script src="./js/defaults.js?v=20260718c"></script>
+  <script src="./js/images.js?v=20260718c"></script>
+  <script src="./js/generator.js?v=20260718c"></script>
+  <script src="./js/pagehost.js?v=20260718c"></script>
+  <script src="./js/localai.js?v=20260718c"></script>
+  <script src="./js/app.js?v=20260718c"></script>
 </body>
 </html>

@@ -1,80 +1,114 @@
-# Cloudflare Worker — Loyalty Portal Scraper
+# Cloudflare Worker — Loyalty Portal Backend
 
-Server-side URL fetcher for the loyalty portal wizard's Quick Start feature. Fixes the CORS wall that blocks browser-side scraping on corporate networks.
+Two-endpoint Worker that powers the loyalty portal wizard:
+
+- `GET /scrape?url=<url>` — server-side URL fetcher (bypasses browser CORS + corporate proxy blocking)
+- `POST /llm` — LLM proxy that holds your Salesforce LLM Gateway key as a Worker secret, so users of the wizard don't need to bring their own key
+
+Plus a `GET /health` probe.
 
 ## Why this exists
 
-The wizard's Quick Start needs to fetch a customer's homepage HTML so the LLM can extract images, colors, and content. From a browser this can't be done directly — CORS blocks cross-origin fetches, and Salesforce's corporate firewall blocks public CORS proxies. This Worker sits in front and fetches the URL from Cloudflare's edge instead, then returns the HTML with permissive CORS headers so the browser can read it.
+The wizard's Quick Start feature needs to (1) fetch a customer's homepage HTML and (2) send it to an LLM. Doing either directly from the browser is blocked by CORS or requires the end user to have their own API key. This Worker moves both server-side so end users just visit the wizard and click Analyze — no configuration, no keys.
 
 ## One-time deploy
 
-Requires: a free [Cloudflare](https://dash.cloudflare.com/sign-up) account and `wrangler` (Cloudflare's CLI).
+Requires a free [Cloudflare](https://dash.cloudflare.com/sign-up) account and `wrangler` (Cloudflare's CLI).
 
 ```bash
 npm install -g wrangler
 
 cd worker
-wrangler login       # opens browser, sign in to your Cloudflare account (once)
-wrangler deploy      # publishes the worker
+wrangler login                          # opens browser, sign in (once)
+wrangler secret put SF_GATEWAY_KEY      # paste your SF LLM Gateway key
+wrangler deploy                          # publishes the worker
 ```
 
-On success `wrangler` prints something like:
+Wrangler prints something like:
 
 ```
-Published loyalty-scraper (0.85 sec)
+Published loyalty-scraper (0.85s)
   https://loyalty-scraper.<your-subdomain>.workers.dev
 ```
 
-Copy that URL — you'll paste it into the wizard's **Advanced → Scraper Endpoint** field.
+The wizard client already defaults to that URL for the account `imansur`. If you deploy under a different name, paste the URL into the wizard's Advanced → Scraper / Backend Endpoint field.
 
-## Verify it works
+## Verify
 
 ```bash
-curl 'https://loyalty-scraper.<your-subdomain>.workers.dev/health'
-# {"ok":true,"service":"loyalty-scraper","version":1}
+BASE=https://loyalty-scraper.<your-subdomain>.workers.dev
 
-curl -s 'https://loyalty-scraper.<your-subdomain>.workers.dev/scrape?url=https://example.com' | head -c 200
-# Should print the first bytes of example.com's HTML
+# Health — llm_configured should be true after `wrangler secret put`
+curl -s "$BASE/health"
+# → {"ok":true,"service":"loyalty-scraper","version":2,"endpoints":[...],"llm_configured":true}
+
+# Scrape
+curl -s "$BASE/scrape?url=https://example.com" | head -c 200
+
+# LLM (uses the server-held key)
+curl -s -X POST "$BASE/llm" \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"Say hi in exactly 3 words","tier":"fast","maxTokens":50}'
+# → {"text":"Hi to you.","model_used":"claude-3-5-sonnet-20241022","tier":"fast","usage":{...}}
 ```
 
-## Endpoint
+## Endpoint reference
 
-`GET /scrape?url=<encoded-url>` — returns the target URL's HTML as `text/html` with `Access-Control-Allow-Origin: *`.
+### `POST /llm`
 
-Also exposes `GET /health` → `{ok: true, ...}` for load-balancer probes.
-
-### Guardrails
-
-- **Timeout:** 15 seconds
-- **Body cap:** 3 MB (larger responses → 413)
-- **Content type:** text/* only (binaries → 415)
-- **SSRF blocklist:** private ranges (10/8, 172.16/12, 192.168/16), loopback (127/8, ::1), link-local (169.254/16, fe80::), cloud metadata (169.254.169.254, metadata.google.internal, `.internal`, `.local`)
-- **HTTP methods:** GET, OPTIONS only
-
-### Error shape
-
-Non-2xx responses are JSON with:
-
+Request body (JSON):
 ```json
-{ "error": "code", ...detail }
+{
+  "prompt":    "user message (required, ≤200_000 chars)",
+  "system":    "system prompt (optional, ≤20_000 chars)",
+  "tier":      "fast | balanced | powerful (default balanced)",
+  "model":     "explicit model id (optional; must be in allowlist)",
+  "maxTokens": 4000
+}
 ```
 
-Codes: `missing_url`, `invalid_url`, `bad_protocol`, `blocked_host`, `upstream_status`, `not_text`, `too_large`, `timeout`, `network_error`.
+Response:
+```json
+{ "text": "...", "model_used": "...", "tier": "...", "usage": {...} }
+```
 
-## Cost & limits
+Allowlisted models (others rejected to prevent abuse):
+- `claude-sonnet-4-5-20250929` (balanced/powerful default)
+- `claude-sonnet-4-20250514`
+- `claude-3-7-sonnet-20250219`
+- `claude-3-5-sonnet-20241022` (fast default)
+- `claude-3-5-sonnet-20240620-v1`
 
-Cloudflare Workers free tier: 100,000 requests/day, 10 ms CPU per request. This Worker uses <5 ms of CPU per request (the rest is waiting on the upstream fetch, which doesn't count against the CPU budget). Realistic monthly cost: **$0**.
+Error codes: `llm_not_configured` (503), `invalid_json`, `missing_prompt`, `prompt_too_long`, `system_too_long`, `rate_limited` (429), `gateway_bad_key`, `gateway_forbidden`, `gateway_model_not_found`, `gateway_rate_limited`, `gateway_unavailable`, `gateway_empty_response`, `gateway_failed`, `timeout`, `network_error`.
+
+### `GET /scrape?url=<encoded-url>`
+
+Returns the fetched HTML as `text/html` with permissive CORS.
+
+Guardrails:
+- 15s timeout, 3 MB body cap
+- SSRF blocklist (private IPs, loopback, link-local, cloud metadata, `.internal`/`.local`)
+- Only `http:`/`https:` protocols
+
+## Rate limiting
+
+**In-Worker per-IP:** 30 `/llm` requests per minute per IP. Casual abuse deterrent; strict enforcement needs Cloudflare Access or a paid rate-limiting rule.
+
+## Authentication options (in ascending order of robustness)
+
+Right now, anyone with the Worker URL can call `/llm` up to the rate limit. If that becomes an issue:
+
+1. **Add a shared secret header** — client sends `X-App-Token: <value>`, Worker rejects requests without it. Token is discoverable in the frontend JS but deters random scrapers. Add to Worker in ~5 lines.
+
+2. **Cloudflare Access + Salesforce SSO** — free feature. Sits in front of the Worker and requires `@salesforce.com` SSO before requests reach it. **Recommended for an SF-internal tool.** Configuration is entirely in the Cloudflare dashboard, no code changes.
 
 ## Rotating / rolling back
 
-- **Update:** re-run `wrangler deploy`. New version is live in seconds.
-- **Roll back:** `wrangler rollback` — reverts to the previous version.
-- **Disable:** `wrangler delete` — removes the worker entirely.
+- **Rotate key:** `wrangler secret put SF_GATEWAY_KEY` — enter new value.
+- **Re-deploy code:** `wrangler deploy`.
+- **Roll back to previous version:** `wrangler rollback`.
+- **Disable:** `wrangler delete` — removes the Worker entirely.
 
-## What if this endpoint gets abused?
+## Cost & limits
 
-Since anyone with the URL can hit it, in principle it can be used as an open proxy. In practice:
-- 100k req/day cap is generous but bounded — you can't rack up bills
-- SSRF guard blocks internal-network probing
-- 3 MB / 15s caps prevent egregious usage
-- If needed later, you can add a shared-secret header the client always sends and the Worker checks (`request.headers.get('x-scraper-secret')`), or restrict `Access-Control-Allow-Origin` to your specific GitHub Pages / Page Host origins.
+Cloudflare Workers free tier: 100k requests/day, 10 ms CPU per request. The scraper uses <5 ms CPU (waiting on upstream doesn't count). The `/llm` endpoint uses <2 ms CPU (waiting on the Gateway doesn't count). Realistic cost for demo-tool volume: **$0/month**.

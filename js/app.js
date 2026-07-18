@@ -96,11 +96,29 @@ function initQuickStart() {
   if (mode === 'pagehost') {
     if (badge) { badge.textContent = '⚡ Page Host mode · using tile AI'; badge.classList.remove('local'); }
     if (note) { note.style.display = 'block'; note.innerHTML = 'Running on Page Host — Claude and the CORS proxy are handled by the platform.'; }
-    if (byokPanel) byokPanel.style.display = 'none';
   } else {
-    if (badge) { badge.textContent = '💻 Local mode · bring your own key'; badge.classList.add('local'); }
-    if (note) { note.style.display = 'block'; note.innerHTML = 'Not on Page Host — using your own Anthropic key + a public CORS proxy for scraping. Fully functional for any customer URL.'; }
-    if (byokPanel) byokPanel.style.display = 'block';
+    // Local mode — badge label depends on whether user has provided their own key
+    const provider = window.LocalAI && window.LocalAI.currentProvider();
+    if (badge) {
+      badge.classList.add('local');
+      if (provider === 'default') {
+        badge.textContent = '🌐 AI ready · no key required';
+      } else if (provider === 'anthropic') {
+        badge.textContent = '🔑 Using your Anthropic key';
+      } else if (provider === 'sfgateway') {
+        badge.textContent = '🔑 Using your SF LLM Gateway key';
+      } else {
+        badge.textContent = '💻 Local mode';
+      }
+    }
+    if (note) {
+      note.style.display = 'block';
+      if (provider === 'default') {
+        note.innerHTML = 'Works out of the box — the tool routes through a shared backend that holds the LLM API key. To route through your own account instead, open Advanced and paste your key.';
+      } else {
+        note.innerHTML = 'Using your own API key from Advanced. Clear it to switch back to the default backend.';
+      }
+    }
   }
 
   if (input) {
@@ -137,7 +155,16 @@ function updateProviderTag() {
     tag.textContent = 'SF LLM Gateway';
     tag.classList.add('active', 'gateway');
   } else {
+    // 'default' — no BYOK key. Leave tag inactive.
     tag.textContent = '';
+  }
+  // Whenever the provider changes, re-render the main mode badge so its
+  // label reflects "default" vs "your key" state without a page reload.
+  const badge = document.getElementById('quickstart-mode-badge');
+  if (badge && detectQuickStartMode() === 'local') {
+    if (provider === 'default') badge.textContent = '🌐 AI ready · no key required';
+    else if (provider === 'anthropic') badge.textContent = '🔑 Using your Anthropic key';
+    else if (provider === 'sfgateway') badge.textContent = '🔑 Using your SF LLM Gateway key';
   }
 }
 
@@ -200,11 +227,8 @@ async function onQuickStartAnalyze() {
     return;
   }
 
-  // Local mode needs a key before we even try
-  if (mode === 'local' && !window.LocalAI.hasKey()) {
-    setQuickStartError('Paste your Anthropic API key below to enable AI analysis.');
-    return;
-  }
+  // BYOK is no longer required in local mode — the default backend
+  // (Worker /llm) covers everyone. Nothing to check here.
 
   btn.disabled = true;
   try {

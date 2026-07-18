@@ -219,29 +219,27 @@
               <div id="quickstart-mode-badge" class="quickstart-mode-badge">Detecting mode…</div>
               <div id="quickstart-note" class="quickstart-note" style="display:none;"></div>
 
-              <!-- BYOK panel (shown when NOT on Page Host) -->
-              <div id="quickstart-byok" class="quickstart-byok" style="display:none;">
-                <label class="quickstart-byok-label">
-                  API Key
-                  <span id="quickstart-provider-tag" class="quickstart-provider-tag"></span>
-                  <span class="quickstart-byok-hint">— stored in this browser only</span>
-                </label>
-                <div class="quickstart-byok-row">
-                  <input type="password" id="quickstart-api-key" placeholder="sk-ant-… (Anthropic) or sk-… (Salesforce LLM Gateway)" spellcheck="false" autocomplete="off" oninput="onLocalAIKeyChange()">
-                  <button class="quickstart-byok-clear" onclick="clearLocalAIKey()" title="Clear stored key">Clear</button>
-                </div>
-                <div class="quickstart-byok-help">
-                  <strong>sk-ant-…</strong> → Anthropic direct API · <strong>sk-…</strong> → Salesforce LLM Gateway (requires VPN)
-                </div>
-              </div>
-
-              <button class="quickstart-settings-toggle" onclick="toggleQuickStartSettings()">Advanced</button>
+              <button class="quickstart-settings-toggle" onclick="toggleQuickStartSettings()">Advanced · use your own key or override endpoints</button>
               <div class="quickstart-settings" id="quickstart-settings">
-                <div style="margin-bottom: 12px;">
-                  <div style="margin-bottom: 4px;">Scraper Endpoint <span style="color: rgba(255,255,255,0.50); font-weight: 400;">(optional — override default)</span>:</div>
-                  <input type="text" id="quickstart-scraper-url" placeholder="Default: https://loyalty-scraper.imansur.workers.dev" oninput="onScraperEndpointChange()">
-                  <div style="font-size: 10px; color: rgba(255,255,255,0.50); margin-top: 4px; font-style: italic;">A default Cloudflare Worker is bundled — leave blank to use it. Deploy your own worker (see <code>worker/README.md</code>) and paste its URL here to route through your account.</div>
+                <!-- BYOK panel — optional override -->
+                <div style="margin-bottom: 14px;">
+                  <div style="margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+                    <span>Your API Key <span style="color: rgba(255,255,255,0.50); font-weight: 400;">(optional — leave blank to use the default backend)</span></span>
+                    <span id="quickstart-provider-tag" class="quickstart-provider-tag"></span>
+                  </div>
+                  <div class="quickstart-byok-row" style="display: flex; gap: 6px;">
+                    <input type="password" id="quickstart-api-key" placeholder="sk-ant-… (Anthropic) or sk-… (SF LLM Gateway)" spellcheck="false" autocomplete="off" oninput="onLocalAIKeyChange()">
+                    <button class="quickstart-byok-clear" onclick="clearLocalAIKey()" title="Clear stored key">Clear</button>
+                  </div>
+                  <div style="font-size: 10px; color: rgba(255,255,255,0.55); margin-top: 4px; line-height: 1.5;"><strong>sk-ant-…</strong> → Anthropic direct API · <strong>sk-…</strong> → Salesforce LLM Gateway (VPN). Key stays in this browser only.</div>
                 </div>
+
+                <div style="margin-bottom: 12px;">
+                  <div style="margin-bottom: 4px;">Scraper / Backend Endpoint <span style="color: rgba(255,255,255,0.50); font-weight: 400;">(optional — override default)</span>:</div>
+                  <input type="text" id="quickstart-scraper-url" placeholder="Default: https://loyalty-scraper.imansur.workers.dev" oninput="onScraperEndpointChange()">
+                  <div style="font-size: 10px; color: rgba(255,255,255,0.50); margin-top: 4px; font-style: italic;">Serves both scraping (<code>/scrape</code>) and the default LLM proxy (<code>/llm</code>). See <code>worker/README.md</code> to run your own.</div>
+                </div>
+
                 <div style="margin-bottom: 4px;">Upload ID (Page Host — only if auto-detection fails):</div>
                 <input type="text" id="quickstart-upload-id" placeholder="e.g. abc123-def456" oninput="onQuickStartSettingsChange()">
               </div>
@@ -2454,11 +2452,13 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
   const DEFAULT_MODEL = TIER_MODELS_ANTHROPIC.balanced;
 
   // ---- PROVIDER DETECTION ----
+  // Three providers:
+  //   'anthropic' — BYOK, sk-ant-* key → api.anthropic.com direct
+  //   'sfgateway' — BYOK, any other sk- key → SF LLM Gateway direct
+  //   'default'   — no BYOK key → Worker's /llm endpoint (server-held key)
   function detectProvider(key) {
-    if (!key) return null;
-    // Anthropic direct keys are `sk-ant-...`
+    if (!key) return 'default';
     if (/^sk-ant-/i.test(key)) return 'anthropic';
-    // Anything else with sk- prefix (or otherwise) → SF Gateway
     return 'sfgateway';
   }
   function currentProvider() { return detectProvider(getApiKey()); }
@@ -2588,15 +2588,54 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
   }
 
   // ---- ROUTER ----
-  // Picks Anthropic-direct or SF Gateway based on key prefix. Same signature
-  // and same return shape either way so callers don't need to care.
+  // Picks the LLM path based on which key (if any) the user has pasted.
+  //   No key           → Worker /llm (SF Gateway key held server-side)  [default]
+  //   sk-ant-* key     → api.anthropic.com direct
+  //   any other sk-*   → SF LLM Gateway direct
+  // Same return shape from every path so callers don't care which was used.
   async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
     const provider = currentProvider();
-    if (!provider) throw localError('missing_api_key');
     if (provider === 'anthropic') {
       return callAnthropicDirect({ prompt, system, tier, model, maxTokens });
     }
-    return callSFGateway({ prompt, system, tier, model, maxTokens });
+    if (provider === 'sfgateway') {
+      return callSFGateway({ prompt, system, tier, model, maxTokens });
+    }
+    return callDefaultBackend({ prompt, system, tier, model, maxTokens });
+  }
+
+  // ---- DEFAULT BACKEND (Worker's /llm endpoint) ----
+  // Client doesn't hold a key. Worker holds SF_GATEWAY_KEY as a secret and
+  // proxies to the SF Gateway. No BYOK required for the typical user.
+  async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
+    const base = getScraperEndpoint(); // same Worker serves both /scrape and /llm
+    if (!base) throw localError('no_default_backend');
+
+    let res;
+    try {
+      res = await fetch(`${base}/llm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, system, tier, model, maxTokens })
+      });
+    } catch (err) {
+      throw localError('default_network', { endpoint: base, cause: err.message });
+    }
+
+    if (res.status === 429) throw localError('default_rate_limited');
+    if (res.status === 503) {
+      const body = await res.json().catch(() => ({}));
+      if (body.error === 'llm_not_configured') throw localError('default_not_configured');
+      throw localError('default_unavailable', { status: 503 });
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw localError('default_failed', { status: res.status, upstream: body.error, upstreamStatus: body.status });
+    }
+
+    const data = await res.json();
+    if (!data || !data.text) throw localError('default_empty_response');
+    return { text: data.text, model_used: data.model_used, usage: data.usage };
   }
 
   // ---- ANTHROPIC DIRECT ----
@@ -2713,7 +2752,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
   async function analyzeCustomerURL(rawUrl, opts = {}) {
     const url = shared.normalizeURL(rawUrl);
     if (!url) throw localError('invalid_url');
-    if (!hasKey()) throw localError('missing_api_key');
+    // BYOK is no longer required — default path uses the Worker /llm endpoint.
 
     const onStatus = opts.onStatus || (() => {});
     const provider = currentProvider();
@@ -2829,7 +2868,22 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
     const code = err.code || err.message;
     switch (code) {
       case 'missing_api_key':
-        return 'Paste an Anthropic key (sk-ant-…) or a Salesforce LLM Gateway key (sk-…) below to enable AI analysis. Your key stays in this browser.';
+        return 'This tool works without a key by default. If you\'d prefer to route through your own account, paste an Anthropic key (sk-ant-…) or an SF LLM Gateway key (sk-…) in Advanced.';
+      // Default backend (Worker /llm)
+      case 'no_default_backend':
+        return 'Default backend not reachable. Configure a Scraper Endpoint in Advanced or paste your own API key.';
+      case 'default_network':
+        return `Can't reach the default backend at ${err.endpoint}. Check your network, or paste your own key in Advanced.`;
+      case 'default_rate_limited':
+        return 'Rate limited (too many requests in a short window). Wait a minute and try again, or paste your own key in Advanced to bypass the shared limit.';
+      case 'default_not_configured':
+        return 'The default backend hasn\'t been set up with an LLM key yet. See worker/README.md for `wrangler secret put SF_GATEWAY_KEY`. Meanwhile, paste your own key in Advanced.';
+      case 'default_unavailable':
+        return `Default backend temporarily unavailable (status ${err.status}). Try again shortly.`;
+      case 'default_failed':
+        return `Default backend call failed (status ${err.status}${err.upstream ? ', upstream: ' + err.upstream : ''}). Try again, or paste your own key in Advanced.`;
+      case 'default_empty_response':
+        return 'Default backend returned no text. Retry — usually transient.';
       case 'invalid_url':
         return 'That URL doesn\'t look right. Try `https://example.com`.';
       // Anthropic direct
@@ -2904,6 +2958,7 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
     callLLM,
     callAnthropicDirect,
     callSFGateway,
+    callDefaultBackend,
     scrapeViaCorsProxy,
     analyzeCustomerURL,
     humanErrorMessage
@@ -3011,11 +3066,29 @@ function initQuickStart() {
   if (mode === 'pagehost') {
     if (badge) { badge.textContent = '⚡ Page Host mode · using tile AI'; badge.classList.remove('local'); }
     if (note) { note.style.display = 'block'; note.innerHTML = 'Running on Page Host — Claude and the CORS proxy are handled by the platform.'; }
-    if (byokPanel) byokPanel.style.display = 'none';
   } else {
-    if (badge) { badge.textContent = '💻 Local mode · bring your own key'; badge.classList.add('local'); }
-    if (note) { note.style.display = 'block'; note.innerHTML = 'Not on Page Host — using your own Anthropic key + a public CORS proxy for scraping. Fully functional for any customer URL.'; }
-    if (byokPanel) byokPanel.style.display = 'block';
+    // Local mode — badge label depends on whether user has provided their own key
+    const provider = window.LocalAI && window.LocalAI.currentProvider();
+    if (badge) {
+      badge.classList.add('local');
+      if (provider === 'default') {
+        badge.textContent = '🌐 AI ready · no key required';
+      } else if (provider === 'anthropic') {
+        badge.textContent = '🔑 Using your Anthropic key';
+      } else if (provider === 'sfgateway') {
+        badge.textContent = '🔑 Using your SF LLM Gateway key';
+      } else {
+        badge.textContent = '💻 Local mode';
+      }
+    }
+    if (note) {
+      note.style.display = 'block';
+      if (provider === 'default') {
+        note.innerHTML = 'Works out of the box — the tool routes through a shared backend that holds the LLM API key. To route through your own account instead, open Advanced and paste your key.';
+      } else {
+        note.innerHTML = 'Using your own API key from Advanced. Clear it to switch back to the default backend.';
+      }
+    }
   }
 
   if (input) {
@@ -3052,7 +3125,16 @@ function updateProviderTag() {
     tag.textContent = 'SF LLM Gateway';
     tag.classList.add('active', 'gateway');
   } else {
+    // 'default' — no BYOK key. Leave tag inactive.
     tag.textContent = '';
+  }
+  // Whenever the provider changes, re-render the main mode badge so its
+  // label reflects "default" vs "your key" state without a page reload.
+  const badge = document.getElementById('quickstart-mode-badge');
+  if (badge && detectQuickStartMode() === 'local') {
+    if (provider === 'default') badge.textContent = '🌐 AI ready · no key required';
+    else if (provider === 'anthropic') badge.textContent = '🔑 Using your Anthropic key';
+    else if (provider === 'sfgateway') badge.textContent = '🔑 Using your SF LLM Gateway key';
   }
 }
 
@@ -3115,11 +3197,8 @@ async function onQuickStartAnalyze() {
     return;
   }
 
-  // Local mode needs a key before we even try
-  if (mode === 'local' && !window.LocalAI.hasKey()) {
-    setQuickStartError('Paste your Anthropic API key below to enable AI analysis.');
-    return;
-  }
+  // BYOK is no longer required in local mode — the default backend
+  // (Worker /llm) covers everyone. Nothing to check here.
 
   btn.disabled = true;
   try {

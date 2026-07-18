@@ -46,11 +46,13 @@
   const DEFAULT_MODEL = TIER_MODELS_ANTHROPIC.balanced;
 
   // ---- PROVIDER DETECTION ----
+  // Three providers:
+  //   'anthropic' — BYOK, sk-ant-* key → api.anthropic.com direct
+  //   'sfgateway' — BYOK, any other sk- key → SF LLM Gateway direct
+  //   'default'   — no BYOK key → Worker's /llm endpoint (server-held key)
   function detectProvider(key) {
-    if (!key) return null;
-    // Anthropic direct keys are `sk-ant-...`
+    if (!key) return 'default';
     if (/^sk-ant-/i.test(key)) return 'anthropic';
-    // Anything else with sk- prefix (or otherwise) → SF Gateway
     return 'sfgateway';
   }
   function currentProvider() { return detectProvider(getApiKey()); }
@@ -180,15 +182,54 @@
   }
 
   // ---- ROUTER ----
-  // Picks Anthropic-direct or SF Gateway based on key prefix. Same signature
-  // and same return shape either way so callers don't need to care.
+  // Picks the LLM path based on which key (if any) the user has pasted.
+  //   No key           → Worker /llm (SF Gateway key held server-side)  [default]
+  //   sk-ant-* key     → api.anthropic.com direct
+  //   any other sk-*   → SF LLM Gateway direct
+  // Same return shape from every path so callers don't care which was used.
   async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
     const provider = currentProvider();
-    if (!provider) throw localError('missing_api_key');
     if (provider === 'anthropic') {
       return callAnthropicDirect({ prompt, system, tier, model, maxTokens });
     }
-    return callSFGateway({ prompt, system, tier, model, maxTokens });
+    if (provider === 'sfgateway') {
+      return callSFGateway({ prompt, system, tier, model, maxTokens });
+    }
+    return callDefaultBackend({ prompt, system, tier, model, maxTokens });
+  }
+
+  // ---- DEFAULT BACKEND (Worker's /llm endpoint) ----
+  // Client doesn't hold a key. Worker holds SF_GATEWAY_KEY as a secret and
+  // proxies to the SF Gateway. No BYOK required for the typical user.
+  async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
+    const base = getScraperEndpoint(); // same Worker serves both /scrape and /llm
+    if (!base) throw localError('no_default_backend');
+
+    let res;
+    try {
+      res = await fetch(`${base}/llm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, system, tier, model, maxTokens })
+      });
+    } catch (err) {
+      throw localError('default_network', { endpoint: base, cause: err.message });
+    }
+
+    if (res.status === 429) throw localError('default_rate_limited');
+    if (res.status === 503) {
+      const body = await res.json().catch(() => ({}));
+      if (body.error === 'llm_not_configured') throw localError('default_not_configured');
+      throw localError('default_unavailable', { status: 503 });
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw localError('default_failed', { status: res.status, upstream: body.error, upstreamStatus: body.status });
+    }
+
+    const data = await res.json();
+    if (!data || !data.text) throw localError('default_empty_response');
+    return { text: data.text, model_used: data.model_used, usage: data.usage };
   }
 
   // ---- ANTHROPIC DIRECT ----
@@ -305,7 +346,7 @@
   async function analyzeCustomerURL(rawUrl, opts = {}) {
     const url = shared.normalizeURL(rawUrl);
     if (!url) throw localError('invalid_url');
-    if (!hasKey()) throw localError('missing_api_key');
+    // BYOK is no longer required — default path uses the Worker /llm endpoint.
 
     const onStatus = opts.onStatus || (() => {});
     const provider = currentProvider();
@@ -421,7 +462,22 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
     const code = err.code || err.message;
     switch (code) {
       case 'missing_api_key':
-        return 'Paste an Anthropic key (sk-ant-…) or a Salesforce LLM Gateway key (sk-…) below to enable AI analysis. Your key stays in this browser.';
+        return 'This tool works without a key by default. If you\'d prefer to route through your own account, paste an Anthropic key (sk-ant-…) or an SF LLM Gateway key (sk-…) in Advanced.';
+      // Default backend (Worker /llm)
+      case 'no_default_backend':
+        return 'Default backend not reachable. Configure a Scraper Endpoint in Advanced or paste your own API key.';
+      case 'default_network':
+        return `Can't reach the default backend at ${err.endpoint}. Check your network, or paste your own key in Advanced.`;
+      case 'default_rate_limited':
+        return 'Rate limited (too many requests in a short window). Wait a minute and try again, or paste your own key in Advanced to bypass the shared limit.';
+      case 'default_not_configured':
+        return 'The default backend hasn\'t been set up with an LLM key yet. See worker/README.md for `wrangler secret put SF_GATEWAY_KEY`. Meanwhile, paste your own key in Advanced.';
+      case 'default_unavailable':
+        return `Default backend temporarily unavailable (status ${err.status}). Try again shortly.`;
+      case 'default_failed':
+        return `Default backend call failed (status ${err.status}${err.upstream ? ', upstream: ' + err.upstream : ''}). Try again, or paste your own key in Advanced.`;
+      case 'default_empty_response':
+        return 'Default backend returned no text. Retry — usually transient.';
       case 'invalid_url':
         return 'That URL doesn\'t look right. Try `https://example.com`.';
       // Anthropic direct
@@ -496,6 +552,7 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
     callLLM,
     callAnthropicDirect,
     callSFGateway,
+    callDefaultBackend,
     scrapeViaCorsProxy,
     analyzeCustomerURL,
     humanErrorMessage
