@@ -5,14 +5,15 @@
 // ---- STATE ----
 const state = {
   brand: { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' },
-  colors: { primary: '#2D3748', secondary: '#F7FAFC', accent: '#4299E1', dark: '#1A202C' },
+  colors: { primary: '#2D3748', secondary: '#F7FAFC', accent: '#4299E1', dark: '#1A202C', menu: '#2D3748' },
+  menuColorCustom: false,
   tiers: [
     { name: 'Basic', points: 0 },
     { name: 'Plus', points: 2000 },
     { name: 'Premium', points: 5000 }
   ],
   tierProgress: 30,
-  member: { name: 'Imran Mansur', number: '234567', points: 1200, email: '', phone: '', joinDate: '' },
+  member: { name: 'Imran Mansur', number: '234567', points: 1200, email: '', phone: '', joinDate: '', avatarUrl: '', avatarData: '' },
   sections: { vouchers: true, offers: true, badges: true, clubs: true, earnMore: true, profileTasks: true, upsell: true },
   vouchers: [],
   offers: [],
@@ -41,8 +42,14 @@ document.addEventListener('DOMContentLoaded', () => {
     else { state.brand.logoUrl = data; state.brand.logoData = ''; }
     schedulePreview();
   });
+  initImageUpload('drop-avatar', 'preview-avatar', 'url-avatar', (data) => {
+    if (data && data.startsWith('data:')) { state.member.avatarData = data; state.member.avatarUrl = ''; }
+    else { state.member.avatarUrl = data; state.member.avatarData = ''; }
+    schedulePreview();
+  });
   document.addEventListener('imageClear', (e) => {
     if (e.detail.id === 'logo') { state.brand.logoData = ''; state.brand.logoUrl = ''; schedulePreview(); }
+    if (e.detail.id === 'avatar') { state.member.avatarData = ''; state.member.avatarUrl = ''; schedulePreview(); }
   });
   updateStepIndicators();
   updateNavButtons();
@@ -53,6 +60,8 @@ document.addEventListener('DOMContentLoaded', () => {
 function applyIndustryDefaults(industry) {
   const d = getDefaults(industry);
   state.colors = { ...d.colors };
+  if (!state.colors.menu) state.colors.menu = state.colors.primary;
+  state.menuColorCustom = false;
   state.tiers = d.tiers.map(t => ({ ...t }));
   state.vouchers = d.vouchers.map(v => ({ ...v }));
   state.offers = d.offers.map(o => ({ ...o }));
@@ -81,6 +90,8 @@ function populateFormFromState() {
   setVal('hex-secondary', state.colors.secondary);
   setVal('color-dark', state.colors.dark);
   setVal('hex-dark', state.colors.dark);
+  setVal('color-menu', state.colors.menu || state.colors.primary);
+  setVal('hex-menu', state.colors.menu || state.colors.primary);
 
   // Tiers
   state.tiers.forEach((t, i) => {
@@ -166,14 +177,24 @@ function onIndustryChange() {
 }
 
 function onColorChange() {
+  const prevPrimary = state.colors.primary;
   state.colors.primary = getVal('color-primary');
   state.colors.accent = getVal('color-accent');
   state.colors.secondary = getVal('color-secondary');
   state.colors.dark = getVal('color-dark');
+  const newMenu = getVal('color-menu');
+  if (newMenu !== state.colors.menu) state.menuColorCustom = true;
+  state.colors.menu = newMenu;
+  // If menu was tracking primary, keep it in sync when primary changes
+  if (!state.menuColorCustom && state.colors.primary !== prevPrimary) {
+    state.colors.menu = state.colors.primary;
+    setVal('color-menu', state.colors.menu);
+  }
   setVal('hex-primary', state.colors.primary);
   setVal('hex-accent', state.colors.accent);
   setVal('hex-secondary', state.colors.secondary);
   setVal('hex-dark', state.colors.dark);
+  setVal('hex-menu', state.colors.menu);
   schedulePreview();
 }
 
@@ -181,10 +202,25 @@ function onHexChange(which) {
   let hex = getVal('hex-' + which).trim();
   if (!hex.startsWith('#')) hex = '#' + hex;
   if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    if (which === 'menu') state.menuColorCustom = true;
+    const prevPrimary = state.colors.primary;
     state.colors[which] = hex;
     setVal('color-' + which, hex);
+    if (which === 'primary' && !state.menuColorCustom) {
+      state.colors.menu = hex;
+      setVal('color-menu', hex);
+      setVal('hex-menu', hex);
+    }
     schedulePreview();
   }
+}
+
+function resetMenuColor() {
+  state.menuColorCustom = false;
+  state.colors.menu = state.colors.primary;
+  setVal('color-menu', state.colors.menu);
+  setVal('hex-menu', state.colors.menu);
+  schedulePreview();
 }
 
 function onLogoUrlChange() {
@@ -197,6 +233,20 @@ function onLogoUrlChange() {
   } else {
     state.brand.logoUrl = '';
     const prev = document.getElementById('preview-logo');
+    if (prev) { prev.src = ''; prev.classList.add('hidden'); }
+  }
+  schedulePreview();
+}
+
+function onAvatarUrlChange() {
+  const url = getVal('url-avatar').trim();
+  const prev = document.getElementById('preview-avatar');
+  if (url) {
+    state.member.avatarUrl = url;
+    state.member.avatarData = '';
+    if (prev) { prev.src = url; prev.classList.remove('hidden'); }
+  } else {
+    state.member.avatarUrl = '';
     if (prev) { prev.src = ''; prev.classList.add('hidden'); }
   }
   schedulePreview();
@@ -273,6 +323,8 @@ function renderPaletteButtons() {
     `;
     btn.onclick = () => {
       state.colors = { ...d.colors };
+      if (!state.colors.menu) state.colors.menu = state.colors.primary;
+      state.menuColorCustom = false;
       setVal('color-primary', state.colors.primary);
       setVal('hex-primary', state.colors.primary);
       setVal('color-accent', state.colors.accent);
@@ -281,6 +333,8 @@ function renderPaletteButtons() {
       setVal('hex-secondary', state.colors.secondary);
       setVal('color-dark', state.colors.dark);
       setVal('hex-dark', state.colors.dark);
+      setVal('color-menu', state.colors.menu);
+      setVal('hex-menu', state.colors.menu);
       schedulePreview();
     };
     container.appendChild(btn);
@@ -608,15 +662,19 @@ function copyHTML() {
 function startOver() {
   if (!confirm('Reset everything and start over?')) return;
   state.brand = { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' };
-  state.member = { name: 'Imran Mansur', number: '234567', points: 1200, email: '', phone: '', joinDate: '' };
+  state.member = { name: 'Imran Mansur', number: '234567', points: 1200, email: '', phone: '', joinDate: '', avatarUrl: '', avatarData: '' };
   state.tierProgress = 30;
   state.sections = { vouchers: true, offers: true, badges: true, clubs: true, earnMore: true, profileTasks: true, upsell: true };
+  state.menuColorCustom = false;
   applyIndustryDefaults('generic');
   populateFormFromState();
   renderDynamicSections();
   const logoPreview = document.getElementById('preview-logo');
   if (logoPreview) { logoPreview.src = ''; logoPreview.classList.add('hidden'); }
   setVal('url-logo', '');
+  const avatarPreview = document.getElementById('preview-avatar');
+  if (avatarPreview) { avatarPreview.src = ''; avatarPreview.classList.add('hidden'); }
+  setVal('url-avatar', '');
   goToStep(0);
   schedulePreview();
 }
