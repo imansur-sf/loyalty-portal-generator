@@ -14,9 +14,9 @@ const USER_AGENT = 'Mozilla/5.0 (compatible; LoyaltyPortalScraper/1.0)';
 
 // Gemini model mapping by tier
 const TIER_MODELS = {
-  fast: 'gemini-2.0-flash',
-  balanced: 'gemini-2.5-flash',
-  powerful: 'gemini-2.5-pro'
+  fast: 'gemini-3.5-flash-lite',
+  balanced: 'gemini-3.5-flash',
+  powerful: 'gemini-3.1-pro-preview'
 };
 const DEFAULT_MODEL = TIER_MODELS.balanced;
 
