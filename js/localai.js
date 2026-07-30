@@ -22,10 +22,10 @@
   const MODEL_STORAGE = 'anthropic_model';
   const SCRAPER_URL_STORAGE = 'scraper_endpoint_url';
 
-  // Default Cloudflare Worker URL — used when the user hasn't set a custom one.
-  // Anyone can override via Advanced → Scraper Endpoint (or by calling
-  // window.LocalAI.setScraperEndpoint) to point at their own deployment.
-  const DEFAULT_SCRAPER_URL = 'https://loyalty-scraper.imansur.workers.dev';
+  // Default backend URL — empty string means same-origin (Heroku server handles
+  // both /api/scrape and /api/llm). Users can override via Advanced → Scraper
+  // Endpoint to point at an external deployment if needed.
+  const DEFAULT_SCRAPER_URL = '';
 
   // Two supported providers, auto-detected from key prefix.
   const SF_GATEWAY_BASE = 'https://eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl';
@@ -136,11 +136,12 @@
   async function scrapeViaCorsProxy(url) {
     let lastError = null;
 
-    // 1) Try the user's own scraper endpoint first if configured
+    // 1) Try the primary scraper endpoint (same-origin /api/scrape or user-configured)
     const own = getScraperEndpoint();
-    if (own) {
+    const scrapeBase = own || '';  // empty = same origin
+    {
       try {
-        const res = await fetch(`${own}/scrape?url=${encodeURIComponent(url)}`, { method: 'GET' });
+        const res = await fetch(`${scrapeBase}/api/scrape?url=${encodeURIComponent(url)}`, { method: 'GET' });
         if (res.ok) {
           const ct = res.headers.get('content-type') || '';
           const html = await res.text();
@@ -150,13 +151,13 @@
             const looksJson = /application\/json/i.test(ct) || (html.trim().startsWith('{') && !html.trim().startsWith('{"contents"'));
             if (!looksJson) return html;
           }
-          lastError = localError('own_scraper_empty', { endpoint: own });
+          lastError = localError('own_scraper_empty', { endpoint: scrapeBase || window.location.origin });
         } else {
           const body = await res.text().catch(() => '');
-          lastError = localError('own_scraper_status', { status: res.status, endpoint: own, body: body.slice(0, 160) });
+          lastError = localError('own_scraper_status', { status: res.status, endpoint: scrapeBase || window.location.origin, body: body.slice(0, 160) });
         }
       } catch (err) {
-        lastError = localError('own_scraper_network', { endpoint: own, cause: err.message });
+        lastError = localError('own_scraper_network', { endpoint: scrapeBase || window.location.origin, cause: err.message });
       }
     }
 
@@ -202,18 +203,17 @@
   // Client doesn't hold a key. Worker holds SF_GATEWAY_KEY as a secret and
   // proxies to the SF Gateway. No BYOK required for the typical user.
   async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
-    const base = getScraperEndpoint(); // same Worker serves both /scrape and /llm
-    if (!base) throw localError('no_default_backend');
+    const base = getScraperEndpoint(); // empty = same origin; both /api/scrape and /api/llm live here
 
     let res;
     try {
-      res = await fetch(`${base}/llm`, {
+      res = await fetch(`${base}/api/llm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, system, tier, model, maxTokens })
       });
     } catch (err) {
-      throw localError('default_network', { endpoint: base, cause: err.message });
+      throw localError('default_network', { endpoint: base || window.location.origin, cause: err.message });
     }
 
     if (res.status === 429) throw localError('default_rate_limited');
@@ -465,13 +465,13 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
         return 'This tool works without a key by default. If you\'d prefer to route through your own account, paste an Anthropic key (sk-ant-…) or an SF LLM Gateway key (sk-…) in Advanced.';
       // Default backend (Worker /llm)
       case 'no_default_backend':
-        return 'Default backend not reachable. Configure a Scraper Endpoint in Advanced or paste your own API key.';
+        return 'Default backend not reachable. The server may be starting up — try again in a moment, or paste your own API key in Advanced.';
       case 'default_network':
-        return `Can't reach the default backend at ${err.endpoint}. Check your network, or paste your own key in Advanced.`;
+        return `Can't reach the backend at ${err.endpoint}. Check your network, or paste your own key in Advanced.`;
       case 'default_rate_limited':
         return 'Rate limited (too many requests in a short window). Wait a minute and try again, or paste your own key in Advanced to bypass the shared limit.';
       case 'default_not_configured':
-        return 'The default backend hasn\'t been set up with an LLM key yet. See worker/README.md for `wrangler secret put SF_GATEWAY_KEY`. Meanwhile, paste your own key in Advanced.';
+        return 'The server\'s LLM API key hasn\'t been configured yet. Ask the admin to set GEMINI_API_KEY. Meanwhile, paste your own key in Advanced.';
       case 'default_unavailable':
         return `Default backend temporarily unavailable (status ${err.status}). Try again shortly.`;
       case 'default_failed':
@@ -517,7 +517,7 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
       case 'proxy_network_error':
         return `Network error via ${err.proxy}: ${err.cause}.`;
       case 'proxy_all_failed':
-        return 'All CORS proxies failed. The customer site may block anonymous fetches — try a different URL, deploy the Cloudflare Worker (see worker/README.md) and paste its URL in Advanced → Scraper Endpoint, or use Page Host mode.';
+        return 'All CORS proxies failed. The customer site may block anonymous fetches — try a different URL or use Page Host mode.';
       case 'own_scraper_status':
         return `Your scraper endpoint returned ${err.status}. Check that ${err.endpoint} is reachable and running the latest worker code.`;
       case 'own_scraper_network':
