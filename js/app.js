@@ -240,8 +240,9 @@ async function onQuickStartAnalyze() {
       onStatus: (phase) => {
         if (phase === 'anthropic_url_doc') setQuickStartStatus('Anthropic is fetching the site server-side + analyzing…', true);
         else if (phase === 'fetching') setQuickStartStatus(fetchLabel, true);
-        else if (phase === 'fallback_url_only') setQuickStartStatus('Site couldn\'t be scraped — Claude will use training knowledge instead…', true);
-        else if (phase === 'analyzing') setQuickStartStatus('Claude is analyzing brand and generating content…', true);
+        else if (phase === 'fallback_url_only') setQuickStartStatus('Site couldn\'t be scraped — AI will use training knowledge instead…', true);
+        else if (phase === 'analyzing') setQuickStartStatus('AI is analyzing brand and generating content…', true);
+        else if (phase === 'generating_images') setQuickStartStatus('🎨 Generating AI images for empty slots…', true);
       }
     });
     setQuickStartStatus('Populating wizard…', true);
@@ -249,13 +250,15 @@ async function onQuickStartAnalyze() {
     const host = new URL(data._meta.source_url).hostname;
     const isUrlOnly = /url-only/.test(data._meta.mode || '');
     const isAnthropicDoc = data._meta.mode === 'local-anthropic-url-doc';
+    const genCount = data._meta.images_generated || 0;
+    const genSuffix = genCount > 0 ? ` + ${genCount} AI-generated image${genCount > 1 ? 's' : ''}` : '';
     if (isAnthropicDoc) {
-      setQuickStartStatus(`✓ Populated from ${host} via Anthropic URL-document fetch. Review each step and tweak.`, false);
+      setQuickStartStatus(`✓ Populated from ${host} via Anthropic URL-document fetch${genSuffix}. Review each step and tweak.`, false);
     } else if (isUrlOnly) {
-      setQuickStartStatus(`✓ Populated for ${host} using Claude's brand knowledge (site couldn't be scraped). Review carefully — accuracy depends on how well-known the brand is.`, false);
+      setQuickStartStatus(`✓ Populated for ${host} using AI brand knowledge${genSuffix} (site couldn't be scraped). Review carefully.`, false);
     } else {
       const modeTag = data._meta.mode === 'local' ? 'local' : 'Page Host';
-      setQuickStartStatus(`✓ Populated from ${host} (${modeTag}, live site). Review each step and tweak.`, false);
+      setQuickStartStatus(`✓ Populated from ${host} (${modeTag}, live site)${genSuffix}. Review each step and tweak.`, false);
     }
   } catch (err) {
     console.error('[QuickStart] analyze failed:', err);
@@ -342,10 +345,13 @@ function applyAnalysis(d) {
     }
   }
 
-  // Upsell — accept AI-picked background image
+  // Upsell — accept AI-picked background image (scraped URL or generated data)
   if (d.upsell && d.upsell.bgImageUrl && isSafeUrl(d.upsell.bgImageUrl)) {
     state.upsell.bgImageUrl = d.upsell.bgImageUrl;
     state.upsell.bgImageData = '';
+  } else if (d.upsell && d.upsell.bgImageData && d.upsell.bgImageData.startsWith('data:image/')) {
+    state.upsell.bgImageData = d.upsell.bgImageData;
+    state.upsell.bgImageUrl = '';
   }
 
   // Re-render everything
@@ -375,7 +381,7 @@ function cleanVoucher(v) {
     actionValue: str(v.actionValue, 30),
     emoji: str(v.emoji, 4) || '🎁',
     imageUrl: isSafeUrl(v.imageUrl) ? v.imageUrl : '',
-    imageData: ''
+    imageData: v.imageData || ''
   };
 }
 function cleanOffer(o) {
@@ -387,7 +393,7 @@ function cleanOffer(o) {
     expiry: str(o.expiry, 40),
     emoji: str(o.emoji, 4) || '🎯',
     imageUrl: isSafeUrl(o.imageUrl) ? o.imageUrl : '',
-    imageData: ''
+    imageData: o.imageData || ''
   };
 }
 function cleanBadge(b) {
@@ -397,7 +403,7 @@ function cleanBadge(b) {
     emoji: str(b.emoji, 4) || '⭐',
     color: allowed.includes(b.color) ? b.color : 'amber',
     imageUrl: isSafeUrl(b.imageUrl) ? b.imageUrl : '',
-    imageData: ''
+    imageData: b.imageData || ''
   };
 }
 function cleanClub(c) {
@@ -407,7 +413,7 @@ function cleanClub(c) {
     memberCount: typeof c.memberCount === 'number' ? c.memberCount : (parseInt(c.memberCount, 10) || 0),
     emoji: str(c.emoji, 4) || '👥',
     imageUrl: isSafeUrl(c.imageUrl) ? c.imageUrl : '',
-    imageData: ''
+    imageData: c.imageData || ''
   };
 }
 function cleanBenefit(b) {
@@ -415,7 +421,7 @@ function cleanBenefit(b) {
     name: str(b.name, 40),
     emoji: str(b.emoji, 4) || '✨',
     imageUrl: isSafeUrl(b.imageUrl) ? b.imageUrl : '',
-    imageData: ''
+    imageData: b.imageData || ''
   };
 }
 function cleanEarnMore(e) {

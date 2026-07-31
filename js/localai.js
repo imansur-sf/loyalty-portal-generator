@@ -332,6 +332,124 @@
   // Backward compat: some callers may still reference callAnthropic
   const callAnthropic = callLLM;
 
+  // ---- AI IMAGE GENERATION (fills empty image slots after analysis) ----
+
+  // Priority order: higher-priority slots get generated first (capped at 5 total).
+  const IMAGE_SLOT_CONFIG = [
+    { collection: 'vouchers', field: 'imageUrl', dataField: 'imageData', type: 'voucher',  aspect: '1:1',  priority: 1 },
+    { collection: 'offers',   field: 'imageUrl', dataField: 'imageData', type: 'offer',    aspect: '16:9', priority: 1 },
+    { collection: 'clubs',    field: 'imageUrl', dataField: 'imageData', type: 'club',     aspect: '1:1',  priority: 3 },
+    { collection: 'badges',   field: 'imageUrl', dataField: 'imageData', type: 'badge',    aspect: '1:1',  priority: 3 },
+  ];
+  // Also handle upsell.bgImageUrl separately (single object, not array)
+  const MAX_IMAGE_GEN = 5;
+
+  function buildImagePrompt(type, item, brand) {
+    const brandName = brand.brandName || 'the brand';
+    const industry = brand.industry || 'lifestyle';
+    const primary = brand.colors?.primary || '#333333';
+    const accent  = brand.colors?.accent  || '#666666';
+    const colorHint = `Use brand colors ${primary} and ${accent} as accents in the composition.`;
+
+    switch (type) {
+      case 'voucher':
+        return `High-quality commercial product or service image for a ${industry} loyalty program voucher titled "${item.title || 'Reward'}" by ${brandName}. ${colorHint} Clean, modern style. Professional photography look. No text or words in the image.`;
+      case 'offer':
+        return `Lifestyle promotional image for a ${industry} special offer: "${item.title || 'Special Offer'}" — ${item.description || ''}. Brand: ${brandName}. ${colorHint} Aspirational, inviting mood. No text or words in the image.`;
+      case 'badge':
+        return `A single clean achievement badge icon for "${item.name || 'Achievement'}" in a ${industry} loyalty program. ${colorHint} Minimal, modern flat design. Centered on a subtle background. No text.`;
+      case 'club':
+        return `Community/group lifestyle image for a ${industry} loyalty club called "${item.name || 'Club'}" — ${item.description || ''}. Brand: ${brandName}. ${colorHint} Warm, social, inviting. No text.`;
+      case 'upsell':
+        return `Wide cinematic background image for a premium ${industry} membership upgrade by ${brandName}. ${colorHint} Dark, luxurious, atmospheric mood. Abstract or environmental scene. No text or words.`;
+      default:
+        return `Professional ${industry} image for ${brandName}. ${colorHint} Clean, modern style. No text.`;
+    }
+  }
+
+  async function fillMissingImages(parsed, { onStatus } = {}) {
+    // Only use default backend (server-side Gemini) for image generation
+    const base = getScraperEndpoint(); // empty = same origin
+
+    // Collect empty slots
+    const slots = [];
+
+    // Check upsell background first (high priority)
+    if (parsed.upsell && !parsed.upsell.bgImageUrl && !parsed.upsell.bgImageData) {
+      slots.push({
+        slot: 'upsell-bg',
+        prompt: buildImagePrompt('upsell', parsed.upsell, parsed),
+        priority: 0,
+        apply: (dataUri) => { parsed.upsell.bgImageData = dataUri; }
+      });
+    }
+
+    // Check array collections
+    for (const cfg of IMAGE_SLOT_CONFIG) {
+      const arr = parsed[cfg.collection];
+      if (!Array.isArray(arr)) continue;
+      arr.forEach((item, i) => {
+        if (!item[cfg.field] && !item[cfg.dataField]) {
+          slots.push({
+            slot: `${cfg.type}-${i}`,
+            prompt: buildImagePrompt(cfg.type, item, parsed),
+            priority: cfg.priority,
+            apply: (dataUri) => { item[cfg.dataField] = dataUri; }
+          });
+        }
+      });
+    }
+
+    if (slots.length === 0) {
+      console.log('[LocalAI] All image slots filled from scrape — no generation needed');
+      return { generated: 0, total_empty: 0 };
+    }
+
+    // Sort by priority (lower = higher priority), take top N
+    slots.sort((a, b) => a.priority - b.priority);
+    const batch = slots.slice(0, MAX_IMAGE_GEN);
+    const skipped = slots.length - batch.length;
+
+    console.log(`[LocalAI] Generating ${batch.length} images (${skipped} lower-priority slots skipped)`);
+    if (onStatus) onStatus('generating_images');
+
+    try {
+      const res = await fetch(`${base}/api/generate-images`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompts: batch.map(s => ({ slot: s.slot, prompt: s.prompt }))
+        })
+      });
+
+      if (!res.ok) {
+        console.warn('[LocalAI] Image generation batch failed:', res.status);
+        return { generated: 0, total_empty: slots.length, error: `HTTP ${res.status}` };
+      }
+
+      const data = await res.json();
+      let generated = 0;
+
+      if (Array.isArray(data.results)) {
+        for (const result of data.results) {
+          if (result.imageData && !result.error) {
+            const match = batch.find(s => s.slot === result.slot);
+            if (match) {
+              match.apply(result.imageData);
+              generated++;
+            }
+          }
+        }
+      }
+
+      console.log(`[LocalAI] Generated ${generated}/${batch.length} images successfully`);
+      return { generated, total_empty: slots.length, attempted: batch.length };
+    } catch (err) {
+      console.warn('[LocalAI] Image generation failed (non-fatal):', err.message);
+      return { generated: 0, total_empty: slots.length, error: err.message };
+    }
+  }
+
   // ---- MAIN ORCHESTRATION ----
   //
   // Path selection (in order of preference):
@@ -365,6 +483,10 @@
           mode: 'local-anthropic-url-doc',
           fallback_reason: null
         };
+        // Fill empty image slots with AI-generated images
+        const imgResult = await fillMissingImages(parsed, { onStatus });
+        parsed._meta.images_generated = imgResult.generated || 0;
+        parsed._meta.images_empty = imgResult.total_empty || 0;
         return parsed;
       } catch (err) {
         // If Anthropic returns "document fetch not supported for URL" or a
@@ -416,6 +538,12 @@
       mode: fallbackReason ? 'local-url-only' : 'local',
       fallback_reason: fallbackReason
     };
+
+    // Fill empty image slots with AI-generated images
+    const imgResult = await fillMissingImages(parsed, { onStatus });
+    parsed._meta.images_generated = imgResult.generated || 0;
+    parsed._meta.images_empty = imgResult.total_empty || 0;
+
     return parsed;
   }
 

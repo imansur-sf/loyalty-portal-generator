@@ -12,6 +12,11 @@ const MAX_SCRAPE_BYTES = 3_000_000;
 const SCRAPE_TIMEOUT_MS = 15_000;
 const USER_AGENT = 'Mozilla/5.0 (compatible; LoyaltyPortalScraper/1.0)';
 
+// Image generation
+const IMAGE_GEN_MODEL = 'gemini-3.1-flash-image';
+const IMAGE_GEN_TIMEOUT_MS = 30_000;
+const MAX_IMAGE_GEN_BATCH = 5; // max images per batch request
+
 // Gemini model mapping by tier
 const TIER_MODELS = {
   fast: 'gemini-3.5-flash-lite',
@@ -52,7 +57,7 @@ app.get('/api/health', (req, res) => {
     ok: true,
     service: 'loyalty-portal',
     version: 3,
-    endpoints: ['GET /api/scrape', 'POST /api/llm', 'GET /api/health'],
+    endpoints: ['GET /api/scrape', 'POST /api/llm', 'POST /api/generate-images', 'GET /api/health'],
     llm_configured: Boolean(GEMINI_API_KEY)
   });
 });
@@ -225,6 +230,109 @@ app.post('/api/llm', async (req, res) => {
     res.status(502).json({ error: code, message: (err && err.message) || 'unknown' });
   }
 });
+
+// --- Image Generation (Gemini) ---
+// Single image
+app.post('/api/generate-image', async (req, res) => {
+  if (!GEMINI_API_KEY) {
+    return res.status(503).json({ error: 'llm_not_configured', hint: 'Set GEMINI_API_KEY' });
+  }
+
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
+  const rl = checkRateLimit(ip);
+  if (!rl.ok) return res.status(429).json({ error: 'rate_limited', retryAfterMs: rl.retryAfterMs });
+
+  const { prompt } = req.body;
+  if (!prompt || typeof prompt !== 'string' || prompt.length > 2000) {
+    return res.status(400).json({ error: 'invalid_prompt' });
+  }
+
+  try {
+    const result = await generateImage(prompt);
+    res.json(result);
+  } catch (err) {
+    console.error('[ImageGen] single failed:', err.message || err);
+    res.status(502).json({ error: 'image_gen_failed', message: err.message || 'unknown' });
+  }
+});
+
+// Batch image generation — runs in parallel, returns partial results on individual failures
+app.post('/api/generate-images', async (req, res) => {
+  if (!GEMINI_API_KEY) {
+    return res.status(503).json({ error: 'llm_not_configured', hint: 'Set GEMINI_API_KEY' });
+  }
+
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
+  const rl = checkRateLimit(ip);
+  if (!rl.ok) return res.status(429).json({ error: 'rate_limited', retryAfterMs: rl.retryAfterMs });
+
+  const { prompts } = req.body;
+  if (!Array.isArray(prompts) || prompts.length === 0 || prompts.length > MAX_IMAGE_GEN_BATCH) {
+    return res.status(400).json({ error: 'invalid_prompts', max: MAX_IMAGE_GEN_BATCH });
+  }
+
+  // Validate each prompt
+  for (const p of prompts) {
+    if (!p || !p.slot || !p.prompt || typeof p.prompt !== 'string' || p.prompt.length > 2000) {
+      return res.status(400).json({ error: 'invalid_prompt_entry', slot: p?.slot });
+    }
+  }
+
+  // Run all in parallel
+  const results = await Promise.allSettled(
+    prompts.map(async (p) => {
+      const result = await generateImage(p.prompt);
+      return { slot: p.slot, ...result };
+    })
+  );
+
+  const output = results.map((r, i) => {
+    if (r.status === 'fulfilled') return r.value;
+    console.warn(`[ImageGen] batch slot "${prompts[i].slot}" failed:`, r.reason?.message || r.reason);
+    return { slot: prompts[i].slot, error: r.reason?.message || 'generation_failed' };
+  });
+
+  res.json({ results: output });
+});
+
+// Shared image generation helper
+async function generateImage(prompt) {
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_GEN_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+
+  const geminiBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { responseModalities: ['IMAGE'] }
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IMAGE_GEN_TIMEOUT_MS);
+
+  const upstream = await fetch(geminiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(geminiBody),
+    signal: controller.signal
+  });
+  clearTimeout(timeout);
+
+  if (!upstream.ok) {
+    const body = await upstream.text().catch(() => '');
+    throw new Error(`Gemini ${upstream.status}: ${body.slice(0, 200)}`);
+  }
+
+  const data = await upstream.json();
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const imagePart = parts.find(p => p.inlineData);
+
+  if (!imagePart) {
+    throw new Error('No image in Gemini response');
+  }
+
+  const mime = imagePart.inlineData.mimeType || 'image/jpeg';
+  const imageData = `data:${mime};base64,${imagePart.inlineData.data}`;
+
+  return { imageData };
+}
 
 // ============================================================
 // Static file serving (AFTER API routes)
