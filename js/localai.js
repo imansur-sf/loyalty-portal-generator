@@ -338,11 +338,11 @@
   const IMAGE_SLOT_CONFIG = [
     { collection: 'vouchers', field: 'imageUrl', dataField: 'imageData', type: 'voucher',  aspect: '1:1',  priority: 1 },
     { collection: 'offers',   field: 'imageUrl', dataField: 'imageData', type: 'offer',    aspect: '16:9', priority: 1 },
-    { collection: 'clubs',    field: 'imageUrl', dataField: 'imageData', type: 'club',     aspect: '1:1',  priority: 3 },
-    { collection: 'badges',   field: 'imageUrl', dataField: 'imageData', type: 'badge',    aspect: '1:1',  priority: 3 },
+    { collection: 'clubs',    field: 'imageUrl', dataField: 'imageData', type: 'club',     aspect: '1:1',  priority: 1 },
+    { collection: 'badges',   field: 'imageUrl', dataField: 'imageData', type: 'badge',    aspect: '1:1',  priority: 1 },
   ];
   // Also handle upsell.bgImageUrl separately (single object, not array)
-  const MAX_IMAGE_GEN = 5;
+  const MAX_IMAGE_GEN = 12;
 
   function buildImagePrompt(type, item, brand) {
     const brandName = brand.brandName || 'the brand';

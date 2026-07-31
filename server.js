@@ -15,7 +15,7 @@ const USER_AGENT = 'Mozilla/5.0 (compatible; LoyaltyPortalScraper/1.0)';
 // Image generation
 const IMAGE_GEN_MODEL = 'gemini-3.1-flash-image';
 const IMAGE_GEN_TIMEOUT_MS = 30_000;
-const MAX_IMAGE_GEN_BATCH = 5; // max images per batch request
+const MAX_IMAGE_GEN_BATCH = 12; // max images per batch request (covers all slots)
 
 // Gemini model mapping by tier
 const TIER_MODELS = {
