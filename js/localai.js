@@ -22,10 +22,10 @@
   const MODEL_STORAGE = 'anthropic_model';
   const SCRAPER_URL_STORAGE = 'scraper_endpoint_url';
 
-  // Default Cloudflare Worker URL — used when the user hasn't set a custom one.
-  // Anyone can override via Advanced → Scraper Endpoint (or by calling
-  // window.LocalAI.setScraperEndpoint) to point at their own deployment.
-  const DEFAULT_SCRAPER_URL = 'https://loyalty-scraper.imansur.workers.dev';
+  // Default backend URL — empty string means same-origin (Heroku server handles
+  // both /api/scrape and /api/llm). Users can override via Advanced → Scraper
+  // Endpoint to point at an external deployment if needed.
+  const DEFAULT_SCRAPER_URL = '';
 
   // Two supported providers, auto-detected from key prefix.
   const SF_GATEWAY_BASE = 'https://eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl';
@@ -136,11 +136,12 @@
   async function scrapeViaCorsProxy(url) {
     let lastError = null;
 
-    // 1) Try the user's own scraper endpoint first if configured
+    // 1) Try the primary scraper endpoint (same-origin /api/scrape or user-configured)
     const own = getScraperEndpoint();
-    if (own) {
+    const scrapeBase = own || '';  // empty = same origin
+    {
       try {
-        const res = await fetch(`${own}/scrape?url=${encodeURIComponent(url)}`, { method: 'GET' });
+        const res = await fetch(`${scrapeBase}/api/scrape?url=${encodeURIComponent(url)}`, { method: 'GET' });
         if (res.ok) {
           const ct = res.headers.get('content-type') || '';
           const html = await res.text();
@@ -150,13 +151,13 @@
             const looksJson = /application\/json/i.test(ct) || (html.trim().startsWith('{') && !html.trim().startsWith('{"contents"'));
             if (!looksJson) return html;
           }
-          lastError = localError('own_scraper_empty', { endpoint: own });
+          lastError = localError('own_scraper_empty', { endpoint: scrapeBase || window.location.origin });
         } else {
           const body = await res.text().catch(() => '');
-          lastError = localError('own_scraper_status', { status: res.status, endpoint: own, body: body.slice(0, 160) });
+          lastError = localError('own_scraper_status', { status: res.status, endpoint: scrapeBase || window.location.origin, body: body.slice(0, 160) });
         }
       } catch (err) {
-        lastError = localError('own_scraper_network', { endpoint: own, cause: err.message });
+        lastError = localError('own_scraper_network', { endpoint: scrapeBase || window.location.origin, cause: err.message });
       }
     }
 
@@ -202,18 +203,17 @@
   // Client doesn't hold a key. Worker holds SF_GATEWAY_KEY as a secret and
   // proxies to the SF Gateway. No BYOK required for the typical user.
   async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
-    const base = getScraperEndpoint(); // same Worker serves both /scrape and /llm
-    if (!base) throw localError('no_default_backend');
+    const base = getScraperEndpoint(); // empty = same origin; both /api/scrape and /api/llm live here
 
     let res;
     try {
-      res = await fetch(`${base}/llm`, {
+      res = await fetch(`${base}/api/llm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, system, tier, model, maxTokens })
       });
     } catch (err) {
-      throw localError('default_network', { endpoint: base, cause: err.message });
+      throw localError('default_network', { endpoint: base || window.location.origin, cause: err.message });
     }
 
     if (res.status === 429) throw localError('default_rate_limited');
@@ -332,6 +332,124 @@
   // Backward compat: some callers may still reference callAnthropic
   const callAnthropic = callLLM;
 
+  // ---- AI IMAGE GENERATION (fills empty image slots after analysis) ----
+
+  // Priority order: higher-priority slots get generated first (capped at 5 total).
+  const IMAGE_SLOT_CONFIG = [
+    { collection: 'vouchers', field: 'imageUrl', dataField: 'imageData', type: 'voucher',  aspect: '1:1',  priority: 1 },
+    { collection: 'offers',   field: 'imageUrl', dataField: 'imageData', type: 'offer',    aspect: '16:9', priority: 1 },
+    { collection: 'clubs',    field: 'imageUrl', dataField: 'imageData', type: 'club',     aspect: '1:1',  priority: 1 },
+    { collection: 'badges',   field: 'imageUrl', dataField: 'imageData', type: 'badge',    aspect: '1:1',  priority: 1 },
+  ];
+  // Also handle upsell.bgImageUrl separately (single object, not array)
+  const MAX_IMAGE_GEN = 12;
+
+  function buildImagePrompt(type, item, brand) {
+    const brandName = brand.brandName || 'the brand';
+    const industry = brand.industry || 'lifestyle';
+    const primary = brand.colors?.primary || '#333333';
+    const accent  = brand.colors?.accent  || '#666666';
+    const colorHint = `Use brand colors ${primary} and ${accent} as accents in the composition.`;
+
+    switch (type) {
+      case 'voucher':
+        return `High-quality commercial product or service image for a ${industry} loyalty program voucher titled "${item.title || 'Reward'}" by ${brandName}. ${colorHint} Clean, modern style. Professional photography look. No text or words in the image.`;
+      case 'offer':
+        return `Lifestyle promotional image for a ${industry} special offer: "${item.title || 'Special Offer'}" — ${item.description || ''}. Brand: ${brandName}. ${colorHint} Aspirational, inviting mood. No text or words in the image.`;
+      case 'badge':
+        return `A single clean achievement badge icon for "${item.name || 'Achievement'}" in a ${industry} loyalty program. ${colorHint} Minimal, modern flat design. Centered on a subtle background. No text.`;
+      case 'club':
+        return `Community/group lifestyle image for a ${industry} loyalty club called "${item.name || 'Club'}" — ${item.description || ''}. Brand: ${brandName}. ${colorHint} Warm, social, inviting. No text.`;
+      case 'upsell':
+        return `Wide cinematic background image for a premium ${industry} membership upgrade by ${brandName}. ${colorHint} Dark, luxurious, atmospheric mood. Abstract or environmental scene. No text or words.`;
+      default:
+        return `Professional ${industry} image for ${brandName}. ${colorHint} Clean, modern style. No text.`;
+    }
+  }
+
+  async function fillMissingImages(parsed, { onStatus } = {}) {
+    // Only use default backend (server-side Gemini) for image generation
+    const base = getScraperEndpoint(); // empty = same origin
+
+    // Collect empty slots
+    const slots = [];
+
+    // Check upsell background first (high priority)
+    if (parsed.upsell && !parsed.upsell.bgImageUrl && !parsed.upsell.bgImageData) {
+      slots.push({
+        slot: 'upsell-bg',
+        prompt: buildImagePrompt('upsell', parsed.upsell, parsed),
+        priority: 0,
+        apply: (dataUri) => { parsed.upsell.bgImageData = dataUri; }
+      });
+    }
+
+    // Check array collections
+    for (const cfg of IMAGE_SLOT_CONFIG) {
+      const arr = parsed[cfg.collection];
+      if (!Array.isArray(arr)) continue;
+      arr.forEach((item, i) => {
+        if (!item[cfg.field] && !item[cfg.dataField]) {
+          slots.push({
+            slot: `${cfg.type}-${i}`,
+            prompt: buildImagePrompt(cfg.type, item, parsed),
+            priority: cfg.priority,
+            apply: (dataUri) => { item[cfg.dataField] = dataUri; }
+          });
+        }
+      });
+    }
+
+    if (slots.length === 0) {
+      console.log('[LocalAI] All image slots filled from scrape — no generation needed');
+      return { generated: 0, total_empty: 0 };
+    }
+
+    // Sort by priority (lower = higher priority), take top N
+    slots.sort((a, b) => a.priority - b.priority);
+    const batch = slots.slice(0, MAX_IMAGE_GEN);
+    const skipped = slots.length - batch.length;
+
+    console.log(`[LocalAI] Generating ${batch.length} images (${skipped} lower-priority slots skipped)`);
+    if (onStatus) onStatus('generating_images');
+
+    try {
+      const res = await fetch(`${base}/api/generate-images`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompts: batch.map(s => ({ slot: s.slot, prompt: s.prompt }))
+        })
+      });
+
+      if (!res.ok) {
+        console.warn('[LocalAI] Image generation batch failed:', res.status);
+        return { generated: 0, total_empty: slots.length, error: `HTTP ${res.status}` };
+      }
+
+      const data = await res.json();
+      let generated = 0;
+
+      if (Array.isArray(data.results)) {
+        for (const result of data.results) {
+          if (result.imageData && !result.error) {
+            const match = batch.find(s => s.slot === result.slot);
+            if (match) {
+              match.apply(result.imageData);
+              generated++;
+            }
+          }
+        }
+      }
+
+      console.log(`[LocalAI] Generated ${generated}/${batch.length} images successfully`);
+      return { generated, total_empty: slots.length, attempted: batch.length };
+    } catch (err) {
+      console.warn('[LocalAI] Image generation failed (non-fatal):', err.message);
+      return { generated: 0, total_empty: slots.length, error: err.message };
+    }
+  }
+
   // ---- MAIN ORCHESTRATION ----
   //
   // Path selection (in order of preference):
@@ -365,6 +483,10 @@
           mode: 'local-anthropic-url-doc',
           fallback_reason: null
         };
+        // Fill empty image slots with AI-generated images
+        const imgResult = await fillMissingImages(parsed, { onStatus });
+        parsed._meta.images_generated = imgResult.generated || 0;
+        parsed._meta.images_empty = imgResult.total_empty || 0;
         return parsed;
       } catch (err) {
         // If Anthropic returns "document fetch not supported for URL" or a
@@ -416,6 +538,12 @@
       mode: fallbackReason ? 'local-url-only' : 'local',
       fallback_reason: fallbackReason
     };
+
+    // Fill empty image slots with AI-generated images
+    const imgResult = await fillMissingImages(parsed, { onStatus });
+    parsed._meta.images_generated = imgResult.generated || 0;
+    parsed._meta.images_empty = imgResult.total_empty || 0;
+
     return parsed;
   }
 
@@ -465,13 +593,13 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
         return 'This tool works without a key by default. If you\'d prefer to route through your own account, paste an Anthropic key (sk-ant-…) or an SF LLM Gateway key (sk-…) in Advanced.';
       // Default backend (Worker /llm)
       case 'no_default_backend':
-        return 'Default backend not reachable. Configure a Scraper Endpoint in Advanced or paste your own API key.';
+        return 'Default backend not reachable. The server may be starting up — try again in a moment, or paste your own API key in Advanced.';
       case 'default_network':
-        return `Can't reach the default backend at ${err.endpoint}. Check your network, or paste your own key in Advanced.`;
+        return `Can't reach the backend at ${err.endpoint}. Check your network, or paste your own key in Advanced.`;
       case 'default_rate_limited':
         return 'Rate limited (too many requests in a short window). Wait a minute and try again, or paste your own key in Advanced to bypass the shared limit.';
       case 'default_not_configured':
-        return 'The default backend hasn\'t been set up with an LLM key yet. See worker/README.md for `wrangler secret put SF_GATEWAY_KEY`. Meanwhile, paste your own key in Advanced.';
+        return 'The server\'s LLM API key hasn\'t been configured yet. Ask the admin to set GEMINI_API_KEY. Meanwhile, paste your own key in Advanced.';
       case 'default_unavailable':
         return `Default backend temporarily unavailable (status ${err.status}). Try again shortly.`;
       case 'default_failed':
@@ -517,7 +645,7 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
       case 'proxy_network_error':
         return `Network error via ${err.proxy}: ${err.cause}.`;
       case 'proxy_all_failed':
-        return 'All CORS proxies failed. The customer site may block anonymous fetches — try a different URL, deploy the Cloudflare Worker (see worker/README.md) and paste its URL in Advanced → Scraper Endpoint, or use Page Host mode.';
+        return 'All CORS proxies failed. The customer site may block anonymous fetches — try a different URL or use Page Host mode.';
       case 'own_scraper_status':
         return `Your scraper endpoint returned ${err.status}. Check that ${err.endpoint} is reachable and running the latest worker code.`;
       case 'own_scraper_network':
