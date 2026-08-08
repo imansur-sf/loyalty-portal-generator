@@ -55,6 +55,8 @@ document.addEventListener('DOMContentLoaded', () => {
   updateNavButtons();
   schedulePreview();
   initQuickStart();
+  syncAuthUI();
+  hydrateFromProjectId();
 });
 
 // ---- QUICK START (AI URL analysis) ----
@@ -1122,6 +1124,16 @@ function copyHTML() {
   });
 }
 
+function exportForCloudy() {
+  downloadHTML();
+  window.open('https://sfdc.co/cloudy', '_blank', 'noopener');
+  const hint = document.getElementById('cloudy-hint');
+  if (hint) {
+    hint.classList.remove('hidden');
+    setTimeout(() => hint.classList.add('hidden'), 6000);
+  }
+}
+
 function startOver() {
   if (!confirm('Reset everything and start over?')) return;
   state.brand = { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' };
@@ -1147,4 +1159,154 @@ function esc(str) {
   const d = document.createElement('div');
   d.textContent = str || '';
   return d.innerHTML;
+}
+
+// ---- SAASY AUTH / SAVE PROJECTS ----
+const SAASY_TOOL = 'lpg';
+let currentProjectId = null;
+
+function syncAuthUI() {
+  if (!window.SaasyAuth) return;
+  const btn = document.getElementById('btn-auth');
+  const emailEl = document.getElementById('auth-email');
+  if (!btn || !emailEl) return;
+  if (SaasyAuth.isSignedIn()) {
+    btn.textContent = 'Sign Out';
+    emailEl.textContent = SaasyAuth.getEmail();
+    emailEl.classList.remove('hidden');
+  } else {
+    btn.textContent = 'Sign In';
+    emailEl.classList.add('hidden');
+  }
+}
+
+async function onAuthButtonClick() {
+  if (!window.SaasyAuth) return;
+  if (SaasyAuth.isSignedIn()) {
+    SaasyAuth.signOut();
+    syncAuthUI();
+    return;
+  }
+  try {
+    await SaasyAuth.signIn();
+    syncAuthUI();
+  } catch (err) {
+    // user cancelled sign-in
+  }
+}
+
+async function saveCurrentProject() {
+  if (!window.SaasyAuth) return;
+  if (!SaasyAuth.isSignedIn()) {
+    try { await SaasyAuth.signIn(); syncAuthUI(); } catch (err) { return; }
+  }
+  const successEl = document.getElementById('save-project-success');
+  try {
+    const name = state.brand.name || 'Untitled Portal';
+    const project = await SaasyAuth.saveProject({ tool: SAASY_TOOL, name, payload: state, id: currentProjectId });
+    currentProjectId = project.id;
+    if (successEl) {
+      successEl.classList.remove('hidden');
+      setTimeout(() => successEl.classList.add('hidden'), 3000);
+    }
+  } catch (err) {
+    alert('Could not save project: ' + err.message);
+  }
+}
+
+async function openMyProjects() {
+  if (!window.SaasyAuth) return;
+  const panel = document.getElementById('my-projects-panel');
+  if (!panel.classList.contains('hidden')) { closeMyProjects(); return; }
+  if (!SaasyAuth.isSignedIn()) {
+    try { await SaasyAuth.signIn(); syncAuthUI(); } catch (err) { return; }
+  }
+  panel.classList.remove('hidden');
+  const list = document.getElementById('my-projects-list');
+  list.innerHTML = '<div class="px-4 py-3 text-xs text-gray-400">Loading…</div>';
+  try {
+    const projects = await SaasyAuth.listProjects({ tool: SAASY_TOOL });
+    if (!projects.length) {
+      list.innerHTML = '<div class="px-4 py-3 text-xs text-gray-400">No saved projects yet.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    projects.forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'px-4 py-3 flex items-center justify-between gap-2';
+      row.innerHTML = `
+        <div class="min-w-0">
+          <div class="text-xs font-600 truncate">${esc(p.name)}</div>
+          <div class="text-xs text-gray-400">${new Date(p.updated_at).toLocaleDateString()}</div>
+        </div>
+        <div class="flex gap-1 flex-shrink-0">
+          <button data-action="load" class="text-xs border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Load</button>
+          <button data-action="delete" class="text-xs border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Delete</button>
+        </div>`;
+      row.querySelector('[data-action="load"]').addEventListener('click', () => loadProjectAndHydrate(p.id));
+      row.querySelector('[data-action="delete"]').addEventListener('click', () => deleteProjectFromList(p.id, row));
+      list.appendChild(row);
+    });
+  } catch (err) {
+    list.innerHTML = '<div class="px-4 py-3 text-xs text-red-500">Failed to load projects.</div>';
+  }
+}
+
+function closeMyProjects() {
+  const panel = document.getElementById('my-projects-panel');
+  if (panel) panel.classList.add('hidden');
+}
+
+async function deleteProjectFromList(id, row) {
+  if (!confirm('Delete this saved project?')) return;
+  try {
+    await SaasyAuth.deleteProject(id);
+    row.remove();
+    if (id === currentProjectId) currentProjectId = null;
+  } catch (err) {
+    alert('Could not delete project: ' + err.message);
+  }
+}
+
+async function loadProjectAndHydrate(id) {
+  try {
+    const project = await SaasyAuth.loadProject(id);
+    Object.assign(state, project.payload);
+    currentProjectId = project.id;
+
+    populateFormFromState();
+    renderDynamicSections();
+
+    const logoPreview = document.getElementById('preview-logo');
+    const logoSrc = state.brand.logoData || state.brand.logoUrl || '';
+    if (logoPreview) {
+      logoPreview.src = logoSrc;
+      logoPreview.classList.toggle('hidden', !logoSrc);
+    }
+    setVal('url-logo', state.brand.logoUrl || '');
+
+    const avatarPreview = document.getElementById('preview-avatar');
+    const avatarSrc = state.member.avatarData || state.member.avatarUrl || '';
+    if (avatarPreview) {
+      avatarPreview.src = avatarSrc;
+      avatarPreview.classList.toggle('hidden', !avatarSrc);
+    }
+    setVal('url-avatar', state.member.avatarUrl || '');
+
+    goToStep(0);
+    schedulePreview();
+    closeMyProjects();
+  } catch (err) {
+    alert('Could not load project: ' + err.message);
+  }
+}
+
+async function hydrateFromProjectId() {
+  if (!window.SaasyAuth) return;
+  const id = new URLSearchParams(window.location.search).get('projectId');
+  if (!id) return;
+  if (!SaasyAuth.isSignedIn()) {
+    try { await SaasyAuth.signIn(); syncAuthUI(); } catch (err) { return; }
+  }
+  await loadProjectAndHydrate(id);
 }

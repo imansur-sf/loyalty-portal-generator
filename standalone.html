@@ -185,8 +185,19 @@
           <h1 class="text-base font-600 tracking-tight text-white">Loyalty Portal Generator</h1>
         </div>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 relative">
+        <button onclick="openMyProjects()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">My Projects</button>
+        <span id="auth-email" class="hidden text-xs text-white/70 max-w-[160px] truncate"></span>
+        <button id="btn-auth" onclick="onAuthButtonClick()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Sign In</button>
         <button onclick="startOver()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Start Over</button>
+
+        <div id="my-projects-panel" class="hidden absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-200 text-left z-50 overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <span class="text-xs font-700 uppercase tracking-wide text-gray-500">My Projects</span>
+            <button onclick="closeMyProjects()" class="text-gray-400 hover:text-gray-600 text-sm">✕</button>
+          </div>
+          <div id="my-projects-list" class="max-h-72 overflow-y-auto divide-y divide-gray-100"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -612,6 +623,14 @@
             <h2 class="wizard-title mb-1">Preview & Export</h2>
             <p class="wizard-sub mb-6">Review your portal and download the HTML — it's fully self-contained.</p>
 
+            <div class="flex gap-3 mb-3">
+              <button onclick="saveCurrentProject()" class="btn-secondary-sf flex-1 py-3 text-sm flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 21v-8H7v8M7 3v5h8M5 3h11l4 4v11a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
+                Save Project
+              </button>
+            </div>
+            <div id="save-project-success" class="hidden bg-green-50 text-green-700 text-sm font-600 text-center py-2 rounded-lg mb-3">✓ Project saved!</div>
+
             <div class="flex gap-3 mb-4">
               <button onclick="downloadHTML()" class="btn-primary-sf flex-1 py-3 text-sm flex items-center justify-center gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
@@ -624,6 +643,14 @@
             </div>
 
             <div id="copy-success" class="hidden bg-green-50 text-green-700 text-sm font-600 text-center py-2 rounded-lg mb-4">✓ Copied to clipboard!</div>
+
+            <div class="flex gap-3 mb-3">
+              <button onclick="exportForCloudy()" class="btn-secondary-sf flex-1 py-3 text-sm flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 001.7-9.7 5.5 5.5 0 00-10.7-1.9A4.5 4.5 0 003 15z"/></svg>
+                Export for Cloudy
+              </button>
+            </div>
+            <div id="cloudy-hint" class="hidden bg-blue-50 text-blue-700 text-sm font-600 text-center py-2 rounded-lg mb-4">Downloaded! Sign in via SSO at sfdc.co/cloudy, then drag your file in.</div>
 
             <p class="text-xs text-gray-400 text-center">The downloaded HTML file is fully self-contained — open it in any browser for a live demo.</p>
           </div>
@@ -654,6 +681,7 @@
   </div>
 
   <!-- Scripts -->
+  <script src="https://sassysolutions-accounts-8215113235cf.aster-virginia.herokuapp.com/saasy-auth.js"></script>
   <script>
 // ==== inlined from ./js/defaults.js ====
 // ============================================================
@@ -3052,6 +3080,8 @@ document.addEventListener('DOMContentLoaded', () => {
   updateNavButtons();
   schedulePreview();
   initQuickStart();
+  syncAuthUI();
+  hydrateFromProjectId();
 });
 
 // ---- QUICK START (AI URL analysis) ----
@@ -4119,6 +4149,16 @@ function copyHTML() {
   });
 }
 
+function exportForCloudy() {
+  downloadHTML();
+  window.open('https://sfdc.co/cloudy', '_blank', 'noopener');
+  const hint = document.getElementById('cloudy-hint');
+  if (hint) {
+    hint.classList.remove('hidden');
+    setTimeout(() => hint.classList.add('hidden'), 6000);
+  }
+}
+
 function startOver() {
   if (!confirm('Reset everything and start over?')) return;
   state.brand = { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' };
@@ -4144,6 +4184,156 @@ function esc(str) {
   const d = document.createElement('div');
   d.textContent = str || '';
   return d.innerHTML;
+}
+
+// ---- SAASY AUTH / SAVE PROJECTS ----
+const SAASY_TOOL = 'lpg';
+let currentProjectId = null;
+
+function syncAuthUI() {
+  if (!window.SaasyAuth) return;
+  const btn = document.getElementById('btn-auth');
+  const emailEl = document.getElementById('auth-email');
+  if (!btn || !emailEl) return;
+  if (SaasyAuth.isSignedIn()) {
+    btn.textContent = 'Sign Out';
+    emailEl.textContent = SaasyAuth.getEmail();
+    emailEl.classList.remove('hidden');
+  } else {
+    btn.textContent = 'Sign In';
+    emailEl.classList.add('hidden');
+  }
+}
+
+async function onAuthButtonClick() {
+  if (!window.SaasyAuth) return;
+  if (SaasyAuth.isSignedIn()) {
+    SaasyAuth.signOut();
+    syncAuthUI();
+    return;
+  }
+  try {
+    await SaasyAuth.signIn();
+    syncAuthUI();
+  } catch (err) {
+    // user cancelled sign-in
+  }
+}
+
+async function saveCurrentProject() {
+  if (!window.SaasyAuth) return;
+  if (!SaasyAuth.isSignedIn()) {
+    try { await SaasyAuth.signIn(); syncAuthUI(); } catch (err) { return; }
+  }
+  const successEl = document.getElementById('save-project-success');
+  try {
+    const name = state.brand.name || 'Untitled Portal';
+    const project = await SaasyAuth.saveProject({ tool: SAASY_TOOL, name, payload: state, id: currentProjectId });
+    currentProjectId = project.id;
+    if (successEl) {
+      successEl.classList.remove('hidden');
+      setTimeout(() => successEl.classList.add('hidden'), 3000);
+    }
+  } catch (err) {
+    alert('Could not save project: ' + err.message);
+  }
+}
+
+async function openMyProjects() {
+  if (!window.SaasyAuth) return;
+  const panel = document.getElementById('my-projects-panel');
+  if (!panel.classList.contains('hidden')) { closeMyProjects(); return; }
+  if (!SaasyAuth.isSignedIn()) {
+    try { await SaasyAuth.signIn(); syncAuthUI(); } catch (err) { return; }
+  }
+  panel.classList.remove('hidden');
+  const list = document.getElementById('my-projects-list');
+  list.innerHTML = '<div class="px-4 py-3 text-xs text-gray-400">Loading…</div>';
+  try {
+    const projects = await SaasyAuth.listProjects({ tool: SAASY_TOOL });
+    if (!projects.length) {
+      list.innerHTML = '<div class="px-4 py-3 text-xs text-gray-400">No saved projects yet.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    projects.forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'px-4 py-3 flex items-center justify-between gap-2';
+      row.innerHTML = `
+        <div class="min-w-0">
+          <div class="text-xs font-600 truncate">${esc(p.name)}</div>
+          <div class="text-xs text-gray-400">${new Date(p.updated_at).toLocaleDateString()}</div>
+        </div>
+        <div class="flex gap-1 flex-shrink-0">
+          <button data-action="load" class="text-xs border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Load</button>
+          <button data-action="delete" class="text-xs border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Delete</button>
+        </div>`;
+      row.querySelector('[data-action="load"]').addEventListener('click', () => loadProjectAndHydrate(p.id));
+      row.querySelector('[data-action="delete"]').addEventListener('click', () => deleteProjectFromList(p.id, row));
+      list.appendChild(row);
+    });
+  } catch (err) {
+    list.innerHTML = '<div class="px-4 py-3 text-xs text-red-500">Failed to load projects.</div>';
+  }
+}
+
+function closeMyProjects() {
+  const panel = document.getElementById('my-projects-panel');
+  if (panel) panel.classList.add('hidden');
+}
+
+async function deleteProjectFromList(id, row) {
+  if (!confirm('Delete this saved project?')) return;
+  try {
+    await SaasyAuth.deleteProject(id);
+    row.remove();
+    if (id === currentProjectId) currentProjectId = null;
+  } catch (err) {
+    alert('Could not delete project: ' + err.message);
+  }
+}
+
+async function loadProjectAndHydrate(id) {
+  try {
+    const project = await SaasyAuth.loadProject(id);
+    Object.assign(state, project.payload);
+    currentProjectId = project.id;
+
+    populateFormFromState();
+    renderDynamicSections();
+
+    const logoPreview = document.getElementById('preview-logo');
+    const logoSrc = state.brand.logoData || state.brand.logoUrl || '';
+    if (logoPreview) {
+      logoPreview.src = logoSrc;
+      logoPreview.classList.toggle('hidden', !logoSrc);
+    }
+    setVal('url-logo', state.brand.logoUrl || '');
+
+    const avatarPreview = document.getElementById('preview-avatar');
+    const avatarSrc = state.member.avatarData || state.member.avatarUrl || '';
+    if (avatarPreview) {
+      avatarPreview.src = avatarSrc;
+      avatarPreview.classList.toggle('hidden', !avatarSrc);
+    }
+    setVal('url-avatar', state.member.avatarUrl || '');
+
+    goToStep(0);
+    schedulePreview();
+    closeMyProjects();
+  } catch (err) {
+    alert('Could not load project: ' + err.message);
+  }
+}
+
+async function hydrateFromProjectId() {
+  if (!window.SaasyAuth) return;
+  const id = new URLSearchParams(window.location.search).get('projectId');
+  if (!id) return;
+  if (!SaasyAuth.isSignedIn()) {
+    try { await SaasyAuth.signIn(); syncAuthUI(); } catch (err) { return; }
+  }
+  await loadProjectAndHydrate(id);
 }
 
 </script>
