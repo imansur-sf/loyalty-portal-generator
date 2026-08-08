@@ -1242,12 +1242,12 @@ async function openMyProjects() {
       row.className = 'px-4 py-3 flex items-center justify-between gap-2';
       row.innerHTML = `
         <div class="min-w-0">
-          <div class="text-xs font-600 truncate">${esc(p.name)}</div>
+          <div class="text-xs font-600 truncate text-gray-800">${esc(p.name)}</div>
           <div class="text-xs text-gray-400">${new Date(p.updated_at).toLocaleDateString()}</div>
         </div>
         <div class="flex gap-1 flex-shrink-0">
-          <button data-action="load" class="text-xs border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Load</button>
-          <button data-action="delete" class="text-xs border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Delete</button>
+          <button data-action="load" class="text-xs text-gray-700 border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Load</button>
+          <button data-action="delete" class="text-xs text-gray-700 border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Delete</button>
         </div>`;
       row.querySelector('[data-action="load"]').addEventListener('click', () => loadProjectAndHydrate(p.id));
       row.querySelector('[data-action="delete"]').addEventListener('click', () => deleteProjectFromList(p.id, row));

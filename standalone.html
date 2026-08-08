@@ -191,7 +191,7 @@
         <button id="btn-auth" onclick="onAuthButtonClick()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Sign In</button>
         <button onclick="startOver()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Start Over</button>
 
-        <div id="my-projects-panel" class="hidden absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-200 text-left z-50 overflow-hidden">
+        <div id="my-projects-panel" class="hidden absolute right-0 top-full mt-2 w-80 bg-white text-gray-800 rounded-xl shadow-lg border border-gray-200 text-left z-50 overflow-hidden">
           <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <span class="text-xs font-700 uppercase tracking-wide text-gray-500">My Projects</span>
             <button onclick="closeMyProjects()" class="text-gray-400 hover:text-gray-600 text-sm">✕</button>
@@ -4395,12 +4395,12 @@ async function openMyProjects() {
       row.className = 'px-4 py-3 flex items-center justify-between gap-2';
       row.innerHTML = `
         <div class="min-w-0">
-          <div class="text-xs font-600 truncate">${esc(p.name)}</div>
+          <div class="text-xs font-600 truncate text-gray-800">${esc(p.name)}</div>
           <div class="text-xs text-gray-400">${new Date(p.updated_at).toLocaleDateString()}</div>
         </div>
         <div class="flex gap-1 flex-shrink-0">
-          <button data-action="load" class="text-xs border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Load</button>
-          <button data-action="delete" class="text-xs border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Delete</button>
+          <button data-action="load" class="text-xs text-gray-700 border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Load</button>
+          <button data-action="delete" class="text-xs text-gray-700 border border-gray-200 rounded px-2 py-1 hover:bg-gray-50">Delete</button>
         </div>`;
       row.querySelector('[data-action="load"]').addEventListener('click', () => loadProjectAndHydrate(p.id));
       row.querySelector('[data-action="delete"]').addEventListener('click', () => deleteProjectFromList(p.id, row));
