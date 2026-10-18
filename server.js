@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const { createAccountsProxy } = require('./accounts-proxy');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,7 +34,13 @@ const rateBuckets = new Map();
 // ============================================================
 // Middleware
 // ============================================================
+app.use('/projects', express.json({ limit: '20mb' }));
 app.use(express.json({ limit: '1mb' }));
+app.use(['/saasy-auth.js', '/auth', '/projects'], createAccountsProxy());
+app.use((error, req, res, next) => {
+  if (error.type === 'entity.too.large') return res.status(413).json({ error: 'payload_too_large' });
+  next(error);
+});
 
 // CORS for API routes (same-origin won't need it, but useful for dev)
 app.use('/api', (req, res, next) => {
@@ -350,10 +357,11 @@ app.get('*', (req, res) => {
 // ============================================================
 // Start server
 // ============================================================
-app.listen(PORT, '::', () => {
+if (require.main === module) app.listen(PORT, '::', () => {
   console.log(`Loyalty Portal Generator running on port ${PORT} (IPv6 dual-stack)`);
   console.log(`LLM backend: ${GEMINI_API_KEY ? 'Gemini API configured' : 'NOT configured (set GEMINI_API_KEY)'}`);
 });
+module.exports = app;
 
 // ============================================================
 // Utilities

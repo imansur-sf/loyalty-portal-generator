@@ -58,6 +58,9 @@ def inline_script(match: re.Match[str]) -> str:
 
 def main() -> None:
     html = INDEX.read_text(encoding="utf-8")
+    # Standalone builds can also be hosted as a static file, without LPG's
+    # accounts proxy. Keep their shared auth endpoint independent of hosting.
+    html = html.replace('  <!-- Scripts -->', '  <script>window.LPG_STANDALONE = true;</script>\n  <!-- Scripts -->')
 
     # 1) Inline @font-face url('./assets/fonts/*.woff2') references
     font_pattern = re.compile(r"url\('(\./assets/fonts/[^']+\.woff2)'\)")

@@ -1,6 +1,16 @@
 # LPG Session Handoff
 
-Last updated: 2026-08-08. **Read this first.** No PROGRESS.md exists yet for this repo — `git log` is the history; this file is current state + what's left. `CLAUDE.md` in this repo is stale (still describes a Page Host zip-bundle deployment that was abandoned — see `project_lpg_hosting.md` memory and the "Architecture" section below for what's actually true now); its "Two build outputs" section is still accurate and is cross-referenced, not duplicated, below.
+Last updated: 2026-10-18. **Read this first.** `git log` records shipped changes; PROGRESS.md records the current sign-in/save rollout. `CLAUDE.md` in this repo is stale (still describes a Page Host zip-bundle deployment that was abandoned); its two-build-outputs instructions still apply.
+
+## October sign-in and saving update
+
+- `js/projects.js` owns named cloud saves, Update/Save as New, My Projects, project links, and per-tab IndexedDB draft recovery. `js/app.js` owns wizard editing; Start Over now clears project identity. Save is available in the top bar on every step.
+- Hosted auth uses `js/accounts-loader.js` to load `/saasy-auth.js`; `accounts-proxy.js` forwards `/saasy-auth.js`, `/auth`, and `/projects` to the same shared accounts service as UPG. Set `SAASY_ACCOUNTS_URL` only when overriding the default shared backend. Standalone builds retain direct accounts access, including when hosted as a static file.
+- Shared accounts currently uses Magic email OTP and the existing SaaSy JWT/project database; no accounts migration is required. The August API descriptions below are historical: accounts now supports Magic, project revisions, idempotency keys, and 20 MB project requests.
+- Cloud payloads retain the legacy portal state and add `_lpgEditor` metadata for step/source URL. Older projects still open. Cloud saves use bounded payloads, revision checks, stable retry keys, same-account session recovery, and protection against late responses replacing newer work.
+- Browser backups are per tab, contain no tokens, and are explicitly distinct from online saves. Restore checks the original account; save online for cross-device access.
+- `npm test` covers project lifecycle/races/recovery and the real HTTP accounts proxy. Rebuild `standalone.html` with `python3 build-standalone.py` after editing any frontend module.
+- Interactive browser verification was blocked by the managed browser origin policy. A real emailed-OTP round trip still needs a user browser check after deployment.
 
 ## Where we are
 
