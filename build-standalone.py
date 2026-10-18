@@ -17,6 +17,7 @@ Writes: ./standalone.html
 
 from __future__ import annotations
 import base64
+import json
 import re
 from pathlib import Path
 
@@ -61,6 +62,14 @@ def main() -> None:
     # Standalone builds can also be hosted as a static file, without LPG's
     # accounts proxy. Keep their shared auth endpoint independent of hosting.
     html = html.replace('  <!-- Scripts -->', '  <script>window.LPG_STANDALONE = true;</script>\n  <!-- Scripts -->')
+
+    # PDF.js ES modules are loaded on demand; embed both modules for file://
+    # use so requirements upload never depends on a third-party CDN.
+    pdf_assets = {
+        "module": base64.b64encode((ROOT / "assets/pdfjs/pdf.min.mjs").read_bytes()).decode("ascii"),
+        "worker": base64.b64encode((ROOT / "assets/pdfjs/pdf.worker.min.mjs").read_bytes()).decode("ascii"),
+    }
+    html = html.replace('  <!-- Scripts -->', '<script>window.LPG_PDF_ASSETS = ' + json.dumps(pdf_assets) + ';</script>\n  <!-- Scripts -->')
 
     # 1) Inline @font-face url('./assets/fonts/*.woff2') references
     font_pattern = re.compile(r"url\('(\./assets/fonts/[^']+\.woff2)'\)")

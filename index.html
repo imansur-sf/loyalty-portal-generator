@@ -167,6 +167,28 @@
     /* ── Utility classes still relying on tailwind bg-*/text-* colours don't need remapping;
          these overrides target only the wizard shell so the generated portal stays untouched. */
   </style>
+
+  <style>
+    .brief-inputs {display:grid;gap:8px;margin:20px 0 12px}
+    .brief-inputs label {font-size:13px;font-weight:600;color:white}.brief-inputs label span {font-weight:400;opacity:.8}
+    .brief-inputs input,.brief-inputs textarea,.brief-inputs select {width:100%;padding:10px 12px;border:1px solid #adb9ce;border-radius:8px;background:white;color:#182333;font-size:14px;line-height:1.5}
+    .brief-inputs p,.brief-inputs ul {font-size:12px;line-height:1.6;color:#e1e8f4}.brief-inputs button {text-decoration:underline;padding:5px 10px}
+    .program-authoring {margin-top:18px;margin-bottom:18px;color:#182333}
+    .program-authoring[hidden] {display:none}.program-authoring h4 {font-weight:700;font-size:16px;margin:24px 0 10px}
+    .program-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .program-row {display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:12px}.program-row .program-field {flex:1;min-width:100px}
+    .program-field {display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;margin:10px 0}
+    .program-field input,.program-field select,.program-field textarea {width:100%;padding:9px;border:1px solid #94a3b8;border-radius:7px;color:#182333;background:#fff;font-size:14px;font-weight:400}
+    .program-check {display:flex;gap:8px;align-items:center;font-size:13px;margin:10px 0}.program-check input {width:18px;height:18px}
+    .program-help {font-size:13px;line-height:1.6;color:#475569;margin:10px 0 16px}
+    .program-authoring button {border:1px solid #8b9bb0;border-radius:7px;padding:10px 14px;font-size:13px;font-weight:600;min-height:44px}
+    .program-actions {display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+    .program-edit-card {padding:12px;border:1px solid #cbd5e1;border-radius:10px;margin:12px 0}.program-edit-card legend {font-weight:600;font-size:13px;padding:0 6px}
+    .program-coverage {display:grid;gap:10px;font-size:13px}.program-coverage li {padding:12px;background:#f1f5f9;border-radius:8px}.program-coverage small {display:block;color:#475569;margin-top:4px}
+    .program-warning {color:#b42318!important;font-size:13px;line-height:1.6;background:#fff4ed;border-radius:6px;padding:8px}.program-warning:empty {display:none}
+    .brief-inputs :focus-visible,.program-authoring :focus-visible {outline:3px solid #2b83f6;outline-offset:3px}
+    @media(max-width:640px){.program-grid {grid-template-columns:1fr}.program-row {display:block}}
+  </style>
 </head>
 <body class="min-h-screen">
 
@@ -257,8 +279,24 @@
           <div class="quickstart" id="quickstart-panel">
             <div class="quickstart-inner">
               <div class="quickstart-eyebrow">⚡ Quick Start</div>
-              <div class="quickstart-title">Analyze customer URL with AI</div>
-              <div class="quickstart-sub">Paste the customer's homepage — AI extracts brand identity, colors, and generates industry-appropriate vouchers, offers, badges, and copy. You can still edit anything after.</div>
+              <div class="quickstart-title">Build around your customer’s program</div>
+              <div class="quickstart-sub">Use a website for a quick branded portal, or add a brief and requirements to create an interactive B2C or B2B program.</div>
+              <div class="brief-inputs">
+                <label for="brief-mode">Who participates?</label>
+                <select id="brief-mode"><option value="b2c">B2C · Individual members</option><option value="b2b">B2B · Business accounts</option></select>
+                <label for="brief-objective">Demo objective <span>(optional)</span></label>
+                <input id="brief-objective" maxlength="2000" placeholder="Show how members earn status and redeem points toward renewal">
+                <label for="brief-text">Customer requirements or instructions <span>(optional)</span></label>
+                <textarea id="brief-text" rows="4" maxlength="16000" placeholder="Describe the program, rules, audience and what the prototype should demonstrate. You can also attach the customer's requirements below."></textarea>
+                <label for="brief-roles">People and roles to demonstrate <span>(optional)</span></label>
+                <input id="brief-roles" maxlength="1000" placeholder="For example: account administrator, purchaser, rewards approver">
+                <label for="brief-files">Requirements documents <span>(optional)</span></label>
+                <input id="brief-files" type="file" accept="application/pdf,text/plain,.pdf,.txt" multiple aria-describedby="brief-file-help">
+                <p id="brief-file-help">Up to 3 text PDFs or TXT files, 20 MB each. Extracted text goes to your selected AI service when you analyze and is included in saved projects. Original PDFs are not saved. Scans need pasted text.</p>
+                <ul id="brief-sources"></ul>
+                <p id="brief-import-status" role="status" aria-live="polite"></p>
+                <label for="quickstart-url">Brand website <span>(optional when you provide a brief)</span></label>
+              </div>
               <div class="quickstart-row">
                 <input type="text" id="quickstart-url" class="quickstart-input" placeholder="https://expresswashconcepts.com" spellcheck="false" autocomplete="off">
                 <button id="quickstart-btn" class="quickstart-btn" onclick="onQuickStartAnalyze()">Analyze →</button>
@@ -305,6 +343,20 @@
             </div>
           </div>
 
+          <section class="wizard-card p-7 program-authoring" aria-labelledby="program-controls-title">
+            <h2 id="program-controls-title" class="wizard-title">Portal experience</h2>
+            <label class="program-field" for="output-template">Output template<select id="output-template"><option value="classic">Classic · Original portal</option><option value="modern">Modern Brand · Spacious branded cards</option></select></label>
+            <label class="program-check"><input id="program-enabled" type="checkbox"> Use reviewed program experience</label>
+            <p id="program-mode-note" class="program-help"></p>
+            <div class="program-actions"><button type="button" id="program-edit">Edit program rules</button><button type="button" id="program-sample">Start from editable sample</button></div>
+          </section>
+          <section id="program-review" class="wizard-card p-7 program-authoring" hidden aria-labelledby="program-review-title">
+            <h2 id="program-review-title" class="wizard-title">Review your program</h2>
+            <p class="program-help">Check the interpretation before applying it. Opening balances and people are demo data. Changes here do not affect the current preview until you apply them.</p>
+            <div id="program-review-fields"></div>
+            <p id="program-review-error" role="alert" class="program-warning"></p>
+            <div class="program-actions"><button type="button" id="program-apply" class="btn-primary-sf">Apply reviewed program</button><button type="button" id="program-discard">Discard proposal</button></div>
+          </section>
           <div class="wizard-card p-7">
             <div class="wizard-eyebrow mb-2">Step 1 of 7</div>
             <h2 class="wizard-title mb-1">Brand & Identity</h2>
@@ -705,10 +757,15 @@
   <script src="./js/accounts-loader.js?v=20261018"></script>
   <script src="./js/defaults.js?v=20260718c"></script>
   <script src="./js/images.js?v=20260718c"></script>
-  <script src="./js/generator.js?v=20260718c"></script>
+  <script src="./js/program-model.js?v=20261018b"></script>
+  <script src="./js/program-runtime.js?v=20261018b"></script>
+  <script src="./js/portal-templates.js?v=20261018b"></script>
+  <script src="./js/requirements.js?v=20261018b"></script>
+  <script src="./js/requirements-editor.js?v=20261018b"></script>
+  <script src="./js/generator.js?v=20261018b"></script>
   <script src="./js/pagehost.js?v=20260718c"></script>
   <script src="./js/localai.js?v=20260718c"></script>
-  <script src="./js/app.js?v=20261018"></script>
-  <script src="./js/projects.js?v=20261018"></script>
+  <script src="./js/app.js?v=20261018b"></script>
+  <script src="./js/projects.js?v=20261018b"></script>
 </body>
 </html>

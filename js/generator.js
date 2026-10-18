@@ -3,6 +3,13 @@
 // ============================================================
 
 function generatePortalHTML(s) {
+  let html = generateClassicPortalHTML(s);
+  if (typeof window !== 'undefined' && window.LPGProgramRuntime) html = window.LPGProgramRuntime.enhance(html, s);
+  if (typeof window !== 'undefined' && window.PortalTemplates) html = window.PortalTemplates.apply(html, s);
+  return html;
+}
+
+function generateClassicPortalHTML(s) {
   const esc = (t) => (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const raw = (t) => t || '';
   const primaryLight = lightenColor(s.colors.primary, 20);

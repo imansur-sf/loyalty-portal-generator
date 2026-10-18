@@ -93,7 +93,7 @@ function validatePortalPayload(payload) {
 }
 function hydratePortal(payload) {
   validatePortalPayload(payload);
-  const copy = cloneProject(payload), editor = copy._lpgEditor || {};
+  const copy = window.LPGRequirements && window.LPGProgram ? window.LPGRequirements.migratePayload(payload, window.LPGProgram) : cloneProject(payload), editor = copy._lpgEditor || {};
   delete copy._lpgEditor;
   // Accept older saved portals while filling newer optional fields with defaults.
   const restored = Object.assign(cloneProject(editorDefaults), copy);

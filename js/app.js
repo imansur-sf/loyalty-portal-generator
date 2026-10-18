@@ -4,6 +4,9 @@
 
 // ---- STATE ----
 const state = {
+  schemaVersion: 2,
+  brief: { mode: 'b2c', objective: '', text: '', roles: '', sources: [] },
+  program: null, programReview: null, programEnabled: false, outputTemplate: 'classic',
   brand: { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' },
   colors: { primary: '#2D3748', secondary: '#F7FAFC', accent: '#4299E1', dark: '#1A202C', menu: '#2D3748' },
   menuColorCustom: false,
@@ -55,6 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
   updateNavButtons();
   schedulePreview();
   initQuickStart();
+  window.LPGRequirementsEditor?.init();
   initializeProjects();
 });
 
@@ -216,8 +220,14 @@ async function onQuickStartAnalyze() {
   const url = (input?.value || '').trim();
   setQuickStartError('');
 
-  if (!url) {
-    setQuickStartError('Enter a customer URL to analyze.');
+  if (window.LPGRequirementsEditor?.isImporting()) {
+    setQuickStartError('Please wait for the requirements documents to finish reading.');
+    return;
+  }
+
+  const programRequest = window.LPGRequirementsEditor?.wantsProgram();
+  if (!url && !programRequest) {
+    setQuickStartError('Enter a customer URL, describe your program, or attach requirements.');
     return;
   }
 
@@ -233,6 +243,11 @@ async function onQuickStartAnalyze() {
 
   btn.disabled = true;
   try {
+    if (programRequest) {
+      await window.LPGRequirementsEditor.analyze(client, url);
+      return;
+    }
+    const analysisSnapshot = JSON.stringify(state), analysisProject = projectEpoch;
     const fetchLabel = mode === 'pagehost'
       ? 'Fetching customer site via Page Host proxy…'
       : 'Fetching customer site via CORS proxy…';
@@ -246,6 +261,7 @@ async function onQuickStartAnalyze() {
         else if (phase === 'generating_images') setQuickStartStatus('🎨 Generating AI images for empty slots…', true);
       }
     });
+    if (analysisProject !== projectEpoch || analysisSnapshot !== JSON.stringify(state) || url !== (input?.value || '').trim()) throw new Error('The editor changed while AI was working. Your edits were kept; analyze again when ready.');
     setQuickStartStatus('Populating wizard…', true);
     applyAnalysis(data);
     const host = new URL(data._meta.source_url).hostname;
@@ -476,6 +492,7 @@ function applyIndustryDefaults(industry) {
 }
 
 function populateFormFromState() {
+  window.LPGRequirementsEditor?.sync();
   // Brand
   setVal('brand-name', state.brand.name);
   setVal('brand-industry', state.brand.industry);
@@ -1146,6 +1163,7 @@ function startOver() {
   resetProjectIdentity();
   discardDraftRecovery(false);
   setVal('quickstart-url', '');
+  window.LPGRequirementsEditor?.reset();
   state.brand = { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' };
   state.member = { name: 'Imran Mansur', number: '234567', points: 1200, email: '', phone: '', joinDate: '', avatarUrl: '', avatarData: '' };
   state.tierProgress = 30;
