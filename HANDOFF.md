@@ -11,6 +11,7 @@ Last updated: 2026-10-18. **Read this first.** `git log` records shipped changes
 - Browser backups are per tab, contain no tokens, and are explicitly distinct from online saves. Restore checks the original account; save online for cross-device access.
 - `npm test` covers project lifecycle/races/recovery and the real HTTP accounts proxy. Rebuild `standalone.html` with `python3 build-standalone.py` after editing any frontend module.
 - Interactive browser verification was blocked by the managed browser origin policy. A real emailed-OTP round trip still needs a user browser check after deployment.
+- Deployment verified: functional commit `46010b9`, Heroku v25. The web dyno reached `up`; in-dyno HTTP checks confirmed healthy LPG, Magic provider, shared widget, and anonymous project rejection (401). All 18 regression tests passed.
 
 ## Where we are
 
