@@ -4198,32 +4198,125 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
   // ---- DEFAULT BACKEND (Worker's /llm endpoint) ----
   // Client doesn't hold a key. Worker holds SF_GATEWAY_KEY as a secret and
   // proxies to the SF Gateway. No BYOK required for the typical user.
+  const JOB_DEADLINE_MS = 150000;
+  const JOB_POLL_MS = 1500;
+  const REQUEST_TIMEOUT_MS = 24000;
+
+  async function timedFetch(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = controller && typeof window.setTimeout === 'function'
+      ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      const response = await fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
+      let payload, parseError;
+      if (options.method !== 'DELETE' && response.status !== 404) {
+        try { payload = await response.json(); }
+        catch (error) {
+          if (controller?.signal.aborted || ['AbortError', 'TypeError'].includes(error.name)) throw error;
+          parseError = error;
+        }
+      }
+      // Keep the request deadline active through downloading/parsing the body,
+      // including multi-megabyte image results, not just receipt of headers.
+      return { status: response.status, ok: response.ok, headers: response.headers,
+        json: async () => { if (parseError) throw parseError; return payload; } };
+    }
+    finally { if (timer !== null) window.clearTimeout(timer); }
+  }
+
+  function backendFailure(status, body = {}, transport = false) {
+    const code = body?.error;
+    if (status === 401 || status === 403) return localError('generation_session');
+    if (code === 'generation_busy') return localError('generation_busy');
+    if (code === 'generation_result_too_large') return localError('generation_result_too_large');
+    if (code === 'llm_not_configured') return localError('default_not_configured');
+    if (code === 'timeout') return localError('generation_provider_timeout');
+    if (code === 'network_error') return localError('generation_provider_network');
+    if (code === 'gemini_auth_failed') return localError('generation_provider_auth');
+    if (status === 429) return localError('default_rate_limited');
+    if ([502, 503, 504].includes(status)) return localError(transport ? 'generation_gateway' : 'default_unavailable', { status, upstream: code });
+    return localError('default_failed', { status, upstream: code, upstreamStatus: body?.status });
+  }
+
+  async function transportJSON(response) {
+    if ([401, 403].includes(response.status)) throw localError('generation_session');
+    const type = response.headers?.get('content-type') || '';
+    if (/text\/html/i.test(type)) throw localError(response.status >= 500 ? 'generation_gateway' : 'generation_session', { status: response.status });
+    try { return await response.json(); }
+    catch (_) { throw localError(response.status >= 500 ? 'generation_gateway' : 'generation_protocol', { status: response.status }); }
+  }
+
+  // Short submit/poll requests prevent Heroku's router from terminating long AI
+  // calls. Job credentials stay in this closure and never enter saved projects.
+  async function runBackendJob(kind, body, base = getScraperEndpoint()) {
+    const paths = { llm: '/api/llm', images: '/api/generate-images', image: '/api/generate-image' };
+    if (!paths[kind]) throw localError('generation_protocol');
+    const deadline = Date.now() + JOB_DEADLINE_MS;
+    let submitted;
+    try {
+      submitted = await timedFetch(`${base}/api/jobs`, { method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, kind }) });
+    } catch (_) {
+      // The server may already have accepted the paid job. Never resubmit it or
+      // fall back to another POST when the submission outcome is uncertain.
+      throw localError('generation_submission_unknown');
+    }
+    if (submitted.status === 404) {
+      // Older custom backends explicitly lack this endpoint. This is the only
+      // permitted synchronous fallback, not a recovery for a failed AI call.
+      try {
+        const legacy = await timedFetch(`${base}${paths[kind]}`, { method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const payload = await transportJSON(legacy);
+        if (!legacy.ok) throw backendFailure(legacy.status, payload);
+        return payload;
+      } catch (error) {
+        if (error.code) throw error;
+        throw localError('generation_legacy_network');
+      }
+    }
+    const ticket = await transportJSON(submitted);
+    if (submitted.status !== 202) {
+      if (!submitted.ok) throw backendFailure(submitted.status, ticket, true);
+      throw localError('generation_protocol');
+    }
+    if (!ticket || !/^[a-zA-Z0-9_-]{8,128}$/.test(ticket.id || '') || !/^[a-zA-Z0-9_-]{8,256}$/.test(ticket.token || '')) throw localError('generation_protocol');
+    const url = `${base}/api/jobs/${encodeURIComponent(ticket.id)}`;
+    const headers = { Authorization: `Bearer ${ticket.token}` };
+    let transientFailures = 0;
+    while (Date.now() < deadline) {
+      await new Promise(resolve => window.setTimeout(resolve, Math.min(JOB_POLL_MS, Math.max(0, deadline - Date.now()))));
+      if (Date.now() >= deadline) break;
+      let response;
+      try {
+        response = await timedFetch(url, { method: 'GET', credentials: 'same-origin', cache: 'no-store', headers }, Math.min(REQUEST_TIMEOUT_MS, deadline - Date.now()));
+      } catch (_) {
+        if (Date.now() >= deadline) break;
+        if (++transientFailures < 3 && Date.now() < deadline) continue;
+        throw localError('generation_poll_network');
+      }
+      if (response.status === 404) throw localError('generation_job_missing');
+      if ([502, 503, 504].includes(response.status)) {
+        if (++transientFailures < 3 && Date.now() < deadline) continue;
+        throw localError('generation_gateway', { status: response.status });
+      }
+      const job = await transportJSON(response);
+      if (!response.ok) throw backendFailure(response.status, job, true);
+      transientFailures = 0;
+      if (job?.status === 'pending') continue;
+      if (job?.status !== 'complete' || !Number.isInteger(job.result?.status) || job.result.status < 200 || job.result.status > 599 || !job.result.body || typeof job.result.body !== 'object') throw localError('generation_protocol');
+      // Free large image responses promptly. Cleanup failure must never turn a
+      // successfully retrieved result into a failed generation.
+      try { await timedFetch(url, { method: 'DELETE', credentials: 'same-origin', headers }, 3000); } catch (_) { /* expires server-side */ }
+      if (job.result.status >= 400) throw backendFailure(job.result.status, job.result.body);
+      return job.result.body;
+    }
+    throw localError('generation_deadline');
+  }
+
   async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
     const base = getScraperEndpoint(); // empty = same origin; both /api/scrape and /api/llm live here
-
-    let res;
-    try {
-      res = await fetch(`${base}/api/llm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, system, tier, model, maxTokens })
-      });
-    } catch (err) {
-      throw localError('default_network', { endpoint: base || window.location.origin, cause: err.message });
-    }
-
-    if (res.status === 429) throw localError('default_rate_limited');
-    if (res.status === 503) {
-      const body = await res.json().catch(() => ({}));
-      if (body.error === 'llm_not_configured') throw localError('default_not_configured');
-      throw localError('default_unavailable', { status: 503 });
-    }
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw localError('default_failed', { status: res.status, upstream: body.error, upstreamStatus: body.status });
-    }
-
-    const data = await res.json();
+    const data = await runBackendJob('llm', { prompt, system, tier, model, maxTokens }, base);
     if (!data || !data.text) throw localError('default_empty_response');
     return { text: data.text, model_used: data.model_used, usage: data.usage };
   }
@@ -4339,8 +4432,8 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     { collection: 'benefits', field: 'imageUrl', dataField: 'imageData', type: 'benefit',  aspect: '1:1',  priority: 1 },
   ];
   // Also handle upsell.bgImageUrl separately (single object, not array)
-  const IMAGE_BATCH_SIZE = 12; // Server limit per request.
-  const MAX_IMAGE_GEN = 48; // Bound exceptional programs; normal portals use two batches.
+  const IMAGE_BATCH_SIZE = 4; // Bound async job concurrency and large result buffers.
+  const MAX_IMAGE_GEN = 48; // Bound exceptional programs across all batches.
 
   function buildImagePrompt(type, item, brand) {
     const brandName = brand.brandName || 'the brand';
@@ -4457,7 +4550,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     }
 
     // Round-robin priority prevents a large rewards list from starving offers,
-    // clubs, badges and benefits. Respect the backend's 12-image request limit.
+    // clubs, badges and benefits. Keep each asynchronous result batch small.
     slots.sort((a, b) => a.priority - b.priority);
     const selected = slots.slice(0, MAX_IMAGE_GEN);
     const skipped = slots.length - selected.length;
@@ -4470,17 +4563,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
       const batch = selected.slice(offset, offset + IMAGE_BATCH_SIZE);
       attempted += batch.length;
       try {
-        const res = await fetch(`${base}/api/generate-images`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompts: batch.map(s => ({ slot: s.slot, prompt: s.prompt })) })
-        });
-        if (!res.ok) {
-          errors.push(`HTTP ${res.status}`);
-          // Rate limits and unavailable services should not receive more batches.
-          if ([401, 403, 429, 502, 503, 504].includes(res.status)) break;
-          continue;
-        }
-        const data = await res.json();
+        const data = await runBackendJob('images', { prompts: batch.map(s => ({ slot: s.slot, prompt: s.prompt })) }, base);
         const completed = new Set();
         if (Array.isArray(data.results)) {
           for (const result of data.results) {
@@ -4496,7 +4579,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
         }
         if (completed.size < batch.length) errors.push(`${batch.length - completed.size} images failed in a batch`);
       } catch (err) {
-        errors.push(err.message || 'Image service unavailable');
+        errors.push(humanErrorMessage(err));
         break;
       }
     }
@@ -4649,6 +4732,32 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
       case 'missing_api_key':
         return 'This tool works without a key by default. If you\'d prefer to route through your own account, paste an Anthropic key (sk-ant-…) or an SF LLM Gateway key (sk-…) in Advanced.';
       // Default backend (Worker /llm)
+      case 'generation_submission_unknown':
+        return 'The connection was interrupted while starting generation. The server may still be working; your current portal was kept. Wait briefly before trying again.';
+      case 'generation_legacy_network':
+        return 'This backend does not support background generation, and its request timed out or lost connection. Your current portal was kept. Update the backend or try again.';
+      case 'generation_poll_network':
+        return 'Generation started, but the connection was interrupted while checking progress. Your current portal was kept. Check your connection before trying again.';
+      case 'generation_deadline':
+        return 'Generation did not finish within the waiting limit. Your current portal was kept; try again with a shorter brief.';
+      case 'generation_job_missing':
+        return 'This generation result expired or the server restarted. Your current portal was kept. Please generate again.';
+      case 'generation_session':
+        return 'The app access session needs attention. Sign in to the app again, then retry generation. Your current portal was kept.';
+      case 'generation_gateway':
+        return 'The hosting gateway is temporarily unavailable while checking generation. Your current portal was kept. Please try again shortly.';
+      case 'generation_busy':
+        return 'The generator is handling several requests. Your current portal was kept; wait a few seconds and try again.';
+      case 'generation_protocol':
+        return 'The backend returned an unexpected generation response. Your current portal was kept. Refresh the app and try again.';
+      case 'generation_result_too_large':
+        return 'The generated result exceeded the server size limit. Your current portal was kept; try fewer images or a smaller scope.';
+      case 'generation_provider_timeout':
+        return 'The AI provider took too long to respond. Your current portal was kept; try again or shorten the brief.';
+      case 'generation_provider_network':
+        return 'The server could not reach the AI provider. Your current portal was kept; please try again shortly.';
+      case 'generation_provider_auth':
+        return 'The AI provider rejected the server credentials. An administrator needs to check the configured provider key. Your current portal was kept.';
       case 'no_default_backend':
         return 'Default backend not reachable. The server may be starting up — try again in a moment, or paste your own API key in Advanced.';
       case 'default_network':
@@ -4656,9 +4765,9 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
       case 'default_rate_limited':
         return 'Rate limited (too many requests in a short window). Wait a minute and try again, or paste your own key in Advanced to bypass the shared limit.';
       case 'default_not_configured':
-        return 'The server\'s LLM API key hasn\'t been configured yet. Ask the admin to set GEMINI_API_KEY. Meanwhile, paste your own key in Advanced.';
+        return 'The server’s AI provider is not configured. An administrator needs to configure the provider key. Your current portal was kept.';
       case 'default_unavailable':
-        return `Default backend temporarily unavailable (status ${err.status}). Try again shortly.`;
+        return `The AI provider is temporarily unavailable (status ${err.status}). Your current portal was kept; please try again shortly.`;
       case 'default_failed':
         return `Default backend call failed (status ${err.status}${err.upstream ? ', upstream: ' + err.upstream : ''}). Try again, or paste your own key in Advanced.`;
       case 'default_empty_response':
@@ -4738,6 +4847,7 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
     callAnthropicDirect,
     callSFGateway,
     callDefaultBackend,
+    runBackendJob,
     scrapeViaCorsProxy,
     optimizeGeneratedImage,
     fillMissingImages,

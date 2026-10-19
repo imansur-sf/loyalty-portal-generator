@@ -2,11 +2,38 @@
 
 Last updated: 2026-10-18. **Read this first.** `git log` records shipped changes; PROGRESS.md records the current sign-in/save rollout. `CLAUDE.md` in this repo is stale (still describes a Page Host zip-bundle deployment that was abandoned); its two-build-outputs instructions still apply.
 
+## Generation timeout repair (2026-10-18)
+
+User reported HTTP503 then generic network error during URL/PDF generation.
+Production v29 was up/configured; an in-dyno synthetic LLM call succeeded in23.3s.
+Historical router logs were unavailable, so the exact failed request is not
+confirmed. The synchronous AI route could run60s behind Heroku's30s router limit.
+
+- Hosted LocalAI now submits POST /api/jobs, polls GET /api/jobs/:id with a
+  per-job Bearer token, then DELETEs retrieved results. No uncertain POST retry.
+  Only explicit404 on submission permits fallback to an older custom backend.
+- generation-jobs.js is bounded process memory:6 active jobs,2 image jobs,
+  40 stored jobs,64MiB retained results,20MiB/result,15min expiry. This assumes
+  the current single web process/dyno; use shared durable storage before scaling.
+  Deploy/restart loses in-flight jobs and yields a clear regenerate message.
+- Shared input/config/rate validation occurs before job allocation. No customer
+  input, job tokens, generated text or images are logged; timing/status only.
+- AI text deadline120s; images90s; scraper15s includes response-body reads.
+  Client requests24s including body download; polling150s; transient GET retries
+  never create duplicate AI jobs. Distinct provider/session/gateway errors.
+- Images use4 per background batch (48/run) and no more than2 simultaneous image
+  jobs. Legacy synchronous endpoints remain for older/custom clients.
+-123 tests passed, standalone17inline scripts parsed. A32s simulated generation
+  completed with20ms submission and progress requests <=7ms. Hosted verification
+  follows deployment; browser end-to-end verification remains unavailable.
+
 ## Rich portal restoration (current implementation)
 
 User reoriented LPG around polished SE demos. v27/v28's requirements path
 bypassed rich content and replaced the portal with a sparse simulator. This
-implementation removes that split. Deployment verification is in PROGRESS.md.
+implementation removes that split. Deployed as d3d9482 / Heroku v29; new web
+process is up,107tests passed, production health/assets/auth checks passed.
+Deployment verification is in PROGRESS.md.
 
 - Every Generate request runs validated program analysis, then complete branded
   presentation generation using the original content schema and scraped image

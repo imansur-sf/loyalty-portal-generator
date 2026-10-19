@@ -98,7 +98,7 @@ requirements, B2C/B2B/Both, immediate preview, saved variants and real layouts.
 - [x] Add Dashboard, Rewards Showcase and Brand Experience layouts.
 - [x] Verify rich exports, interactions and variant persistence.
 - [ ] Browser screenshot review (unavailable: CUA has no browsers/apps).
-- [ ] Deploy and verify the completed change.
+- [x] Deploy and verify the completed change.
 
 Ownership: main owns authoring/app/projects/variants/migration; generation_quality
 owns portal-content + LocalAI image helper; rich_runtime owns generator/runtime;
@@ -111,3 +111,19 @@ This exposed save-size risk; new generated images now optimize to<=200KiB each.
 Full-size preview added so SEs can assess desktop compositions beyond the narrow
 side preview.12 comparison HTML specimens include original ISACA assets and
 retail/B2B examples; original ISACA retains18images/4vouchers/2offers throughout.
+
+Restoration deployed as commit d3d9482 / Heroku v29. New process
+web-6ddf5f447d-sclh8 is up.107tests passed;17standalone inline scripts parse.
+Production checks: health200, editorHTML no-cache, Both option, checkbox removed,
+all4templates and full-sizepreview present. All9served script hashes match local
+source; authconfig200, anonymousprojects401. Realbrowservisualinspection remains
+unavailable (no CUA browsers/apps). Unrelated worker/tool state preserved.
+
+## Generation backend timeout repair
+- [x] Inspect deployed dyno and long-running generation request flow.
+- [x] Replace long HTTP waits with bounded background jobs and short authenticated polls.
+- [ ] Verify delayed completion, failure handling and regression suite; deploy and check hosted generation.
+
+Validation:123 regression tests passed; standalone17 scripts parse.32s delayed
+AI test completed with20ms submission and <=7ms progress calls. Preflight rejects
+invalid/rate-limited work before storing jobs. Deployment pending.

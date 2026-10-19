@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const { createAccountsProxy } = require('./accounts-proxy');
+const { createGenerationJobs } = require('./generation-jobs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,7 +16,7 @@ const USER_AGENT = 'Mozilla/5.0 (compatible; LoyaltyPortalScraper/1.0)';
 
 // Image generation
 const IMAGE_GEN_MODEL = 'gemini-3.1-flash-image';
-const IMAGE_GEN_TIMEOUT_MS = 30_000;
+const IMAGE_GEN_TIMEOUT_MS = 90_000;
 const MAX_IMAGE_GEN_BATCH = 12; // max images per batch request (covers all slots)
 
 // Gemini model mapping by tier
@@ -46,8 +47,8 @@ app.use((error, req, res, next) => {
 app.use('/api', (req, res, next) => {
   res.set({
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400'
   });
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -63,8 +64,9 @@ app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
     service: 'loyalty-portal',
-    version: 3,
-    endpoints: ['GET /api/scrape', 'POST /api/llm', 'POST /api/generate-images', 'GET /api/health'],
+    version: 4,
+    generation_jobs: true,
+    endpoints: ['GET /api/scrape', 'POST /api/jobs', 'GET /api/jobs/:id', 'DELETE /api/jobs/:id', 'POST /api/llm', 'POST /api/generate-images', 'GET /api/health'],
     llm_configured: Boolean(GEMINI_API_KEY)
   });
 });
@@ -85,9 +87,9 @@ app.get('/api/scrape', async (req, res) => {
     return res.status(403).json({ error: 'blocked_host', hostname: targetURL.hostname });
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SCRAPE_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), SCRAPE_TIMEOUT_MS);
 
     const upstream = await fetch(targetURL.toString(), {
       method: 'GET',
@@ -99,8 +101,6 @@ app.get('/api/scrape', async (req, res) => {
       },
       signal: controller.signal
     });
-    clearTimeout(timeout);
-
     if (!upstream.ok) {
       return res.status(502).json({ error: 'upstream_status', status: upstream.status });
     }
@@ -136,11 +136,13 @@ app.get('/api/scrape', async (req, res) => {
   } catch (err) {
     const code = err && err.name === 'AbortError' ? 'timeout' : 'network_error';
     res.status(502).json({ error: code, message: (err && err.message) || 'unknown' });
+  } finally {
+    clearTimeout(timeout);
   }
 });
 
 // --- LLM Endpoint (Gemini API) ---
-app.post('/api/llm', async (req, res) => {
+function validateLLM(req, res) {
   if (!GEMINI_API_KEY) {
     return res.status(503).json({
       error: 'llm_not_configured',
@@ -155,7 +157,7 @@ app.post('/api/llm', async (req, res) => {
     return res.status(429).json({ error: 'rate_limited', retryAfterMs: rl.retryAfterMs });
   }
 
-  const { prompt, system, tier, maxTokens } = req.body;
+  const { prompt, system } = req.body || {};
 
   if (!prompt || typeof prompt !== 'string') {
     return res.status(400).json({ error: 'missing_prompt' });
@@ -166,6 +168,11 @@ app.post('/api/llm', async (req, res) => {
   if (system && typeof system === 'string' && system.length > 20_000) {
     return res.status(413).json({ error: 'system_too_long' });
   }
+
+}
+
+async function handleLLM(req, res) {
+  const { prompt, system, tier, maxTokens } = req.body || {};
 
   const chosenTier = ['fast', 'balanced', 'powerful'].includes(tier) ? tier : 'balanced';
   const model = TIER_MODELS[chosenTier] || DEFAULT_MODEL;
@@ -184,17 +191,15 @@ app.post('/api/llm', async (req, res) => {
     geminiBody.systemInstruction = { parts: [{ text: system }] };
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120_000);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000);
-
     const upstream = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(geminiBody),
       signal: controller.signal
     });
-    clearTimeout(timeout);
 
     if (upstream.status === 400) {
       const body = await upstream.text().catch(() => '');
@@ -235,12 +240,17 @@ app.post('/api/llm', async (req, res) => {
   } catch (err) {
     const code = err && err.name === 'AbortError' ? 'timeout' : 'network_error';
     res.status(502).json({ error: code, message: (err && err.message) || 'unknown' });
+  } finally {
+    clearTimeout(timeout);
   }
+}
+app.post('/api/llm', (req, res) => {
+  if (!validateLLM(req, res)) return handleLLM(req, res);
 });
 
 // --- Image Generation (Gemini) ---
 // Single image
-app.post('/api/generate-image', async (req, res) => {
+function validateImage(req, res) {
   if (!GEMINI_API_KEY) {
     return res.status(503).json({ error: 'llm_not_configured', hint: 'Set GEMINI_API_KEY' });
   }
@@ -249,10 +259,15 @@ app.post('/api/generate-image', async (req, res) => {
   const rl = checkRateLimit(ip);
   if (!rl.ok) return res.status(429).json({ error: 'rate_limited', retryAfterMs: rl.retryAfterMs });
 
-  const { prompt } = req.body;
+  const { prompt } = req.body || {};
   if (!prompt || typeof prompt !== 'string' || prompt.length > 2000) {
     return res.status(400).json({ error: 'invalid_prompt' });
   }
+
+}
+
+async function handleImage(req, res) {
+  const { prompt } = req.body || {};
 
   try {
     const result = await generateImage(prompt);
@@ -261,10 +276,13 @@ app.post('/api/generate-image', async (req, res) => {
     console.error('[ImageGen] single failed:', err.message || err);
     res.status(502).json({ error: 'image_gen_failed', message: err.message || 'unknown' });
   }
+}
+app.post('/api/generate-image', (req, res) => {
+  if (!validateImage(req, res)) return handleImage(req, res);
 });
 
 // Batch image generation — runs in parallel, returns partial results on individual failures
-app.post('/api/generate-images', async (req, res) => {
+function validateImages(req, res) {
   if (!GEMINI_API_KEY) {
     return res.status(503).json({ error: 'llm_not_configured', hint: 'Set GEMINI_API_KEY' });
   }
@@ -273,7 +291,7 @@ app.post('/api/generate-images', async (req, res) => {
   const rl = checkRateLimit(ip);
   if (!rl.ok) return res.status(429).json({ error: 'rate_limited', retryAfterMs: rl.retryAfterMs });
 
-  const { prompts } = req.body;
+  const { prompts } = req.body || {};
   if (!Array.isArray(prompts) || prompts.length === 0 || prompts.length > MAX_IMAGE_GEN_BATCH) {
     return res.status(400).json({ error: 'invalid_prompts', max: MAX_IMAGE_GEN_BATCH });
   }
@@ -284,6 +302,11 @@ app.post('/api/generate-images', async (req, res) => {
       return res.status(400).json({ error: 'invalid_prompt_entry', slot: p?.slot });
     }
   }
+
+}
+
+async function handleImages(req, res) {
+  const { prompts } = req.body || {};
 
   // Run all in parallel
   const results = await Promise.allSettled(
@@ -300,7 +323,20 @@ app.post('/api/generate-images', async (req, res) => {
   });
 
   res.json({ results: output });
+}
+app.post('/api/generate-images', (req, res) => {
+  if (!validateImages(req, res)) return handleImages(req, res);
 });
+
+// Short requests keep AI work independent of Heroku's router deadline.
+const generationJobs = createGenerationJobs({
+  handlers: { llm: handleLLM, images: handleImages, image: handleImage },
+  validators: { llm: validateLLM, images: validateImages, image: validateImage }
+});
+app.post('/api/jobs', generationJobs.submit);
+app.get('/api/jobs/:id', generationJobs.poll);
+app.delete('/api/jobs/:id', generationJobs.remove);
+app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
 
 // Shared image generation helper
 async function generateImage(prompt) {
@@ -314,31 +350,34 @@ async function generateImage(prompt) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), IMAGE_GEN_TIMEOUT_MS);
 
-  const upstream = await fetch(geminiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(geminiBody),
-    signal: controller.signal
-  });
-  clearTimeout(timeout);
+  try {
+    const upstream = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(geminiBody),
+      signal: controller.signal
+    });
 
-  if (!upstream.ok) {
-    const body = await upstream.text().catch(() => '');
-    throw new Error(`Gemini ${upstream.status}: ${body.slice(0, 200)}`);
+    if (!upstream.ok) {
+      const body = await upstream.text().catch(() => '');
+      throw new Error(`Gemini ${upstream.status}: ${body.slice(0, 200)}`);
+    }
+
+    const data = await upstream.json();
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find(p => p.inlineData);
+
+    if (!imagePart) {
+      throw new Error('No image in Gemini response');
+    }
+
+    const mime = imagePart.inlineData.mimeType || 'image/jpeg';
+    const imageData = `data:${mime};base64,${imagePart.inlineData.data}`;
+
+    return { imageData };
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data = await upstream.json();
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  const imagePart = parts.find(p => p.inlineData);
-
-  if (!imagePart) {
-    throw new Error('No image in Gemini response');
-  }
-
-  const mime = imagePart.inlineData.mimeType || 'image/jpeg';
-  const imageData = `data:${mime};base64,${imagePart.inlineData.data}`;
-
-  return { imageData };
 }
 
 // ============================================================

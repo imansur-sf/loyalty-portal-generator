@@ -30,6 +30,8 @@ function content(program) {
   };
 }
 const makeProgram = overrides => model.normalize({ providerName: 'ISACA', name: 'Professional Rewards', ...overrides });
+const legacyFetch = handler => (url, options) => url.endsWith('/api/jobs')
+  ? Promise.resolve({ status: 404, ok: false }) : handler(url, options);
 
 test('rich generation retains website candidates and requests full branded content and image enrichment', async () => {
   const program = makeProgram();
@@ -189,17 +191,17 @@ test('image enrichment covers benefits and all normal portal slots in backend-si
   data.clubs = Array.from({ length: 2 }, (_, index) => ({ name: `Club ${index}` }));
   data.benefits = Array.from({ length: 7 }, (_, index) => ({ name: `Benefit ${index}` }));
   const batches = [];
-  context.fetch = async (_url, options) => {
+  context.fetch = legacyFetch(async (_url, options) => {
     const prompts = JSON.parse(options.body).prompts; batches.push(prompts);
-    assert.ok(prompts.length <= 12);
+    assert.ok(prompts.length <= 4);
     return { ok: true, json: async () => ({ results: prompts.map(item => ({ slot: item.slot, imageData: 'data:image/png;base64,generated' })) }) };
-  };
+  });
   const result = await context.LocalAI.fillMissingImages(data);
-  assert.equal(batches.length, 2);
+  assert.equal(batches.length, 5);
   assert.equal(result.generated, 19); assert.equal(result.remaining, 0);
   assert.equal(result.warning, undefined);
   for (const key of ['vouchers', 'offers', 'badges', 'clubs', 'benefits']) assert.ok(data[key].every(item => item.imageData));
-  assert.ok(batches[0].some(item => item.slot === 'benefit-0'));
+  assert.ok(batches.slice(0, 2).flat().some(item => item.slot === 'benefit-0'));
   assert.ok(!batches.flat().some(item => /logo/.test(item.slot)));
 });
 
@@ -208,12 +210,12 @@ test('image enrichment preserves supplied assets and reports partial failures in
   vm.runInContext(fs.readFileSync('js/localai.js', 'utf8'), context);
   const data = { brandName: 'ISACA', vouchers: [{ title: 'Existing', imageUrl: 'https://brand.test/voucher.png' }],
     benefits: [{ name: 'Uploaded', imageData: 'data:image/png;base64,upload' }, { name: 'Generate' }, { name: 'Unavailable' }] };
-  context.fetch = async (_url, options) => {
+  context.fetch = legacyFetch(async (_url, options) => {
     const prompts = JSON.parse(options.body).prompts;
     assert.equal(prompts.length, 2);
     return { ok: true, json: async () => ({ results: [{ slot: prompts[0].slot, imageData: 'data:image/png;base64,new' },
       { slot: prompts[0].slot, imageData: 'data:image/png;base64,duplicate' }, { slot: prompts[1].slot, imageData: 'javascript:bad' }] }) };
-  };
+  });
   const result = await context.LocalAI.fillMissingImages(data);
   assert.equal(result.generated, 1); assert.equal(result.failed, 1); assert.equal(result.remaining, 1);
   assert.match(result.warning, /1 remain empty/);
@@ -226,14 +228,14 @@ test('exceptionally large portals have bounded image work and rate limits stop f
   vm.runInContext(fs.readFileSync('js/localai.js', 'utf8'), context);
   const data = { vouchers: Array.from({ length: 60 }, (_, index) => ({ title: `Reward ${index}` })) };
   let batches = 0;
-  context.fetch = async (_url, options) => { batches++; return { ok: true, json: async () => ({ results: JSON.parse(options.body).prompts.map(item => ({ slot: item.slot, imageData: 'data:image/png;base64,new' })) }) }; };
+  context.fetch = legacyFetch(async (_url, options) => { batches++; return { ok: true, json: async () => ({ results: JSON.parse(options.body).prompts.map(item => ({ slot: item.slot, imageData: 'data:image/png;base64,new' })) }) }; });
   const result = await context.LocalAI.fillMissingImages(data);
-  assert.equal(batches, 4); assert.equal(result.generated, 48); assert.equal(result.skipped, 12);
+  assert.equal(batches, 12); assert.equal(result.generated, 48); assert.equal(result.skipped, 12);
   assert.match(result.warning, /48-image limit/);
   batches = 0;
-  context.fetch = async () => { batches++; return { ok: false, status: 429 }; };
+  context.fetch = legacyFetch(async () => { batches++; return { ok: false, status: 429, json: async () => ({ error: 'rate_limited' }) }; });
   const limited = await context.LocalAI.fillMissingImages({ benefits: Array.from({ length: 20 }, () => ({ name: 'Benefit' })) });
-  assert.equal(batches, 1); assert.equal(limited.remaining, 20); assert.match(limited.warning, /HTTP 429/);
+  assert.equal(batches, 1); assert.equal(limited.remaining, 20); assert.match(limited.warning, /Rate limited/);
 });
 
 function graphicsHarness(encode, { width = 2400, height = 1600, decodeError = false } = {}) {
@@ -298,7 +300,7 @@ test('image enrichment stores compressed results, leaves uploads alone and repor
   const { context } = graphicsHarness(mime => `data:${mime};base64,` + 'b'.repeat(180000));
   const input = 'data:image/png;base64,' + 'a'.repeat(983000);
   const data = { vouchers: [{ title: 'User upload', imageData: input }, { title: 'Generate' }] };
-  context.fetch = async (_url, options) => ({ ok: true, json: async () => ({ results: JSON.parse(options.body).prompts.map(item => ({ slot: item.slot, imageData: input })) }) });
+  context.fetch = legacyFetch(async (_url, options) => ({ ok: true, json: async () => ({ results: JSON.parse(options.body).prompts.map(item => ({ slot: item.slot, imageData: input })) }) }));
   const result = await context.LocalAI.fillMissingImages(data);
   assert.equal(result.generated, 1); assert.equal(data.vouchers[0].imageData, input);
   assert.ok(data.vouchers[1].imageData.length <= 200 * 1024);
