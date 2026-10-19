@@ -183,6 +183,16 @@ Imageenrichment stubbed forreplay; visualbrowserverification unavailable.
 ## Benefits and earning layout repair
 - [x] Trace squeezed cards to viewport-based inner grids inside narrow sections.
 - [x] Size cards by available section width and revise Showcase composition.
-- [ ] Verify templates, rebuild both artifacts and deploy.
+- [x] Verify templates, rebuild both artifacts and deploy.
 
 155tests pass; both artifacts rebuilt and CSS reproduction check passed. Deployment pending.
+
+Deployed0829e29 / Heroku v34; web-bdff7694d-wrspz up. Health200, versioni,
+served generator/template hashes match tested source. No visual browser check.
+
+## Desktop-proportioned live preview
+- [x] Identify inline iframe using narrow column as its responsive viewport.
+- [x] Render1440×900 desktop viewport scaled to a wider preview pane.
+- [ ] Verify resizing/content retention, fix reward CTA wrapping, rebuild and deploy.
+
+157tests passed, both artifacts rebuilt, embeddedCSS96389bytes verified. Deployment pending.

@@ -130,6 +130,10 @@ body[data-lpg-template] .text-muted { color: #586273; }
 .lpg-layout .offer-card img { object-fit: cover; }
 .lpg-layout .voucher-card h3 { font-size: 1rem; line-height: 1.4; }
 .lpg-layout .voucher-card { padding: 20px; }
+.lpg-layout .voucher-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 8px; min-width: 0; }
+.lpg-layout .voucher-actions > span { flex: 1 1 100%; min-width: 0; overflow-wrap: break-word; word-break: normal; }
+.lpg-layout .voucher-actions > .btn-primary { flex: 0 0 auto; min-width: min(100%,10rem); max-width: 100%; white-space: normal; overflow-wrap: normal; word-break: normal; }
+.lpg-layout .voucher-actions > [title="Copy code"] { flex-shrink: 0; }
 .lpg-layout .earn-card { padding: 22px; min-width: 0; }
 /* Fit the section's available width, not the viewport. A dashboard rail or
    editorial half-column must never inherit the original four-column grid. */
@@ -166,7 +170,7 @@ body[data-lpg-template="showcase"] main { max-width: 1520px; }
 .lpg-catalogue .voucher-card > div:first-child { width: 100%; height: auto; aspect-ratio: 1.35; border-radius: 0; background-color: var(--lpg-soft); box-shadow: none; }
 .lpg-catalogue .voucher-card > div:last-child { padding: 24px; width: 100%; }
 .lpg-catalogue .voucher-card > div:last-child > div:last-child { margin-top: 24px; }
-.lpg-catalogue .voucher-card .btn-primary { flex: 1; }
+.lpg-catalogue .voucher-card .voucher-actions > .btn-primary { flex: 0 0 100%; width: 100%; }
 .lpg-promotions [data-lpg-section="offers"] > div:last-child { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,320px),1fr)); gap: 24px; }
 .lpg-promotions .offer-card { margin: 0 !important; }
 .lpg-promotions .offer-card > div:first-child { width: 100%; height: auto; aspect-ratio: 1.65; }

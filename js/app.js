@@ -1156,6 +1156,35 @@ function schedulePreview() {
 }
 
 let portalPreviewSequence = 0, expandedPreviewTimer = null, presenterRoleId = null;
+const DESKTOP_PREVIEW_WIDTH = 1440, DESKTOP_PREVIEW_HEIGHT = 900;
+let previewSizingInitialized = false, previewResizeObserver = null;
+function fitDesktopPreview() {
+  const stage = document.getElementById('preview-stage');
+  const frame = document.getElementById('preview-iframe');
+  const width = stage?.clientWidth || 0;
+  // A hidden side panel has no measurable width. ResizeObserver fits it when
+  // it becomes visible, without navigating the iframe or resetting its scroll.
+  if (!frame || width <= 0) return;
+  const scale = Math.min(1, width / DESKTOP_PREVIEW_WIDTH);
+  frame.style.transform = `scale(${scale})`;
+  stage.style.height = `${DESKTOP_PREVIEW_HEIGHT * scale}px`;
+  const label = document.getElementById('preview-scale-label');
+  if (label) label.textContent = `${Math.round(scale * 100)}% · Scaled to fit`;
+}
+function initializePreviewSizing() {
+  const stage = document.getElementById('preview-stage');
+  if (!stage) return;
+  if (!previewSizingInitialized) {
+    previewSizingInitialized = true;
+    if (typeof ResizeObserver === 'function') {
+      previewResizeObserver = new ResizeObserver(fitDesktopPreview);
+      previewResizeObserver.observe(stage);
+    }
+    window.addEventListener('resize', fitDesktopPreview);
+  }
+  fitDesktopPreview();
+}
+
 function previewStatus(message, retry = false) {
   const status = document.getElementById('expanded-preview-status');
   if (status) { status.textContent = message; status.hidden = !message; }
@@ -1207,6 +1236,7 @@ function controlPortalPreview(action, roleId) {
   if (action === 'role') document.querySelectorAll('[data-presenter-role]').forEach(select => { select.value = roleId; });
 }
 function updatePreview() {
+  initializePreviewSizing();
   presenterRoleId = state.program?.member?.role || null;
   refreshPresenterTools();
   try {

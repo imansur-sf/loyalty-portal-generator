@@ -303,3 +303,27 @@ test('fictional member and company identities generate, edit, and save independe
     assert.equal(e.run('state.variants.b2b.program.member.organization'), 'Harbor Consulting');
   } finally { e.close(); }
 });
+
+
+test('live preview scales a desktop viewport without navigating on resize', async () => {
+  const e = await editor(); try {
+    const stage = e.w.document.getElementById('preview-stage');
+    const frame = e.w.document.getElementById('preview-iframe');
+    let width = 720, observerCallback, observations = 0;
+    Object.defineProperty(stage, 'clientWidth', { get: () => width });
+    e.w.ResizeObserver = class { constructor(callback) { observerCallback = callback; } observe(node) { assert.equal(node, stage); observations++; } };
+    e.run('previewSizingInitialized=false;initializePreviewSizing()');
+    assert.equal(frame.getAttribute('width'), '1440'); assert.equal(frame.getAttribute('height'), '900');
+    assert.equal(stage.style.height, '450px'); assert.equal(frame.style.transform, 'scale(0.5)');
+    const source = frame.srcdoc, token = frame.dataset.previewToken;
+    width = 1008; observerCallback();
+    assert.equal(stage.style.height, '630px'); assert.equal(frame.style.transform, 'scale(0.7)');
+    assert.equal(frame.srcdoc, source); assert.equal(frame.dataset.previewToken, token);
+    assert.match(e.w.document.getElementById('preview-scale-label').textContent, /70%/);
+    width = 0; observerCallback(); assert.equal(stage.style.height, '630px');
+    width = 1440; e.w.dispatchEvent(new e.w.Event('resize'));
+    assert.equal(stage.style.height, '900px'); assert.equal(frame.style.transform, 'scale(1)');
+    e.run('initializePreviewSizing()'); assert.equal(observations, 1);
+    assert.equal(e.w.document.getElementById('expanded-preview-iframe').style.transform, '');
+  } finally { e.close(); }
+});

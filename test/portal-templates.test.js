@@ -141,3 +141,26 @@ test('real benefit and earn grids size to their section and keep descriptive tex
     dom.window.close();
   }
 });
+
+test('real voucher actions wrap long points labels and reserve readable space for reward buttons', () => {
+  const context=vm.createContext({});context.window=context;
+  for(const file of ['defaults','generator','portal-templates']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',file+'.js'),'utf8'),context);
+  for(const outputTemplate of ['dashboard','showcase','editorial']) {
+    context.layoutFixture={outputTemplate};
+    const output=vm.runInContext(`generatePortalHTML({...INDUSTRY_DEFAULTS.generic,...layoutFixture,brand:{name:'Partner Company',programName:'Partner Rewards'},member:{name:'Summit Manufacturing',points:750},sections:{vouchers:true},colors:{primary:'#123456',accent:'#abcdef',secondary:'#fafafa',dark:'#142332'},vouchers:[{title:'Professional certification workshop',description:'Build expertise across your team.',programRewardId:'workshop',actionValue:'125,000 Professional Development Reward Points',emoji:'🎓'}]})`,context);
+    const dom=new JSDOM(output,{runScripts:'dangerously'});const doc=dom.window.document;
+    const row=doc.querySelector('.voucher-actions'),button=row.querySelector('.btn-primary');
+    button.textContent='Request reward'; // B2B runtime label uses the same control.
+    const rowStyle=dom.window.getComputedStyle(row),buttonStyle=dom.window.getComputedStyle(button),labelStyle=dom.window.getComputedStyle(row.querySelector('span'));
+    assert.equal(rowStyle.flexWrap,'wrap',outputTemplate);
+    assert.equal(labelStyle.flexBasis,'100%',outputTemplate);
+    assert.equal(buttonStyle.flexShrink,'0',outputTemplate);
+    assert.equal(buttonStyle.wordBreak,'normal',outputTemplate);
+    assert.equal(buttonStyle.overflowWrap,'normal',outputTemplate);
+    assert.equal(buttonStyle.maxWidth,'100%',outputTemplate);
+    assert.match(row.textContent,/125,000 Professional Development Reward Points/);
+    assert.equal(button.textContent,'Request reward');
+    if(outputTemplate!=='dashboard') assert.equal(buttonStyle.flexBasis,'100%','Catalogue actions span the card width');
+    dom.window.close();
+  }
+});

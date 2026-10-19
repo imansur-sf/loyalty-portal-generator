@@ -2,7 +2,23 @@
 
 Last updated: 2026-10-18. **Read this first.** `git log` records shipped changes; PROGRESS.md records the current sign-in/save rollout. `CLAUDE.md` in this repo is stale (still describes a Page Host zip-bundle deployment that was abandoned); its two-build-outputs instructions still apply.
 
-## Benefits and earning card layout (2026-10-18, deployment pending)
+## Desktop-proportioned live preview (2026-10-18, deployment pending)
+
+Side preview uses a1440×900 iframe with transform scaling and top-left origin,
+inside an aspect-ratio stage. ResizeObserver plus window resize fits the stage
+without changing srcdoc or resetting scroll. Hidden zero-width panel is skipped.
+Workspace widened to1880px; editor clamp360–560px, preview receives remaining
+width. Preview shell height constrained by available viewport through CSS width
+cap. Browser dimensions/scale label and scroll/expand hint clarify the view.
+Expanded preview remains native-size and unscaled. No saved-state schema change.
+
+Voucher action rows wrap with points on their own row and nonshrinking CTAs;
+Showcase/Editorial buttons span cards, fixing vertical Request reward labels.
+157tests pass including resize/no-navigation/hidden-panel and long B2B CTA.
+CompiledCSS96389bytes current; standalone rebuilt, version20261018j. Browser
+visual verification still unavailable due admin policy.
+
+## Benefits and earning card layout (2026-10-18, deployed0829e29 / v34)
 
 Fixed viewport-based four-column benefits/two-column earning grids squeezing
 inside Showcase community columns and Editorial halves. Generator now emits
@@ -15,6 +31,8 @@ below1000px. Profile fields also adapt in narrow rails. Classic styles unchanged
 allfourtemplates and content/action retention. CompiledCSS current96354bytes;
 standalone rebuilt, cacheversion20261018i. Browser visual check unavailable due
 to existing admin policy. Save/reload existing project to apply; no AI regeneration.
+Production v34 web-bdff7694d-wrspz is up. Health200/cacheversioni and both
+generator/template SHA256 hashes match tested localsource.
 
 ## Promotional earning and fictional identity (2026-10-18, deployed5e71d6d / v33)
 
