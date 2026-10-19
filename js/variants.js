@@ -3,7 +3,7 @@
   'use strict';
   const fields = ['brand', 'colors', 'menuColorCustom', 'tiers', 'tierProgress', 'member', 'sections',
     'vouchers', 'offers', 'badges', 'clubs', 'earnMore', 'benefits', 'profileTasks', 'upsell', 'navLinks',
-    'footerLinks', 'program', 'programReview', 'programEnabled', 'outputTemplate', 'cinematic'];
+    'footerLinks', 'programEvidence', 'locale', 'displayLabels', 'program', 'programReview', 'programEnabled', 'outputTemplate', 'cinematic'];
   const clone = value => JSON.parse(JSON.stringify(value));
   function snapshot(portal = state) {
     const result = {};

@@ -133,6 +133,79 @@
     } catch (_) { /* ignore */ }
   }
 
+  // Backend routing is discovered without submitting paid work. A 404 is the
+  // only implicit legacy signal; provider or transport failures never change routes.
+  const backendAdapters = new Map();
+  const safeRoute = (value, fallback) => typeof value === 'string' && /^\/(?!\/)[A-Za-z0-9_/:.-]+$/.test(value) && !value.includes('..') ? value : fallback;
+  async function getBackendCapabilities(base = getScraperEndpoint()) {
+    if (!backendAdapters.has(base)) backendAdapters.set(base, (async () => {
+      const response = await timedFetch(`${base}/api/capabilities`, { method: 'GET', credentials: 'same-origin', cache: 'no-store' });
+      if (response.status === 404) return null;
+      const data = await transportJSON(response);
+      if (!response.ok) throw backendFailure(response.status, data);
+      if (data?.version !== 1 || !['heroku','worker'].includes(data.adapter)) throw localError('generation_protocol');
+      return data;
+    })());
+    try { return await backendAdapters.get(base); }
+    catch (error) { backendAdapters.delete(base); throw error; }
+  }
+
+  const JOB_STORAGE = 'lpg-generation-tickets-v1';
+  const jobMemory = new Map();
+  const activeJobs = new Map();
+  function readJobs() {
+    try {
+      const stored = JSON.parse(window.sessionStorage?.getItem(JOB_STORAGE) || '[]');
+      if (Array.isArray(stored)) stored.filter(item => item && typeof item.key === 'string' && typeof item.base === 'string' && Number.isFinite(item.createdAt) && Date.now() - item.createdAt < 86400000).slice(-128).forEach(item => { if (!jobMemory.has(item.key)) jobMemory.set(item.key, item); });
+    } catch (_) { /* Storage may be disabled in private browsing. */ }
+    return [...jobMemory.values()];
+  }
+  function writeJob(record, remove = false) {
+    if (remove) jobMemory.delete(record.key); else jobMemory.set(record.key, record);
+    const records = [...jobMemory.values()].filter(item => Date.now() - item.createdAt < 86400000).slice(-128);
+    try { window.sessionStorage?.setItem(JOB_STORAGE, JSON.stringify(records)); } catch (_) { /* In-memory recovery remains available. */ }
+  }
+  function requestKey() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    if (window.crypto?.getRandomValues) return Array.from(window.crypto.getRandomValues(new Uint8Array(24)), n => n.toString(16).padStart(2,'0')).join('');
+    return 'lpg-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+  }
+  function fingerprintBytes(bytes) {
+    // SHA-256 fallback for older/custom HTTP hosts lacking WebCrypto. Persist
+    // only the digest, never the customer brief or generation request body.
+    const primes = []; for (let n = 2; primes.length < 64; n++) if (!primes.some(p => p * p <= n && n % p === 0)) primes.push(n);
+    const h = primes.slice(0, 8).map(p => (Math.sqrt(p) % 1 * 4294967296) | 0);
+    const k = primes.map(p => (Math.cbrt(p) % 1 * 4294967296) | 0);
+    const padded = Array.from(bytes), bits = padded.length * 8; padded.push(128);
+    while (padded.length % 64 !== 56) padded.push(0);
+    for (let shift = 7; shift >= 0; shift--) padded.push(Math.floor(bits / (2 ** (shift * 8))) & 255);
+    const rotate = (n, amount) => (n >>> amount) | (n << (32 - amount));
+    for (let offset = 0; offset < padded.length; offset += 64) {
+      const w = [];
+      for (let i = 0; i < 64; i++) {
+        if (i < 16) w[i] = (padded[offset+i*4]<<24) | (padded[offset+i*4+1]<<16) | (padded[offset+i*4+2]<<8) | padded[offset+i*4+3];
+        else { const a = w[i-15], b = w[i-2]; w[i] = (w[i-16] + (rotate(a,7)^rotate(a,18)^(a>>>3)) + w[i-7] + (rotate(b,17)^rotate(b,19)^(b>>>10))) | 0; }
+      }
+      let [a,b,c,d,e,f,g,z] = h;
+      for (let i = 0; i < 64; i++) {
+        const t1 = (z + (rotate(e,6)^rotate(e,11)^rotate(e,25)) + ((e&f)^(~e&g)) + k[i] + w[i]) | 0;
+        const t2 = ((rotate(a,2)^rotate(a,13)^rotate(a,22)) + ((a&b)^(a&c)^(b&c))) | 0;
+        z=g; g=f; f=e; e=(d+t1)|0; d=c; c=b; b=a; a=(t1+t2)|0;
+      }
+      [a,b,c,d,e,f,g,z].forEach((value, i) => { h[i] = (h[i] + value) | 0; });
+    }
+    return h.map(value => (value >>> 0).toString(16).padStart(8,'0')).join('');
+  }
+  async function requestFingerprint(base, kind, body) {
+    const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+    const text = JSON.stringify([base, kind, canonical(body)]);
+    const bytes = typeof TextEncoder === 'function' ? new TextEncoder().encode(text) : Array.from(encodeURIComponent(text).replace(/%([0-9A-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex,16))), c => c.charCodeAt(0));
+    if (!window.crypto?.subtle) return fingerprintBytes(bytes);
+    return Array.from(new Uint8Array(await window.crypto.subtle.digest('SHA-256', bytes)), n => n.toString(16).padStart(2,'0')).join('');
+  }
+  function getPendingJobs() { return readJobs().filter(record => record.status !== 'complete').map(record => ({ id: record.ticket?.id || record.key, kind: record.kind, status: record.status, createdAt: record.createdAt, backend: record.base, hasTicket: Boolean(record.ticket) })); }
+  function checkCancelled(signal) { if (signal?.aborted) throw localError('generation_cancelled'); }
+
   // Generation capabilities are short-lived and scoped to one backend. Never
   // persist them in project data, localStorage, URLs, or another backend's request.
   const backendCapabilities = new Map();
@@ -181,13 +254,15 @@
     {
       try {
         let headers = await backendAccessHeaders(scrapeBase);
-        const endpoint = `${scrapeBase}/api/scrape?url=${encodeURIComponent(url)}`;
+        const metadata = await getBackendCapabilities(scrapeBase);
+        let endpoint = `${scrapeBase}${safeRoute(metadata?.scrape, '/api/scrape')}?url=${encodeURIComponent(url)}`;
         let res = await fetch(endpoint, { method: 'GET', credentials: 'same-origin', headers });
         if (res.status === 401 && ['generation_capability_required','generation_capability_expired'].includes(await capabilityRejection(res))) {
           forgetRejectedCapability(scrapeBase, headers['X-LPG-Capability']);
           headers = await backendAccessHeaders(scrapeBase);
           res = await fetch(endpoint, { method: 'GET', credentials: 'same-origin', headers });
         }
+        if (res.status === 404 && scrapeBase && !metadata) { endpoint = `${scrapeBase}/scrape?url=${encodeURIComponent(url)}`; res = await fetch(endpoint, { method: 'GET', credentials: 'same-origin', headers }); }
         if (res.ok) {
           const ct = res.headers.get('content-type') || '';
           const raw = await res.text();
@@ -240,7 +315,7 @@
   //   sk-ant-* key     → api.anthropic.com direct
   //   any other sk-*   → SF LLM Gateway direct
   // Same return shape from every path so callers don't care which was used.
-  async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat }) {
+  async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat, signal, resumeUnknown }) {
     const provider = currentProvider();
     if (provider === 'anthropic') {
       return callAnthropicDirect({ prompt, system, tier, model, maxTokens });
@@ -248,7 +323,7 @@
     if (provider === 'sfgateway') {
       return callSFGateway({ prompt, system, tier, model, maxTokens });
     }
-    return callDefaultBackend({ prompt, system, tier, model, maxTokens, responseFormat });
+    return callDefaultBackend({ prompt, system, tier, model, maxTokens, responseFormat, signal, resumeUnknown });
   }
 
   // ---- DEFAULT BACKEND (Worker's /llm endpoint) ----
@@ -300,9 +375,9 @@
     // timedFetch has already buffered the body and exposes a reusable json().
     try { return (await (typeof response.clone === 'function' ? response.clone() : response).json()).error || ''; } catch (_) { return ''; }
   }
-  async function authorizedBackendPost(path, body, base) {
+  async function authorizedBackendPost(path, body, base, extraHeaders = {}) {
     const send = async access => timedFetch(`${base}${path}`, { method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', ...access }, body: JSON.stringify(body) });
+      headers: { 'Content-Type': 'application/json', ...access, ...extraHeaders }, body: JSON.stringify(body) });
     let access = await backendAccessHeaders(base);
     let response = await send(access);
     const rejection = await capabilityRejection(response);
@@ -331,75 +406,136 @@
 
   // Short submit/poll requests prevent Heroku's router from terminating long AI
   // calls. Job credentials stay in this closure and never enter saved projects.
-  async function runBackendJob(kind, body, base = getScraperEndpoint()) {
+  async function cancelBackendJob(id) {
+    const record = readJobs().find(item => item.ticket?.id === id || item.key === id);
+    if (!record) return false;
+    record.status = 'cancelled'; writeJob(record);
+    if (record.ticket) {
+      const route = safeRoute(record.pollRoute, '/api/jobs/:id').replace(':id', encodeURIComponent(record.ticket.id));
+      try { await timedFetch(`${record.base}${route}`, { method: 'DELETE', credentials: 'same-origin', headers: { Authorization: `Bearer ${record.ticket.token}` } }, 3000); } catch (_) { /* Cancellation is best effort; provider work may already be underway. */ }
+    }
+    return true;
+  }
+  async function pollBackendJob(record, { signal } = {}) {
+    const ticket = record.ticket;
+    const url = `${record.base}${safeRoute(record.pollRoute, '/api/jobs/:id').replace(':id', encodeURIComponent(ticket.id))}`;
+    const headers = { Authorization: `Bearer ${ticket.token}` };
+    const deadline = Date.now() + JOB_DEADLINE_MS;
+    let transientFailures = 0;
+    const abort = () => { void cancelBackendJob(ticket.id); };
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      while (Date.now() < deadline) {
+        checkCancelled(signal);
+        await new Promise(resolve => window.setTimeout(resolve, Math.min(JOB_POLL_MS, Math.max(0, deadline - Date.now()))));
+        checkCancelled(signal);
+        if (record.status === 'cancelled') throw localError('generation_cancelled');
+        if (Date.now() >= deadline) break;
+        let response;
+        try { response = await timedFetch(url, { method: 'GET', credentials: 'same-origin', cache: 'no-store', headers }, Math.min(REQUEST_TIMEOUT_MS, deadline - Date.now())); }
+        catch (_) { if (++transientFailures < 3 && Date.now() < deadline) continue; throw localError('generation_poll_network'); }
+        if (response.status === 404) { record.status = 'missing'; writeJob(record); throw localError('generation_job_missing'); }
+        if ([502,503,504].includes(response.status)) { if (++transientFailures < 3 && Date.now() < deadline) continue; throw localError('generation_gateway', { status: response.status }); }
+        const job = await transportJSON(response);
+        checkCancelled(signal);
+        if (record.status === 'cancelled') throw localError('generation_cancelled');
+        if (!response.ok) throw backendFailure(response.status, job, true);
+        transientFailures = 0;
+        if (['interrupted','cancelled','expired','consumed'].includes(job?.status)) { record.status = job.status; writeJob(record); throw localError('generation_' + job.status); }
+        if (job?.status === 'pending') {
+          record.status = 'pending'; writeJob(record);
+          if (job.resumable === true) { record.status = 'queued'; writeJob(record); throw localError('generation_resume_required'); }
+          continue;
+        }
+        if (job?.status !== 'complete' || !Number.isInteger(job.result?.status) || job.result.status < 200 || job.result.status > 599 || !job.result.body || typeof job.result.body !== 'object') throw localError('generation_protocol');
+        checkCancelled(signal);
+        try { await timedFetch(url, { method: 'DELETE', credentials: 'same-origin', headers }, 3000); } catch (_) { /* expires server-side */ }
+        record.status = 'complete'; writeJob(record);
+        if (job.result.status >= 400) throw backendFailure(job.result.status, job.result.body);
+        return job.result.body;
+      }
+      throw localError('generation_deadline');
+    } finally { signal?.removeEventListener('abort', abort); }
+  }
+  function discardBackendJob(id) {
+    const record = readJobs().find(item => item.ticket?.id === id || item.key === id);
+    if (!record || !['cancelled','interrupted','missing','expired','consumed'].includes(record.status)) return false;
+    writeJob(record, true); return true;
+  }
+  async function resumeBackendJob(id, { signal } = {}) {
+    const record = readJobs().find(item => item.ticket?.id === id || item.key === id);
+    if (!record?.ticket) throw localError('generation_submission_unknown');
+    if (['cancelled','interrupted','missing','expired','consumed'].includes(record.status)) throw localError('generation_' + record.status);
+    if (record.status === 'queued') {
+      const path = safeRoute(record.resumeRoute, '/api/jobs/:id/resume').replace(':id', encodeURIComponent(record.ticket.id));
+      const response = await authorizedBackendPost(path, {}, record.base, { Authorization: `Bearer ${record.ticket.token}` });
+      const payload = await transportJSON(response);
+      if (!response.ok) throw backendFailure(response.status, payload, true);
+      record.status = 'pending'; writeJob(record);
+    }
+    return pollBackendJob(record, { signal });
+  }
+  const inFlightRequests = new Map();
+  function runBackendJob(kind, body, base = getScraperEndpoint(), options = {}) {
+    const key = JSON.stringify([base, kind, body]);
+    if (inFlightRequests.has(key)) return inFlightRequests.get(key);
+    const pending = executeBackendJob(kind, body, base, options);
+    inFlightRequests.set(key, pending);
+    return pending.finally(() => { if (inFlightRequests.get(key) === pending) inFlightRequests.delete(key); });
+  }
+  async function executeBackendJob(kind, body, base, { signal, resumeUnknown = false } = {}) {
     const paths = { llm: '/api/llm', images: '/api/generate-images', image: '/api/generate-image' };
     if (!paths[kind]) throw localError('generation_protocol');
-    const deadline = Date.now() + JOB_DEADLINE_MS;
-    // Acquire access separately: an issuance failure has not submitted a job.
+    checkCancelled(signal);
     await backendAccessHeaders(base);
-    let submitted;
-    try {
-      submitted = await authorizedBackendPost('/api/jobs', { ...body, kind }, base);
-    } catch (_) {
-      // The server may already have accepted the paid job. Never resubmit it or
-      // fall back to another POST when the submission outcome is uncertain.
-      throw localError('generation_submission_unknown');
-    }
-    if (submitted.status === 404) {
-      // Older custom backends explicitly lack this endpoint. This is the only
-      // permitted synchronous fallback, not a recovery for a failed AI call.
-      try {
-        const legacy = await authorizedBackendPost(paths[kind], body, base);
-        const payload = await transportJSON(legacy);
-        if (!legacy.ok) throw backendFailure(legacy.status, payload);
-        return payload;
-      } catch (error) {
-        if (error.code) throw error;
-        throw localError('generation_legacy_network');
+    const metadata = await getBackendCapabilities(base);
+    const fingerprint = await requestFingerprint(base, kind, body);
+    if (fingerprint && activeJobs.has(fingerprint)) return activeJobs.get(fingerprint);
+    let record = fingerprint && readJobs().reverse().find(item => item.fingerprint === fingerprint && item.base === base && (resumeUnknown || item.status !== 'complete'));
+    if (record && ['cancelled','interrupted','missing','expired','consumed'].includes(record.status)) throw localError('generation_' + record.status);
+    if (record?.ticket) return resumeBackendJob(record.ticket.id, { signal });
+    if (record && !(resumeUnknown && metadata?.jobs?.idempotency === true)) throw localError('generation_submission_unknown');
+    const execute = async () => {
+      await backendAccessHeaders(base);
+      checkCancelled(signal);
+      if (!record) record = { key: requestKey(), fingerprint, base, kind, createdAt: Date.now(), status: 'submitting' };
+      writeJob(record);
+      let submitted;
+      const submitPath = safeRoute(metadata?.jobs?.submit, '/api/jobs');
+      const legacyCall = async () => {
+        let path = safeRoute(metadata?.[kind], paths[kind]);
+        let response = await authorizedBackendPost(path, body, base);
+        // An explicit 404 guarantees this route accepted no provider work.
+        if (response.status === 404 && base && kind === 'llm' && path === '/api/llm') response = await authorizedBackendPost('/llm', body, base);
+        const payload = await transportJSON(response);
+        if (!response.ok) throw backendFailure(response.status, payload);
+        writeJob(record, true); return payload;
+      };
+      if (metadata?.jobs === false) {
+        try { return await legacyCall(); } catch (error) { if (error.code) throw error; throw localError('generation_legacy_network'); }
       }
-    }
-    const ticket = await transportJSON(submitted);
-    if (submitted.status !== 202) {
-      if (!submitted.ok) throw backendFailure(submitted.status, ticket, true);
-      throw localError('generation_protocol');
-    }
-    if (!ticket || !/^[a-zA-Z0-9_-]{8,128}$/.test(ticket.id || '') || !/^[a-zA-Z0-9_-]{8,256}$/.test(ticket.token || '')) throw localError('generation_protocol');
-    const url = `${base}/api/jobs/${encodeURIComponent(ticket.id)}`;
-    const headers = { Authorization: `Bearer ${ticket.token}` };
-    let transientFailures = 0;
-    while (Date.now() < deadline) {
-      await new Promise(resolve => window.setTimeout(resolve, Math.min(JOB_POLL_MS, Math.max(0, deadline - Date.now()))));
-      if (Date.now() >= deadline) break;
-      let response;
-      try {
-        response = await timedFetch(url, { method: 'GET', credentials: 'same-origin', cache: 'no-store', headers }, Math.min(REQUEST_TIMEOUT_MS, deadline - Date.now()));
-      } catch (_) {
-        if (Date.now() >= deadline) break;
-        if (++transientFailures < 3 && Date.now() < deadline) continue;
-        throw localError('generation_poll_network');
+      try { submitted = await authorizedBackendPost(submitPath, { ...body, kind }, base, { 'Idempotency-Key': record.key }); }
+      catch (_) { record.status = 'unknown'; writeJob(record); throw localError('generation_submission_unknown'); }
+      if (submitted.status === 404) {
+        try { return await legacyCall(); } catch (error) { if (error.code) throw error; throw localError('generation_legacy_network'); }
       }
-      if (response.status === 404) throw localError('generation_job_missing');
-      if ([502, 503, 504].includes(response.status)) {
-        if (++transientFailures < 3 && Date.now() < deadline) continue;
-        throw localError('generation_gateway', { status: response.status });
-      }
-      const job = await transportJSON(response);
-      if (!response.ok) throw backendFailure(response.status, job, true);
-      transientFailures = 0;
-      if (job?.status === 'pending') continue;
-      if (job?.status !== 'complete' || !Number.isInteger(job.result?.status) || job.result.status < 200 || job.result.status > 599 || !job.result.body || typeof job.result.body !== 'object') throw localError('generation_protocol');
-      // Free large image responses promptly. Cleanup failure must never turn a
-      // successfully retrieved result into a failed generation.
-      try { await timedFetch(url, { method: 'DELETE', credentials: 'same-origin', headers }, 3000); } catch (_) { /* expires server-side */ }
-      if (job.result.status >= 400) throw backendFailure(job.result.status, job.result.body);
-      return job.result.body;
-    }
-    throw localError('generation_deadline');
+      let ticket;
+      try { ticket = await transportJSON(submitted); } catch (error) { if ([401,403,429].includes(submitted.status)) writeJob(record, true); else { record.status = 'unknown'; writeJob(record); } throw error; }
+      if (![200,202].includes(submitted.status)) { writeJob(record, true); if (!submitted.ok) throw backendFailure(submitted.status, ticket, true); throw localError('generation_protocol'); }
+      if (!ticket || !/^[a-zA-Z0-9_-]{8,128}$/.test(ticket.id || '') || !/^[a-zA-Z0-9_-]{8,256}$/.test(ticket.token || '')) { record.status = 'unknown'; writeJob(record); throw localError('generation_protocol'); }
+      record.ticket = { id: ticket.id, token: ticket.token }; record.status = 'pending';
+      record.pollRoute = safeRoute(metadata?.jobs?.poll, '/api/jobs/:id'); record.resumeRoute = safeRoute(metadata?.jobs?.resume, '/api/jobs/:id/resume'); writeJob(record);
+      if (signal?.aborted) { await cancelBackendJob(ticket.id); throw localError('generation_cancelled'); }
+      return pollBackendJob(record, { signal });
+    };
+    const pending = execute();
+    if (fingerprint) activeJobs.set(fingerprint, pending);
+    try { return await pending; } finally { if (fingerprint) activeJobs.delete(fingerprint); }
   }
 
-  async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat }) {
+  async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat, signal, resumeUnknown }) {
     const base = getScraperEndpoint(); // empty = same origin; both /api/scrape and /api/llm live here
-    const data = await runBackendJob('llm', { prompt, system, tier, model, maxTokens, ...(responseFormat ? { responseFormat } : {}) }, base);
+    const data = await runBackendJob('llm', { prompt, system, tier, model, maxTokens, ...(responseFormat ? { responseFormat } : {}) }, base, { signal, resumeUnknown });
     if (!data || (!data.text && data.finish_reason !== 'MAX_TOKENS')) throw localError('default_empty_response');
     return { text: data.text, model_used: data.model_used, usage: data.usage, finish_reason: data.finish_reason };
   }
@@ -600,7 +736,7 @@
     }
   }
 
-  async function fillMissingImages(parsed, { onStatus, outputTemplate = parsed.outputTemplate, onlySlots, prompt } = {}) {
+  async function fillMissingImages(parsed, { onStatus, outputTemplate = parsed.outputTemplate, onlySlots, prompt, signal, resumeUnknown = false, maxImages = MAX_IMAGE_GEN } = {}) {
     // Only use default backend (server-side Gemini) for image generation
     const base = getScraperEndpoint(); // empty = same origin
 
@@ -626,7 +762,7 @@
           slots.push({
             slot: `${cfg.type}-${i}`,
             prompt: buildImagePrompt(cfg.type, item, parsed).slice(0, 2000),
-            priority: cfg.priority + i,
+            priority: cfg.priority + i + (outputTemplate === 'cinematic' && cfg.type === 'benefit' ? 20 : 0),
             apply: (dataUri) => { item[cfg.dataField] = dataUri; }
           });
         }
@@ -636,7 +772,7 @@
     if (outputTemplate === 'cinematic') {
       (Array.isArray(parsed.benefits) ? parsed.benefits : []).forEach((item, i) => {
         if (!item.coverImageUrl && !item.coverImageData) slots.push({
-          slot: `benefit-cover-${i}`, prompt: buildImagePrompt('benefit-cover', item, parsed), priority: 1 + i,
+          slot: `benefit-cover-${i}`, prompt: buildImagePrompt('benefit-cover', item, parsed), priority: 0.5 + i,
           customPrompt: item.coverPrompt,
           apply: dataUri => { item.coverImageData = dataUri; }
         });
@@ -666,18 +802,20 @@
     // Round-robin priority prevents a large rewards list from starving offers,
     // clubs, badges and benefits. Keep each asynchronous result batch small.
     slots.sort((a, b) => a.priority - b.priority);
-    const selected = slots.slice(0, MAX_IMAGE_GEN);
+    const budget = Number.isInteger(maxImages) ? Math.max(0, Math.min(MAX_IMAGE_GEN, maxImages)) : MAX_IMAGE_GEN;
+    const selected = slots.slice(0, budget);
     const skipped = slots.length - selected.length;
 
     console.log(`[LocalAI] Generating ${selected.length} images (${skipped} additional slots beyond this run's limit)`);
-    if (onStatus) onStatus('generating_images');
+    if (onStatus) onStatus('generating_images', { generated: 0, attempted: 0, total: selected.length, remaining: slots.length });
     let generated = 0, attempted = 0;
     const errors = [];
     for (let offset = 0; offset < selected.length; offset += IMAGE_BATCH_SIZE) {
+      if (signal?.aborted) { errors.push(humanErrorMessage(localError('generation_cancelled'))); break; }
       const batch = selected.slice(offset, offset + IMAGE_BATCH_SIZE);
       attempted += batch.length;
       try {
-        const data = await runBackendJob('images', { prompts: batch.map(s => ({ slot: s.slot, prompt: s.prompt })) }, base);
+        const data = await runBackendJob('images', { prompts: batch.map(s => ({ slot: s.slot, prompt: s.prompt })) }, base, { signal, resumeUnknown });
         const completed = new Set();
         if (Array.isArray(data.results)) {
           for (const result of data.results) {
@@ -685,12 +823,13 @@
               const match = batch.find(s => s.slot === result.slot);
               if (match && !completed.has(match.slot)) {
                 const optimized = await optimizeGeneratedImage(result.imageData, { hero: match.slot === 'upsell-bg' });
-                if (optimized.imageData) { match.apply(optimized.imageData); completed.add(match.slot); generated++; }
+                if (!signal?.aborted && optimized.imageData) { match.apply(optimized.imageData); completed.add(match.slot); generated++; }
                 else if (optimized.warning) errors.push(optimized.warning);
               }
             }
           }
         }
+        if (onStatus) onStatus('generating_images', { generated, attempted, total: selected.length, remaining: slots.length - generated });
         if (completed.size < batch.length) errors.push(`${batch.length - completed.size} images failed in a batch`);
       } catch (err) {
         errors.push(humanErrorMessage(err));
@@ -698,9 +837,9 @@
       }
     }
     const remaining = slots.length - generated;
-    const warning = remaining ? `${generated} of ${slots.length} missing images generated; ${remaining} remain empty.${skipped ? ` ${skipped} exceed the ${MAX_IMAGE_GEN}-image limit for one run.` : ''}${errors.length ? ' ' + [...new Set(errors)].join('; ') + '.' : ''}` : '';
+    const warning = remaining ? `${generated} of ${slots.length} missing images generated; ${remaining} remain empty.${skipped ? ` ${skipped} exceed the ${budget}-image limit for one run.` : ''}${errors.length ? ' ' + [...new Set(errors)].join('; ') + '.' : ''}` : '';
     console.log(`[LocalAI] Generated ${generated}/${slots.length} images successfully`);
-    return { generated, total_empty: slots.length, attempted, remaining, skipped, failed: attempted - generated,
+    return { generated, total_empty: slots.length, attempted, remaining, skipped, failed: attempted - generated, cancelled: Boolean(signal?.aborted),
       ...(warning ? { warning } : {}), ...(errors.length ? { error: [...new Set(errors)].join('; ') } : {}) };
   }
 
@@ -846,16 +985,22 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
       case 'missing_api_key':
         return 'This tool works without a key by default. If you\'d prefer to route through your own account, paste an Anthropic key (sk-ant-…) or an SF LLM Gateway key (sk-…) in Advanced.';
       // Default backend (Worker /llm)
+      case 'generation_expired':
+      case 'generation_consumed': return 'The saved generation result has expired. No paid replacement was started. You can explicitly start a new generation.';
+      case 'generation_cancelled': return 'Generation was cancelled. Your current portal was kept. Provider work already underway may still be charged.';
+      case 'generation_interrupted': return 'Generation was interrupted after provider dispatch. Its outcome is unknown; no paid replacement was started.';
+      case 'generation_missing':
+      case 'generation_job_missing': return 'This generation ticket expired or is unavailable. No paid replacement was started.';
+      case 'generation_resume_required': return 'This generation is safely queued. Use Resume generation to continue the saved job.';
       case 'generation_submission_unknown':
-        return 'The connection was interrupted while starting generation. The server may still be working; your current portal was kept. Wait briefly before trying again.';
+        return 'The connection was interrupted while starting generation. The server may still be working; your current portal was kept. Use Resume generation with the same inputs; do not start another paid request.';
       case 'generation_legacy_network':
         return 'This backend does not support background generation, and its request timed out or lost connection. Your current portal was kept. Update the backend or try again.';
       case 'generation_poll_network':
         return 'Generation started, but the connection was interrupted while checking progress. Your current portal was kept. Check your connection before trying again.';
       case 'generation_deadline':
-        return 'Generation did not finish within the waiting limit. Your current portal was kept; try again with a shorter brief.';
-      case 'generation_job_missing':
-        return 'This generation result expired or the server restarted. Your current portal was kept. Please generate again.';
+        return 'Generation did not finish within the waiting limit. Your current portal was kept; the saved generation can be resumed without submitting another paid job.';
+
       case 'generation_origin':
         return 'Generation access is not configured for this generator address. Your current portal was kept. The administrator needs to enable this exact app address.';
       case 'generation_permission':
@@ -968,6 +1113,11 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
     callSFGateway,
     callDefaultBackend,
     runBackendJob,
+    getBackendCapabilities,
+    getPendingJobs,
+    resumeBackendJob,
+    cancelBackendJob,
+    discardBackendJob,
     backendAccessHeaders,
     scrapeViaCorsProxy,
     optimizeGeneratedImage,

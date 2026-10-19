@@ -166,3 +166,42 @@ test('approval workflow is accepted only for B2B programs', () => {
   const business = program.validate({ mode: 'b2b', approvalRequired: true, roles });
   assert.equal(business.valid, true);
 });
+
+test('v2 no-tier retail programs retain earning and redemption without a fabricated tier', () => {
+  const p = program.normalize({ version: 2, capabilities: { tiers: false }, tiers: [], opening: { redeemable: 100 } });
+  const summary = program.summarize(p);
+  assert.equal(summary.tier.name, ''); assert.equal(summary.nextTier, null);
+  const earned = program.earn(p, [], 'purchase', 10, OCT);
+  assert.equal(earned.redeemable, 10);
+  assert.equal(program.redeem(p, [], 'credit', OCT).redeemable, -100);
+});
+
+test('presentation-only association content preserves named tiers without inventing thresholds or transactions', () => {
+  const p = program.normalize({ version: 2, capabilities: { presentationOnly: true }, member: { status: 'Professional Member' }, tiers: [{ name: 'Professional Member' }, { name: 'Fellow' }], rewards: [{ id: 'journal', name: 'Member journal' }] });
+  assert.equal(p.tiers[0].threshold, null); assert.equal(p.rewards[0].cost, null);
+  assert.deepEqual(p.earnRules, []); assert.equal(program.summarize(p).tier.name, 'Professional Member');
+  assert.equal(program.summarize(p).monetaryValue, null);
+  assert.throws(() => program.redeem(p, [], 'journal', OCT), /presentation-only/);
+  assert.equal(p.assumptions.some(note => /Tier names, thresholds/.test(note)), false);
+  assert.deepEqual(program.normalize(p), p);
+});
+
+test('hotel airline and finance qualification remains descriptive without unsupported arithmetic', () => {
+  for (const [basis, period] of [['nights', 'calendar-year'], ['segments', 'rolling-year'], ['spend', 'lifetime'], ['points', 'calendar-year']]) {
+    const p = program.normalize({ version: 2, qualification: { basis, period, description: 'Eligibility follows published program terms.' }, tiers: [{ name: 'Entry' }, { name: 'Preferred' }] });
+    assert.equal(p.capabilities.presentationOnly, true);
+    assert.equal(program.summarize(p).nextTier, null);
+    assert.equal(p.qualification.basis, basis); assert.equal(p.qualification.period, period);
+    assert.throws(() => program.earn(p, [], 'purchase', 10, OCT), /Unknown earning|presentation-only/);
+  }
+});
+
+test('project locale and additional metrics survive normalization and format with Intl', () => {
+  const p = program.normalize({ version: 2, locale: 'fr-fr', metrics: [{ id: 'nights', name: 'Eligible stays', value: 1234.5, unit: 'nights', singularUnit: 'night', period: 'Calendar year' }] });
+  assert.equal(p.locale, 'fr-FR'); assert.equal(p.metrics[0].period, 'Calendar year');
+  assert.equal(program.formatNumber(1234.5, p.locale), new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 6 }).format(1234.5));
+  assert.equal(program.formatUnits(1, 'nights', 'night'), '1 night'); assert.equal(program.formatUnits(2, 'nights', 'night'), '2 nights');
+  assert.equal(program.validate({ locale: '../bogus' }).valid, false);
+  assert.equal(program.validate({ qualification: { basis: 'made-up' } }).valid, false);
+  assert.equal(program.validate({ metrics: [{ id: 'a' }, { id: 'a' }] }).valid, false);
+});

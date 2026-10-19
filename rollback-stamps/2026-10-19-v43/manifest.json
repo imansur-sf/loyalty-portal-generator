@@ -1,0 +1,15 @@
+{
+  "date": "2026-10-19",
+  "tag": "lpg-rollback-2026-10-19-v43",
+  "commit": "3e4026ed186b55871a964a7ad3032795a3e9ae2e",
+  "release": 43,
+  "herokuApp": "sassysolutions-loyaltygen",
+  "pendingTrackedFiles": [
+    "HANDOFF.md",
+    "PROGRESS.md",
+    "worker/scrape.js"
+  ],
+  "pendingPatchSha256": "17b96de1e70b11c087a56c35a1199ef64eeddf4c1f81e8ded5df2a402861d391",
+  "configuration": "Exact internal/public LPG_ALLOWED_ORIGINS and persistent LPG_GENERATION_SECRET configured; secret values not included.",
+  "scope": "Source snapshot only, not saved customer projects or accounts database."
+}

@@ -266,11 +266,11 @@ test('cinematic reward affordability, membership card and sticky balance follow 
   const dom=loaded(portal({outputTemplate:'cinematic',program:program({mode:'b2c',approvalRequired:false,member:{name:'Avery',role:'member'},opening:{qualifying:1000,redeemable:150},rewards:[{id:'credit',name:'Reward credit',cost:100}]})}));
   try {
     const doc=dom.window.document;
-    assert.equal(doc.querySelector('.cj-reward-status').textContent,'Within your points balance');
+    assert.equal(doc.querySelector('.cj-reward-status').textContent,'Within your Reward Points balance');
     assert.equal(doc.querySelector('.cj-status-tier').textContent,doc.querySelector('[data-lpg-section="tiers"] [data-lpg-tier]').textContent);
     click(doc,'request','credit');
     await new Promise(resolve=>setImmediate(resolve));
-    assert.equal(doc.querySelector('.cj-reward-status').textContent,'50 more points to go');
+    assert.equal(doc.querySelector('.cj-reward-status').textContent,'50 more Reward Points to go');
     for (const balance of doc.querySelectorAll('[data-lpg-balance="redeemable"]')) assert.equal(balance.textContent,'50');
     assert.equal(doc.querySelector('.cj-nav-balance strong').textContent,'50');
     assert.equal(doc.querySelector('[data-lpg-action="request"]').disabled,true);
@@ -296,5 +296,68 @@ test('cinematic next-tier message is editable copy and survives live balance upd
       assert.equal(doc.querySelector('.cj-progress-message').textContent, message);
       assert.equal(doc.querySelector('.cj-status-summary')?.textContent || '', message);
     } finally { dom.window.close(); }
+  }
+});
+
+test('presentation-only runtime cannot transact and exposes opportunities instead of redemption', () => {
+  const p = model.normalize({ version: 2, capabilities: { presentationOnly: true }, rewards: [{ id: 'journal', name: 'Member journal' }], metrics: [{ id: 'learning', name: 'Learning', value: 1, unit: 'hours', singularUnit: 'hour' }] });
+  const demo = runtime.createSession(p, model);
+  assert.equal(demo.can('redeem'), false); assert.equal(demo.can('earn'), false);
+  assert.throws(() => demo.request('journal'), /does not permit/);
+  const source = '<html><body><main><button data-lpg-action="request" data-id="journal">Redeem reward</button><span data-lpg-progress-text>Highest tier achieved</span></main></body></html>';
+  const dom = loaded(runtime.enhance(source, { programEnabled: true, program: p }));
+  try {
+    const doc = dom.window.document;
+    assert.equal(doc.querySelector('[data-lpg-action="request"]'), null);
+    assert.equal(doc.querySelector('[data-lpg-progress-text]').hidden, true);
+    assert.equal(doc.querySelector('[data-lpg-section="activity"]'), null);
+    assert.match(doc.querySelector('[data-lpg-section="metrics"]').textContent, /1 hour/);
+    click(doc, 'opportunity', 'journal');
+    assert.equal(doc.querySelector('#lpg-activity-title').textContent, 'Member journal');
+    assert.equal(doc.querySelector('.lpg-activity-detail').hidden, false);
+    assert.equal(demo.events.length, 0);
+  } finally { dom.window.close(); }
+});
+
+test('descriptive rewards expose opportunity details and explicit member status without fake QR or redemption', () => {
+  const p = program({ version:2, capabilities:{presentationOnly:true,tiers:true}, member:{name:'Demo Member',organization:'Example Business',role:'purchaser',status:'Professional Fellow'}, tiers:[{name:'Member'},{name:'Professional Fellow'}], rewards:[{id:'credit',name:'Member opportunity'}], approvalRequired:false });
+  const dom=loaded(portal({outputTemplate:'cinematic',program:p}));
+  try {
+    const doc=dom.window.document;
+    assert.equal(doc.querySelector('.cj-status-tier').textContent,'Professional Fellow');
+    assert.equal(doc.querySelector('[data-lpg-action="request"]'),null);
+    assert.equal(doc.querySelector('.cj-reward-status'),null);
+    assert.doesNotMatch(doc.querySelector('main').textContent,/QR Code|Highest tier achieved/);
+    click(doc,'opportunity','credit');
+    assert.equal(doc.querySelector('#lpg-activity-title').textContent,'Member opportunity');
+    assert.equal(doc.querySelector('.lpg-activity-detail').hidden,false);
+  }finally{dom.window.close();}
+});
+
+test('no-tier programs retain eligibility descriptions in every template without a progress ladder', () => {
+  const description='Membership follows annual professional registration criteria.';
+  for(const outputTemplate of ['classic','dashboard','showcase','editorial','cinematic']) {
+    const p=program({version:2,capabilities:{presentationOnly:true,tiers:false},tiers:[],qualification:{basis:'activities',period:'calendar-year',description},rewards:[],approvalRequired:false});
+    const dom=loaded(portal({outputTemplate,program:p}));
+    try {
+      assert.ok(dom.window.document.body.textContent.includes(description),outputTemplate);
+      assert.equal(dom.window.document.querySelector('[data-lpg-progress]'),null,outputTemplate);
+      assert.doesNotMatch(dom.window.document.querySelector('main').textContent,/Highest tier achieved/);
+    }finally{dom.window.close();}
+  }
+});
+
+test('cinematic affordability parses localized balances and uses the actual reward currency after live changes', async () => {
+  for(const locale of ['fr-FR','de-DE','ar-SA']) {
+    const p=program({version:2,mode:'b2c',locale,member:{name:'Member',role:'member'},roles:[{id:'member',name:'Member',canRequest:true}],approvalRequired:false,opening:{qualifying:1000,redeemable:1234.5},currencies:{qualifyingName:'Status credits',redeemableName:'Avios',pointsPerUnit:100},rewards:[{id:'credit',name:'First opportunity',cost:100},{id:'large',name:'Larger opportunity',cost:2500}]});
+    const dom=loaded(portal({outputTemplate:'cinematic',program:p}));
+    try {
+      const doc=dom.window.document;
+      const label=doc.querySelector('[data-program-reward-id="large"] .cj-reward-status');
+      assert.equal(label.textContent,new Intl.NumberFormat(locale,{maximumFractionDigits:6}).format(1265.5)+' more Avios to go',locale);
+      assert.equal(doc.querySelector('[data-lpg-section="hero"]').textContent.includes('Pts'),false,locale);
+      click(doc,'request','credit');await new Promise(resolve=>setTimeout(resolve,0));
+      assert.equal(label.textContent,new Intl.NumberFormat(locale,{maximumFractionDigits:6}).format(1365.5)+' more Avios to go',locale);
+    }finally{dom.window.close();}
   }
 });

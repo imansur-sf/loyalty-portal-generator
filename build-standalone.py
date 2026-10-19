@@ -57,8 +57,14 @@ def inline_script(match: re.Match[str]) -> str:
     return f"<script>\n// ==== inlined from {path_part} ====\n{js}\n</script>"
 
 
+def inline_stylesheet(match):
+    relative = match.group(1).split("?", 1)[0]
+    return "<style>" + resolve(relative).read_text(encoding="utf-8") + "</style>"
+
+
 def main() -> None:
     html = INDEX.read_text(encoding="utf-8")
+    html = re.sub(r'<link rel="stylesheet" href="(\./assets/[^"]+)">', inline_stylesheet, html)
     # Standalone builds can also be hosted as a static file, without LPG's
     # accounts proxy. Keep their shared auth endpoint independent of hosting.
     html = html.replace('  <!-- Scripts -->', '  <script>window.LPG_STANDALONE = true;</script>\n  <!-- Scripts -->')

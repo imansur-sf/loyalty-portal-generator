@@ -100,7 +100,7 @@ function initImageUpload(dropZoneId, previewId, urlInputId, onImageSet) {
         if (!valid()) return;
         validateUploadProjectBudget(image, preview?.getAttribute('src') || '');
         if (preview) { preview.src = image; preview.classList.toggle('hidden', !image); }
-        onImageSet(image); uploadImageStatus(dropZoneId, image ? 'Image ready.' : 'Image removed.');
+        window.LPGEditor?.record('Change image',dropZoneId);onImageSet(image); uploadImageStatus(dropZoneId, image ? 'Image ready.' : 'Image removed.');
       } catch (error) { if (valid()) uploadImageStatus(dropZoneId, (error.message || 'Use a valid HTTP(S) image URL.') + ' The existing image has been kept.', true); }
     }, 400);
   });
@@ -212,7 +212,7 @@ function readFileAsDataURL(file, preview, urlInput, onImageSet, valid, dropZoneI
       validateUploadProjectBudget(dataUrl, preview?.getAttribute('src') || '');
       if (preview) { preview.src = dataUrl; preview.classList.remove('hidden'); }
       if (urlInput) urlInput.value = '';
-      onImageSet(dataUrl);
+      window.LPGEditor?.record('Change image',dropZoneId);onImageSet(dataUrl);
       status(dataUrl === original ? 'Image ready.' : 'Image optimized for saving (' + Math.ceil(dataUrl.length / 1024) + ' KB encoded).');
     } catch (error) { status((error.message || 'Image processing failed.') + ' The existing image has been kept.', true); }
   };
@@ -239,12 +239,14 @@ function imageUploadHTML(id, label, currentValue) {
       </div>
       <p id="status-${escape(id)}" role="status" aria-live="polite" class="text-xs text-gray-500">PNG, JPEG or WebP · up to 12 MB. Images are optimized before saving.</p>
       <input type="text" id="url-${escape(id)}" aria-label="${escape(label)} URL" value="${currentValue && !currentValue.startsWith('data:') ? escape(currentValue) : ''}" placeholder="Or paste image URL" class="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none">
+      ${window.LPGEditor?.imageControls(id) || ''}
       ${hasImage ? `<button type="button" onclick="clearImage(${escape(JSON.stringify(id))})" class="text-xs text-red-500 hover:text-red-700">✕ Remove image</button>` : ''}
     </div>
   `;
 }
 
 function clearImage(id) {
+  window.LPGEditor?.record('Remove image');
   LPGImageUploads.cancel('drop-' + id);
   uploadImageStatus('drop-' + id, 'Image removed.');
   const preview = document.getElementById('preview-' + id);

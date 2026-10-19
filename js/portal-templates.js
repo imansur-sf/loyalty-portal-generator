@@ -108,7 +108,7 @@
     const heroSource = pending.get('hero');
     const tierSource = pending.get('tiers');
     const balanceSource = heroSource?.querySelector('[data-lpg-balance="redeemable"]');
-    const tierName = tierSource?.querySelector('[data-lpg-tier]')?.textContent || options.initialTier || 'Member';
+    const tierName = tierSource?.querySelector('[data-lpg-tier]')?.textContent || options.initialTier || (options.descriptive || options.hasTiers === false ? 'Membership' : 'Member');
     const memberName = heroSource?.querySelector('.text-2xl')?.textContent || options.memberName || 'Member';
     const progressText = tierSource?.querySelector('[data-lpg-progress-text]');
     const progressMessage = copy('progressSummary', 'Explore eligible activities to move toward your next membership tier.');
@@ -122,6 +122,7 @@
     layout.appendChild(nav);
     const scenes = [];
     function scene(id, keys, eyebrow, title, description, label) {
+      if(typeof options.labels?.['nav'+id]==='string')label=options.labels['nav'+id];
       if (!keys.some(key => pending.has(key))) return null;
       const wrapper = make('section', 'cj-scene cj-' + id); wrapper.id = 'cj-' + id;
       const heading = make('div', 'cj-heading');
@@ -162,7 +163,7 @@
         logo.addEventListener('error',()=>{ card.classList.remove('cj-has-mark'); logo.remove(); }); card.appendChild(logo);
       }
       if (settings.mode === 'image' && options.cardImage) {
-        const artwork = make('img','cj-card-artwork'); artwork.src = options.cardImage; artwork.alt = '';
+        const artwork = make('img','cj-card-artwork'); artwork.src = options.cardImage; artwork.alt = '';artwork.style.objectFit=options.cardFit==='contain'?'contain':'cover';artwork.style.objectPosition=options.cardPosition || '50% 50%';
         card.classList.add('cj-has-artwork');
         if (settings.showDetails === false) card.classList.add('cj-hide-details');
         artwork.addEventListener('error',()=>{ card.classList.remove('cj-has-artwork','cj-hide-details'); artwork.remove(); }); card.prepend(artwork);
@@ -199,7 +200,7 @@
     scene('discovery', ['offers', 'earn', 'upsell'], 'A LITTLE FURTHER', 'More to discover.', 'Fresh opportunities to get more from your membership.', 'Discover');
     scene('details', ['activity', 'team', 'profile', 'profile-tasks', 'badges', 'clubs'], 'YOUR MEMBERSHIP', 'The finer details.', 'Your activity, community, and account. All within reach.', 'Your account');
     if (balanceSource) {
-      const quick = make('span', 'cj-nav-balance'); quick.appendChild(make('span', '', 'Balance '));
+      const quick = make('span', 'cj-nav-balance'); quick.appendChild(make('span', '', (options.labels?.balance || 'Balance')+' '));
       const balance = make('strong', '', balanceSource.textContent); balance.dataset.lpgBalance = 'redeemable'; quick.appendChild(balance); nav.appendChild(quick);
     }
     const benefits = layout.querySelector('#benefits-content');
@@ -211,16 +212,29 @@
     }
     const statuses = Array.from(layout.querySelectorAll('[data-program-reward-id]')).map(card => {
       const reward = options.rewards.find(item => item.id === card.dataset.programRewardId);
-      if (!reward || !balanceSource) return null;
+      if (!reward || !balanceSource || options.descriptive) return null;
       const label = make('p', 'cj-reward-status'); card.querySelector('h3')?.before(label);
       return { label, cost: reward.cost };
     }).filter(Boolean);
+    function parseBalance(text) {
+      const locale = options.locale || 'en-US';
+      const formatter = new Intl.NumberFormat(locale);
+      const parts = formatter.formatToParts(12345.6);
+      const group = parts.find(part => part.type === 'group')?.value;
+      const decimal = parts.find(part => part.type === 'decimal')?.value;
+      let normalized = String(text).replace(/[\u200e\u200f\u061c\s]/g, '');
+      if (group) normalized = normalized.split(group).join('');
+      if (decimal) normalized = normalized.split(decimal).join('.');
+      for (let i = 0; i <= 9; i++) normalized = normalized.split(formatter.format(i)).join(String(i));
+      return Number(normalized);
+    }
     function updateRewards() {
-      const available = Number(balanceSource.textContent.replace(/,/g, ''));
+      const available = parseBalance(balanceSource.textContent);
       if (!Number.isFinite(available)) return;
       statuses.forEach(({label, cost}) => {
         const ready = cost <= available;
-        label.textContent = ready ? 'Within your points balance' : (cost - available).toLocaleString('en-US', { maximumFractionDigits: 6 }) + ' more points to go';
+        const unit = options.currencyName || 'points';
+        label.textContent = ready ? 'Within your ' + unit + ' balance' : (cost - available).toLocaleString(options.locale || 'en-US', { maximumFractionDigits: 6 }) + ' more ' + unit + ' to go';
         label.dataset.ready = String(ready);
       });
     }
@@ -657,17 +671,25 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
     // before the document's final closing tag, never inside an existing script.
     const closingBody = Array.from(prepared.matchAll(/<\/body\s*>/gi)).pop();
     if (!closingBody) return html;
+    const program = state.programEnabled ? (state._program || state.program) : null;
     const options = {
       brandName: typeof state.brand?.name === 'string' ? state.brand.name : '',
       memberName: typeof state.member?.name === 'string' ? state.member.name : '',
-      initialTier: typeof state.tiers?.[0]?.name === 'string' ? state.tiers[0].name : '',
+      initialTier: state._summary?.tier?.name || program?.member?.status || (program?.capabilities?.presentationOnly ? '' : typeof state.tiers?.[0]?.name === 'string' ? state.tiers[0].name : ''),
+      descriptive: Boolean(program?.capabilities?.presentationOnly),
+      hasTiers: program?.capabilities?.tiers !== false,
+      locale: (() => { try { return Intl.getCanonicalLocales(program?.locale || state.locale || 'en-US')[0] || 'en-US'; } catch (_) { return 'en-US'; } })(),
+      currencyName: typeof program?.currencies?.redeemableName === 'string' ? program.currencies.redeemableName : 'points',
+      labels: Object.fromEntries(Object.entries(state.displayLabels || {}).filter(([,value])=>typeof value==='string' && value.length<=200)),
+      cardFit: state.cinematic?.card?.artworkFit==='contain'?'contain':'cover',
+      cardPosition: /^\d{1,3}% \d{1,3}%$/.test(state.cinematic?.card?.artworkPosition || '')?state.cinematic.card.artworkPosition:'50% 50%',
       copy: Object.fromEntries(Object.entries(state.cinematic?.copy || {}).filter(([,value]) => typeof value === 'string' && value.length <= 8000)),
       card: { mode: state.cinematic?.card?.mode === 'image' ? 'image' : 'loyalty', markMode: state.cinematic?.card?.markMode || 'orbit', showDetails: state.cinematic?.card?.showDetails !== false },
       markImage: imageSource(state.cinematic?.card?.markImageData) || imageSource(state.cinematic?.card?.markImageUrl),
       cardImage: imageSource(state.cinematic?.card?.artworkImageData) || imageSource(state.cinematic?.card?.artworkImageUrl),
       brandLogo: imageSource(state.brand?.logoData) || imageSource(state.brand?.logoUrl),
-      rewards: state.programEnabled && Array.isArray(state.program?.rewards)
-        ? state.program.rewards.filter(r => r && typeof r.id === 'string' && Number.isFinite(r.cost) && r.cost >= 0).map(r => ({ id: r.id, cost: r.cost })) : []
+      rewards: Array.isArray(program?.rewards)
+        ? program.rewards.filter(r => r && typeof r.id === 'string' && Number.isFinite(r.cost) && r.cost >= 0).map(r => ({ id: r.id, cost: r.cost })) : []
     };
     const serialized = JSON.stringify(options).replace(/</g, '\\u003c');
     return prepared.slice(0, closingBody.index) + `<script id="lpg-template-layout">(${arrange.toString()})(${id === 'cinematic' ? cinematic.toString() : 'null'}, ${serialized});</script>\n` + prepared.slice(closingBody.index);

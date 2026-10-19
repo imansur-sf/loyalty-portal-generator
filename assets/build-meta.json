@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "buildId": "44766cb1c3264318a94232ad7253a2d7eed1b695dd9eb76669a1cafc24b0a923",
+  "assets": {
+    "js/accounts-loader.js": "d7eb6095c4cdd76b10fc4f183e7a4645243fd84f3cd475f90ca89b946a4369b4",
+    "js/app.js": "afedc321e7add667802df40f23c08e5387e45df8e1503bcf37f1bf83a04f3816",
+    "js/cinematic-settings.js": "6c674c6377e8c17d9afe2c1773ebe1da36d7f1cfbf1b983ed56ad8c8e9eb1511",
+    "js/content-contract.js": "7b62dbe35a95c633812f802a6ffa5f8979d906387f6931e8d19e3784ad6bcf41",
+    "js/defaults.js": "bc138671a8e095a34f899ef24a3151be529067f04e2180cd33f3164d1cb88d6b",
+    "js/editor-tools.js": "c9deb363db043dbe89c8f6febee97e2e48ae602714ba3de68e86baf652f9d0a0",
+    "js/generator.js": "560810d8df953d19670e9d3d52b421c907df42bb80f917088b8643cf03ee02e3",
+    "js/images.js": "0ccf092540c8c0db87649e3763bfc0a15b72b6f0a170a7671e3ebd86c09dbbeb",
+    "js/localai.js": "9c2d00fedd30ceb367fcf7dbcad076aed7ed81365cd6f78a554b0be24de288d6",
+    "js/pagehost.js": "f65fb1ea48d218199ca9f94b64e28c3b19309911216e5f91f25b80cffd08504e",
+    "js/portal-content.js": "2a8a3a9f82ac570e6b4053e11eff88a283f4b5a78e4b8cb3412e3ec74586fb52",
+    "js/portal-templates.js": "b040df1240226f87dd0ea8bde4cf146cc931c94429952e174d268be6ee5b2b1a",
+    "js/program-model.js": "853c3637cc3460d7f72d2c4f6a475daef619938f5160919367a09e70a82d87b4",
+    "js/program-provenance.js": "736da9474de08050603bc6b5740cd1b7dbf5ed6527597f12edf0d98ef6c57787",
+    "js/program-runtime.js": "866e718ff2d722f0898fbee0a8b69badd091fa9b9129d83f50cdd4a853d527dc",
+    "js/projects.js": "91616aa5f87de18d5ae880ca2b63e261821e4593a1d794431009281f8d668c07",
+    "js/requirements-editor.js": "b8aba8e3b66709da0e467016a66489f8e02c5edb2bc9315a8f2ed9ef53a83cc7",
+    "js/requirements.js": "242055a01d7e3f747bc8fc90d2692161e636840d8796a61f6d34fdaef94efd73",
+    "js/variants.js": "8bb370744bdea612d0d8b0426c679ebcb1b364bc76313c0f9cc2414672e9a100",
+    "assets/builder.css": "ce0948aa126be214b1d75e112a6c97be948669a129003512927b1f37a6cf3fb5"
+  }
+}

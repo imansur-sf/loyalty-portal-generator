@@ -4,7 +4,7 @@
 
 // ---- STATE ----
 const state = {
-  schemaVersion: 2,
+  schemaVersion: 2, locale: 'en-US', displayLabels: {},
   brief: { mode: 'b2c', objective: '', text: '', roles: '', sources: [] },
   program: null, programReview: null, programEnabled: false, outputTemplate: 'cinematic',
   cinematic: window.LPGCinematic?.normalize(),
@@ -347,6 +347,8 @@ function applyAnalysis(d, target = state, { render = true } = {}) {
     target.upsell.bgImageUrl = '';
   }
 
+  if (d.programEvidence) target.programEvidence = JSON.parse(JSON.stringify(d.programEvidence));
+  if (window.LPGContentContract) Object.assign(target, window.LPGContentContract.ensure(target));
   if (render) {
     populateFormFromState(); renderPaletteButtons(); renderDynamicSections(); schedulePreview();
   }
@@ -364,8 +366,13 @@ function isSafeUrl(u) {
 
 function isHex(s) { return typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s.trim()); }
 
+function cleanContentIdentity(item) {
+  const frame = prefix => ({ [prefix+'Fit']:item[prefix+'Fit']==='contain'?'contain':'cover', [prefix+'Position']:/^\d{1,3}(?:\.\d+)?% \d{1,3}(?:\.\d+)?%$/.test(item[prefix+'Position']||'')?item[prefix+'Position']:'50% 50%' });
+  return { id:str(item.id,100), assetId:str(item.assetId,100), ...frame('image'),...frame('cover') };
+}
 function cleanVoucher(v) {
   return {
+    ...cleanContentIdentity(v),
     programRewardId: str(v.programRewardId, 100),
     description: str(v.description, 240),
     title: str(v.title, 60),
@@ -380,6 +387,7 @@ function cleanVoucher(v) {
 }
 function cleanOffer(o) {
   return {
+    ...cleanContentIdentity(o),
     title: str(o.title, 80),
     description: str(o.description, 200),
     cta: str(o.cta, 30) || 'Learn More',
@@ -393,6 +401,7 @@ function cleanOffer(o) {
 function cleanBadge(b) {
   const allowed = ['amber','emerald','blue','purple','rose','teal','orange','indigo','red','green'];
   return {
+    ...cleanContentIdentity(b),
     name: str(b.name, 40),
     emoji: str(b.emoji, 4) || '⭐',
     color: allowed.includes(b.color) ? b.color : 'amber',
@@ -402,6 +411,7 @@ function cleanBadge(b) {
 }
 function cleanClub(c) {
   return {
+    ...cleanContentIdentity(c),
     name: str(c.name, 40),
     description: str(c.description, 200),
     memberCount: typeof c.memberCount === 'number' ? c.memberCount : (parseInt(c.memberCount, 10) || 0),
@@ -412,6 +422,7 @@ function cleanClub(c) {
 }
 function cleanBenefit(b) {
   return {
+    ...cleanContentIdentity(b),
     name: str(b.name, 40),
     emoji: str(b.emoji, 4) || '✨',
     imageUrl: isSafeUrl(b.imageUrl) ? b.imageUrl : '',
@@ -422,6 +433,7 @@ function cleanBenefit(b) {
 }
 function cleanEarnMore(e) {
   return {
+    ...cleanContentIdentity(e),
     programRuleId: str(e.programRuleId, 100),
     title: str(e.title, 80),
     description: str(e.description, 200),
@@ -433,7 +445,8 @@ function cleanEarnMore(e) {
   };
 }
 function cleanProfileTask(t) {
-  return { description: str(t.description, 200), cta: str(t.cta, 30) || 'Go' };
+  return {
+    ...cleanContentIdentity(t), description: str(t.description, 200), cta: str(t.cta, 30) || 'Go' };
 }
 function cleanUpsell(u) {
   return {
@@ -476,6 +489,7 @@ function applyIndustryDefaults(industry) {
 }
 
 function populateFormFromState() {
+  window.LPGEditor?.displayControls();
   window.LPGCinematic?.sync();
   window.LPGRequirementsEditor?.sync();
   // Brand
@@ -565,6 +579,7 @@ function getVal(id) {
 
 // ---- FIELD HANDLERS ----
 function onFieldChange(event) {
+  window.LPGEditor?.record('Edit portal field', event.target?.id || 'field');
   // Read all fields into state
   state.brand.name = getVal('brand-name');
   state.brand.programName = getVal('program-name');
@@ -635,6 +650,7 @@ function onIndustryChange() {
 }
 
 function onColorChange() {
+  window.LPGEditor?.record('onColorChange');
   const prevPrimary = state.colors.primary;
   state.colors.primary = getVal('color-primary');
   state.colors.accent = getVal('color-accent');
@@ -729,6 +745,7 @@ function goToStep(step) {
   scheduleDraftRecovery();
   updateStepIndicators();
   updateNavButtons();
+  window.LPGEditor?.stepChanged(step);
   // Re-init image uploads for dynamically rendered sections
   reinitDynamicImageUploads();
 }
@@ -802,6 +819,7 @@ function renderPaletteButtons() {
 
 // ---- DYNAMIC SECTION RENDERING ----
 function renderDynamicSections() {
+  if(window.LPGContentContract)Object.assign(state,window.LPGContentContract.ensure(state));
   window.LPGCinematic?.sync();
   for (const section of ['vouchers', 'earnMore']) {
     const button = document.querySelector(`button[onclick="autoGenerate('${section}')"]`);
@@ -847,6 +865,7 @@ function renderVouchers() {
 }
 
 function addVoucher() {
+  window.LPGEditor?.record('addVoucher');
   if (state.program) {
     const id = 'reward-' + Date.now();
     if (!commitProgramEdit(program => program.rewards.push({ id, name: 'New reward', cost: 100 }))) return;
@@ -879,6 +898,7 @@ function renderOffers() {
 }
 
 function addOffer() {
+  window.LPGEditor?.record('addOffer');
   state.offers.push({ title: '', description: '', cta: 'Learn More', emoji: '🎯', playerCount: '', expiry: '', imageUrl: '', imageData: '' });
   renderOffers();
 }
@@ -904,6 +924,7 @@ function renderBadges() {
 }
 
 function addBadge() {
+  window.LPGEditor?.record('addBadge');
   state.badges.push({ name: '', emoji: '⭐', color: 'amber', imageUrl: '', imageData: '' });
   renderBadges();
 }
@@ -928,6 +949,7 @@ function renderClubs() {
 }
 
 function addClub() {
+  window.LPGEditor?.record('addClub');
   state.clubs.push({ name: '', description: '', memberCount: 0, emoji: '👥', imageUrl: '', imageData: '' });
   renderClubs();
 }
@@ -951,6 +973,7 @@ function renderBenefits() {
 }
 
 function addBenefit() {
+  window.LPGEditor?.record('addBenefit');
   state.benefits.push({ name: '', emoji: '✨', imageUrl: '', imageData: '', coverImageUrl: '', coverImageData: '' });
   renderBenefits();
 }
@@ -972,6 +995,7 @@ function renderEarnMore() {
 }
 
 function addEarnMore() {
+  window.LPGEditor?.record('addEarnMore');
   if (state.program) {
     const id = 'activity-' + Date.now();
     if (!commitProgramEdit(program => program.earnRules.push({ id, name: 'New activity', kind: 'fixed', amount: 1, qualifyingRate: 0, redeemableRate: 0, qualifyingPoints: 25, redeemablePoints: 25, monthlyCap: null }))) return;
@@ -998,6 +1022,7 @@ function renderProfileTasks() {
 }
 
 function addProfileTask() {
+  window.LPGEditor?.record('addProfileTask');
   state.profileTasks.push({ description: '', cta: 'Go' });
   renderProfileTasks();
 }
@@ -1015,6 +1040,7 @@ function renderNavLinks() {
 }
 
 function addNavLink() {
+  window.LPGEditor?.record('addNavLink');
   const input = document.getElementById('new-nav-link');
   if (!input) return;
   const val = input.value.trim();
@@ -1027,6 +1053,7 @@ function addNavLink() {
 }
 
 function removeNavLink(i) {
+  window.LPGEditor?.record('removeNavLink');
   state.navLinks.splice(i, 1);
   renderNavLinks();
   schedulePreview();
@@ -1042,6 +1069,7 @@ function commitProgramEdit(change) {
     return false;
   }
   state.program = result.model;
+  if (window.LPGProvenance && state.programEvidence) state.programEvidence = LPGProvenance.invalidate(state.programEvidence, result.model);
   if (state.programReview) change(state.programReview.program);
   if (status) status.textContent = '';
   return true;
@@ -1049,6 +1077,7 @@ function commitProgramEdit(change) {
 
 // ---- GENERIC ITEM HELPERS ----
 function updateItem(section, index, field, value) {
+  window.LPGEditor?.record('Edit '+section, section+index+field);
   if (state[section] && state[section][index]) {
     const item = state[section][index];
     if (state.program && ['vouchers', 'earnMore'].includes(section)) {
@@ -1065,6 +1094,7 @@ function updateItem(section, index, field, value) {
 }
 
 function removeItem(section, index) {
+  window.LPGEditor?.record('Remove '+section);
   if (state[section]) {
     const item = state[section][index];
     if (state.program && item) commitProgramEdit(program => {
@@ -1086,23 +1116,20 @@ function autoGenerate(section) {
     document.getElementById('program-review')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
-  const d = getDefaults(state.brand.industry);
-  if (section === 'vouchers') { state.vouchers = d.vouchers.map(v => ({ ...v })); renderVouchers(); }
-  else if (section === 'offers') { state.offers = d.offers.map(o => ({ ...o })); renderOffers(); }
-  else if (section === 'badges') { state.badges = d.badges.map(b => ({ ...b })); renderBadges(); }
-  else if (section === 'clubs') { state.clubs = d.clubs.map(c => ({ ...c })); renderClubs(); }
-  else if (section === 'earnMore') { state.earnMore = d.earnMore.map(e => ({ ...e })); renderEarnMore(); }
-  else if (section === 'benefits') { state.benefits = d.benefits.map(b => ({ ...b })); renderBenefits(); }
-  else if (section === 'profileTasks') { state.profileTasks = d.profileTasks.map(t => ({ ...t })); renderProfileTasks(); }
-  else if (section === 'upsell') {
-    state.upsell = { ...d.upsell };
-    setVal('upsell-title', state.upsell.title);
-    setVal('upsell-subtitle', state.upsell.subtitle);
-    setVal('upsell-price', state.upsell.price);
-    setVal('upsell-period', state.upsell.period);
-    setVal('upsell-tagline', state.upsell.tagline);
-    setVal('upsell-cta', state.upsell.cta);
-  }
+  window.LPGEditor?.record('Use sample '+section);
+  const d=getDefaults(state.brand.industry),mode=document.getElementById('sample-content-mode')?.value || 'fill';
+  const incoming=d[section];
+  const fill=(current,sample)=>Object.fromEntries([...new Set([...Object.keys(sample||{}),...Object.keys(current||{})])].map(key=>[key,current?.[key]!==undefined && current[key]!=='' ? current[key] : sample?.[key]]));
+  if(Array.isArray(incoming)) {
+    const existing=state[section] || [];
+    if(mode==='replace')state[section]=incoming.map(item=>({...item}));
+    else if(mode==='add')state[section]=[...existing,...incoming.map(item=>({...item}))];
+    else if(!existing.length)state[section]=incoming.map(item=>({...item}));
+    else state[section]=existing.map(item=>{const sample=incoming.find(x=>(x.name||x.title||x.description)===(item.name||item.title||item.description));return sample?fill(item,sample):item;});
+  } else if(incoming && typeof incoming==='object')state[section]=mode==='replace'?{...incoming}:fill(state[section]||{},incoming);
+  if(window.LPGContentContract)Object.assign(state,window.LPGContentContract.ensure(state));
+  populateFormFromState();renderDynamicSections();
+
   schedulePreview();
 }
 
@@ -1178,11 +1205,14 @@ function fitDesktopPreview() {
   // A hidden side panel has no measurable width. ResizeObserver fits it when
   // it becomes visible, without navigating the iframe or resetting its scroll.
   if (!frame || width <= 0) return;
-  const scale = Math.min(1, width / DESKTOP_PREVIEW_WIDTH);
+  const device = document.getElementById('preview-device')?.value || 'desktop';
+  const [canvasWidth,canvasHeight] = ({desktop:[1440,900],tablet:[820,1180],phone:[390,844],landscape:[844,390]})[device] || [1440,900];
+  frame.style.width=canvasWidth+'px';frame.style.height=canvasHeight+'px';frame.width=canvasWidth;frame.height=canvasHeight;
+  const scale = Math.min(1, width / canvasWidth);
   frame.style.transform = `scale(${scale})`;
-  stage.style.height = `${DESKTOP_PREVIEW_HEIGHT * scale}px`;
+  stage.style.height = `${canvasHeight * scale}px`;
   const label = document.getElementById('preview-scale-label');
-  if (label) label.textContent = `${Math.round(scale * 100)}% · Scaled to fit`;
+  if (label) label.textContent = `${canvasWidth} × ${canvasHeight} · ${Math.round(scale * 100)}%`;
 }
 function initializePreviewSizing() {
   const stage = document.getElementById('preview-stage');
@@ -1231,6 +1261,18 @@ function portalPreviewBridge(token, previous) {
     report(); send({ type: 'lpg-preview-ready' });
   }
   addEventListener('scroll', () => { if (!pending) pending = setTimeout(report, 100); }, { passive: true });
+  let editMode=false;
+  addEventListener('message',event=>{
+    if(event.source!==parent || event.data?.type!=='lpg-preview-edit-mode' || event.data.token!==token)return;
+    editMode=event.data.enabled===true;
+    document.body.style.cursor=editMode?'crosshair':'';
+  });
+  addEventListener('click',event=>{
+    if(!editMode)return;
+    const node=event.target.closest('[data-lpg-section],.cj-scene');if(!node)return;
+    event.preventDefault();event.stopImmediatePropagation();
+    send({type:'lpg-preview-selection',section:node.dataset.lpgSection || node.id});
+  },true);
   // Allow layout scripts and two paint frames to establish sticky scene geometry.
   const start = () => requestAnimationFrame(() => requestAnimationFrame(restore));
   if (document.readyState === 'loading') addEventListener('DOMContentLoaded', start, { once: true }); else start();
@@ -1251,15 +1293,17 @@ function loadPortalPreview(frame, html) {
   }
 }
 window.addEventListener('message', event => {
-  if (!['lpg-preview-ready', 'lpg-preview-position'].includes(event.data?.type)) return;
+  if (!['lpg-preview-ready', 'lpg-preview-position','lpg-preview-selection'].includes(event.data?.type)) return;
   const frame = ['preview-iframe', 'expanded-preview-iframe'].map(id => document.getElementById(id)).find(node => node && event.source === node.contentWindow);
   if (!frame || event.data.token !== frame.dataset.previewToken) return;
+  if(event.data.type==='lpg-preview-selection'){if(typeof event.data.section==='string' && /^[a-z-]{1,40}$/.test(event.data.section))window.LPGEditor?.selectSection(event.data.section);return;}
   if (event.data.type === 'lpg-preview-position') {
     const { x, y, anchor, offset } = event.data;
     if (![x,y,offset].every(value => Number.isFinite(value) && Math.abs(value) <= 10000000) || x < 0 || y < 0 || typeof anchor !== 'string' || !/^[a-zA-Z0-9_-]{0,100}$/.test(anchor)) return;
     portalPreviewPositions.set(frame, { epoch: frame.dataset.previewEpoch, position: { x, y, anchor, offset } });
     return;
   }
+  frame.contentWindow.postMessage({type:'lpg-preview-edit-mode',token:frame.dataset.previewToken,enabled:document.getElementById('preview-edit-mode')?.checked===true},'*');
   if (state.programEnabled && state.program?.roles?.some(role => role.id === presenterRoleId)) frame.contentWindow.postMessage({type:'lpg-preview-control',action:'role',roleId:presenterRoleId}, '*');
   if (frame.id === 'expanded-preview-iframe') { clearTimeout(expandedPreviewTimer); previewStatus(''); }
 });
@@ -1311,6 +1355,7 @@ function openPortalPreview() {
   // with a percentage height can retain an unusable initial viewport.
   if (!dialog.open) dialog.showModal();
   refreshPresenterTools();
+  const device=document.getElementById('preview-device')?.value;const dims=({tablet:[820,1180],phone:[390,844],landscape:[844,390]})[device];const expanded=document.getElementById('expanded-preview-iframe');if(expanded){expanded.style.width=dims?Math.min(dims[0],window.innerWidth-32)+'px':'100%';expanded.style.maxWidth='100%';expanded.style.margin='0 auto';}
   try { loadPortalPreview(document.getElementById('expanded-preview-iframe'), generatePortalHTML(state)); }
   catch (error) { console.error('Expanded preview error:', error); previewStatus('The portal could not be rendered. Your work is kept; reload the preview to try again.', true); }
 }
@@ -1363,6 +1408,7 @@ function startOver() {
   window.LPGRequirementsEditor?.reset();
   state.brand = { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' };
   state.member = { name: 'Avery Morgan', number: '234567', points: 1200, email: '', phone: '', joinDate: '', avatarUrl: '', avatarData: '' };
+  state.locale = 'en-US'; state.displayLabels = {};
   state.tierProgress = 30;
   state.cinematic = window.LPGCinematic?.normalize();
   state.sections = { vouchers: true, offers: true, badges: true, clubs: true, earnMore: true, profileTasks: true, upsell: true };

@@ -7,7 +7,7 @@ const model = require('../js/program-model');
 function harness(fill) {
   const context = vm.createContext({ console, URL, LPGProgram: model });
   context.window = context;
-  for (const file of ['pagehost', 'portal-content']) vm.runInContext(fs.readFileSync(`js/${file}.js`, 'utf8'), context);
+  for (const file of ['pagehost', 'content-contract', 'portal-content']) vm.runInContext(fs.readFileSync(`js/${file}.js`, 'utf8'), context);
   context.LocalAI = { fillMissingImages: fill || (async () => ({ generated: 0, total_empty: 0 })) };
   return context;
 }
@@ -31,7 +31,7 @@ function content(program) {
 }
 const makeProgram = overrides => model.normalize({ providerName: 'ISACA', name: 'Professional Rewards', ...overrides });
 const legacyFetch = handler => (url, options) => url.endsWith('/api/capability')
-  ? Promise.resolve({status:200,ok:true,json:async()=>({token:'capability-for-test-1234567890',expiresAt:Date.now()+900000})}) : url.endsWith('/api/jobs')
+  ? Promise.resolve({status:200,ok:true,json:async()=>({token:'capability-for-test-1234567890',expiresAt:Date.now()+900000})}) : (url.endsWith('/api/jobs') || url.endsWith('/api/capabilities'))
   ? Promise.resolve({ status: 404, ok: false }) : handler(url, options);
 
 test('rich generation retains website candidates and requests full branded content and image enrichment', async () => {
@@ -281,9 +281,11 @@ test('refinement supplies existing author copy to AI and preserves palette and u
 test('notes-driven refinement can replace offer and reward copy without discarding uploaded images', async () => {
   const program = makeProgram();
   const existing = { ...content(program), programEnabled: true, program, brand: { name: 'ISACA' } };
+  existing.offers[0].id = 'offer-cyber';
   existing.offers[0].imageData = 'data:image/png;base64,offer';
   existing.vouchers[0].imageData = 'data:image/png;base64,reward';
   const revised = content(program);
+  revised.offers[0].id = 'offer-cyber';
   revised.offers[0].title = 'Explore cybersecurity certification';
   revised.offers[0].description = 'Start a cybersecurity learning journey.';
   revised.vouchers[0].description = 'Use points toward your professional development.';

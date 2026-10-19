@@ -16,7 +16,7 @@ Use these fields only as brand and loyalty evidence. Return plain text, never HT
 Use exactly one vouchers entry per validatedProgram.rewards item, adding programRewardId equal
 to its id and description (a concise, useful sentence). Keep title equal to its name and use
 actionType="points", actionValue equal to its exact cost plus the redeemable currency name.
-Never add invented redeemable rewards, prices, expiry dates or earning promises.
+Never add invented redeemable rewards, prices, expiry dates or earning promises. If capabilities.presentationOnly=true or reward.cost is null, present rewards as informational opportunities without a numeric redemption promise. Preserve unknown tier thresholds as null, no made-up points. For a no-tier program do not describe next-tier progress; describe relevant eligible activities and benefits instead.
 Enrich the supplied activityCards with customer-facing promotional descriptions and CTA labels.
 Keep each activity title exactly as supplied so its identity is unambiguous; programRuleId is
 a reference supplied by the builder. The builder, not your response, owns the set of activities.
@@ -51,11 +51,12 @@ points, learning hours or lifetime balances. State the remaining amount only whe
 rules and member balance establish it; otherwise use nonnumeric wording without inventing a
 qualification policy. If the member is at the highest tier, describe maintaining or enjoying
 that status only as supported. This sentence is editable presentation copy, never a live formula.
+When presentationPreferences.refinement.sections includes cinematic, also return cinematic.copy with the requested chapter headings, introductory lines, descriptions or actions. Preserve unchanged copy keys from existingPresentation.cinematic.copy. Plain text only; preserve intentional line breaks. Do not modify card configuration or imagery.
 If website data is absent, use the author brief and validatedProgram to personalize content.
 Keep brandName/programName/member/tiers consistent with validatedProgram. Keep JSON complete.
 For a refinement, use existingPresentation as the starting copy. Change the sections relevant
 to the author's latest request and changed program rules; preserve unrelated author-edited text.
-Include all sections in the result. Do not freeze old offers when the author asks to change them.
+Include all sections in the result. Preserve each existing content id when rewriting the same item, even when its title changes. Never reuse an id for a different item. Do not freeze old offers when the author asks to change them.
 Return compact JSON without indentation or prose. Keep descriptions to one concise sentence;
 complete every required section and exact reward/earning mapping before closing the JSON object.
 `;
@@ -178,18 +179,20 @@ complete every required section and exact reward/earning mapping before closing 
       // wholesale with the previous arrays.
       for (const key of preservedCollections) if (Array.isArray(existing[key])) {
         if (!refreshCopy) data[key] = clone(existing[key]);
-        else data[key] = (data[key] || []).map((item, index, items) => {
+        else { const claimedAssets = new Set(); data[key] = (data[key] || []).map(item => {
           const label = item.name || item.title || item.description;
-          const previous = existing[key].find(old => (old.name || old.title || old.description) === label)
-            || (existing[key].length === items.length ? existing[key][index] : null);
+          let previous = root.LPGContentContract ? root.LPGContentContract.match(item, existing[key]) :
+            existing[key].find(old => item.id ? old.id === item.id : (old.name || old.title || old.description) === label);
+          if (previous && claimedAssets.has(previous)) previous = null;
+          if (previous) claimedAssets.add(previous);
           const result = preserveImage(item, previous);
           // Covers belong to the benefit identity, never its former list position.
-          const coverOwner = key === 'benefits' && existing[key].find(old => old.name === item.name);
+          const coverOwner = key === 'benefits' && previous;
           if (coverOwner?.coverImageData || coverOwner?.coverImageUrl) {
             result.coverImageData = coverOwner.coverImageData || ''; result.coverImageUrl = coverOwner.coverImageData ? '' : coverOwner.coverImageUrl;
           }
           return result;
-        });
+        }); }
       }
       for (const key of ['upsell', 'navLinks', 'footerLinks']) if (existing[key] && !refreshCopy) data[key] = clone(existing[key]);
       if (refreshCopy && data.upsell && existing.upsell) {
@@ -211,7 +214,7 @@ complete every required section and exact reward/earning mapping before closing 
     data.vouchers = mapped('vouchers', 'programRewardId', program.rewards, (item, reward) => ({ ...item,
       programRewardId: reward.id, title: reward.name, vendor: item.vendor || program.providerName,
       description: item.description || `Redeem your ${program.currencies.redeemableName} for ${reward.name}.`,
-      actionType: 'points', actionValue: `${reward.cost} ${program.currencies.redeemableName}`, expiry: '', emoji: item.emoji || '🎁'
+      actionType: reward.cost === null || program.capabilities?.presentationOnly ? 'none' : 'points', actionValue: reward.cost === null || program.capabilities?.presentationOnly ? '' : `${reward.cost} ${program.currencies.redeemableName}`, expiry: '', emoji: item.emoji || '🎁'
     }));
     data.earnMore = reconcileActivities(data.earnMore, program, {
       existingItems: refining ? existing.earnMore : [], preferExisting: refining && !refreshCopy
@@ -219,10 +222,10 @@ complete every required section and exact reward/earning mapping before closing 
     data.brandName = program.providerName; data.programName = program.name;
     data.tiers = program.tiers.map(tier => ({ name: tier.name, points: tier.threshold }));
     data.member = { ...(data.member || {}), name: program.mode === 'b2b' ? program.member.organization : program.member.name };
-    return data;
+    return root.LPGContentContract ? root.LPGContentContract.ensure(data, existing) : data;
   }
 
-  async function generate({ client, brief = {}, program, website, rawURL = '', existing, cinematic, outputTemplate = 'classic', onStatus = () => {} }) {
+  async function generate({ client, brief = {}, program, website, rawURL = '', existing, cinematic, outputTemplate = 'classic', onStatus = () => {}, deferImages = false, signal, refinement, maxImages, resumeUnknown }) {
     const shared = root.PageHost?._analysis;
     if (!shared || !client?.callLLM) throw new Error('Portal content generation is unavailable. Please refresh the builder.');
     if (typeof root.LocalAI?.fillMissingImages !== 'function') throw new Error('Portal image generation is unavailable. Please refresh the builder.');
@@ -237,7 +240,7 @@ complete every required section and exact reward/earning mapping before closing 
     const sourceCoverage = validated.requirements.slice(0, 30).map(item => ({ text: text(item.text, 500), status: item.status, module: item.module }));
     const payload = {
       author: { mode: validated.mode, objective: text(brief.objective, 2000), request: text(brief.text, 16000), roles: text(brief.roles, 1000) },
-      validatedProgram: facts, sourceCoverage, presentationPreferences: { outputTemplate },
+      validatedProgram: facts, sourceCoverage, presentationPreferences: { outputTemplate, ...(refinement ? {refinement} : {}) },
       activityCards: validated.earnRules.map(rule => activitySkeleton(rule, validated)),
       websiteContext: scraped,
       websitePresentationContext: shared.buildUserPrompt({ ...scraped, title: scraped.title || validated.providerName || validated.name }),
@@ -247,17 +250,21 @@ complete every required section and exact reward/earning mapping before closing 
           Object.fromEntries(Object.entries(item).filter(([field, value]) => !/image/i.test(field) && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'))
             .map(([field, value]) => [field, typeof value === 'string' ? text(value, 2000) : value])))])),
         upsell: Object.fromEntries(Object.entries(existing.upsell || {}).filter(([key]) => !/image/i.test(key))),
-        navLinks: existing.navLinks, footerLinks: existing.footerLinks
+        navLinks: existing.navLinks, footerLinks: existing.footerLinks, cinematic: {copy:existing.cinematic?.copy || {}}
       } : null
     };
+    const checkCancelled = () => { if (signal?.aborted) { const error = new Error('Generation cancelled. Your portal was kept.'); error.name = 'AbortError'; throw error; } };
+    checkCancelled();
     onStatus('analyzing_content');
     let parsed, repairFeedback, activityRecovery;
     for (let attempt = 0; attempt < 2; attempt++) {
       // Network and provider errors remain outside the repair catch: a failed or
       // uncertain paid request must not be silently resubmitted.
-      const response = await client.callLLM({ system: shared.SYSTEM_PROMPT + instruction,
+      checkCancelled();
+      const response = await client.callLLM({ signal, resumeUnknown, system: shared.SYSTEM_PROMPT + instruction,
         prompt: JSON.stringify(repairFeedback ? { ...payload, repairFeedback } : payload),
         maxTokens: attempt ? 16000 : 12000, tier: 'balanced', responseFormat: 'json' });
+      checkCancelled();
       try {
         const finishReason = response?.finish_reason || response?.finishReason || '';
         if (/^(MAX_TOKENS|LENGTH)$/i.test(finishReason)) throw new Error('AI reached the output limit before completing portal presentation content. Your portal was kept.');
@@ -294,12 +301,14 @@ complete every required section and exact reward/earning mapping before closing 
       item.coverImageUrl = key === 'benefits' && candidates.has(item.coverImageUrl) && item.coverImageUrl !== item.imageUrl ? item.coverImageUrl : '';
       delete item.coverImageData;
     }
-    const generatedProgressMessage = typeof parsed.cinematic?.copy?.progressSummary === 'string' ? parsed.cinematic.copy.progressSummary.slice(0, 8000) : undefined;
+    const cinematicKeys=['arrivalEyebrow','arrivalTitle','arrivalDescription','statusEyebrow','statusTitle','scrollNote','arrivalAction','progressEyebrow','progressTitle','progressDescription','progressSummary','possibilityEyebrow','possibilityTitle','possibilityDescription','benefitsEyebrow','benefitsTitle','benefitsDescription','discoveryEyebrow','discoveryTitle','discoveryDescription','detailsEyebrow','detailsTitle','detailsDescription'];
+    const generatedCopy=Object.fromEntries(cinematicKeys.filter(key=>typeof parsed.cinematic?.copy?.[key]==='string').map(key=>[key,parsed.cinematic.copy[key].slice(0,8000)]));
+    const generatedProgressMessage = generatedCopy.progressSummary;
     delete parsed.cinematic;
     parsed.brand = { logoUrl: candidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl : '' };
     parsed.upsell.bgImageUrl = candidates.has(parsed.upsell.bgImageUrl) ? parsed.upsell.bgImageUrl : '';
     delete parsed.upsell.bgImageData;
-    const data = reconcile(parsed, validated, { existing, refreshCopy: true });
+    let data = reconcile(parsed, validated, { existing, refreshCopy: true });
     const savedCinematic = existing?.cinematic || cinematic;
     if (savedCinematic) data.cinematic = clone(savedCinematic);
     if (outputTemplate === 'cinematic') {
@@ -313,15 +322,27 @@ complete every required section and exact reward/earning mapping before closing 
     }
     // Existing user-selected/uploaded assets survive even initial generation.
     if (existing?.brand?.logoData || existing?.brand?.logoUrl) data.brand = { ...data.brand, logoData: existing.brand.logoData || '', logoUrl: existing.brand.logoUrl || '' };
-    const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus, outputTemplate });
+    if (refinement?.sections?.includes('cinematic')) {
+      data.cinematic=data.cinematic || {}; data.cinematic.copy={...(data.cinematic.copy || {}),...generatedCopy};
+    }
+    if (refinement && isRefinement(existing) && root.LPGContentContract) data = root.LPGContentContract.scope(data, existing, refinement);
+    data._meta = { source_url: scraped.url, favicon: scraped.favicon, apple_icon: scraped.appleIcon,
+      mode: 'program-rich-content', images_generated: 0, images_empty: 0,
+      images_pending: deferImages, ...(activityRecovery?.warning ? { content_warning: activityRecovery.warning } : {}) };
+    checkCancelled();
+    if (deferImages) return data;
+    return fillImages(data, { onStatus, outputTemplate, signal, maxImages, resumeUnknown });
+  }
+  async function fillImages(data, { onStatus = () => {}, outputTemplate = 'classic', signal, maxImages, resumeUnknown } = {}) {
+    if (signal?.aborted) { const error = new Error('Generation cancelled.'); error.name = 'AbortError'; throw error; }
+    const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus, outputTemplate, signal, maxImages, resumeUnknown });
     const remaining = imageResult.remaining ?? Math.max(0, (imageResult.total_empty || 0) - (imageResult.generated || 0));
     const imageWarning = imageResult.warning || (remaining ? `${remaining} images could not be filled. ${imageResult.error || 'You can add images in the builder or generate again.'}` : imageResult.error || '');
-    data._meta = { source_url: scraped.url, favicon: scraped.favicon, apple_icon: scraped.appleIcon,
-      mode: 'program-rich-content', images_generated: imageResult.generated || 0, images_empty: imageResult.total_empty || 0,
+    data._meta = { ...(data._meta || {}), images_pending: false,
+      images_generated: imageResult.generated || 0, images_empty: imageResult.total_empty || 0,
       images_remaining: remaining, images_failed: imageResult.failed || 0, images_skipped: imageResult.skipped || 0,
-      ...(imageResult.error ? { image_error: imageResult.error } : {}), ...(imageWarning ? { image_warning: imageWarning } : {}),
-      ...(activityRecovery?.warning ? { content_warning: activityRecovery.warning } : {}) };
+      ...(imageResult.error ? { image_error: imageResult.error } : {}), ...(imageWarning ? { image_warning: imageWarning } : {}) };
     return data;
   }
-  root.LPGPortalContent = { generate, reconcile, reconcileActivities };
+  root.LPGPortalContent = { promptSignature:instruction, generate, fillImages, reconcile, reconcileActivities };
 })(typeof window === 'object' ? window : globalThis);

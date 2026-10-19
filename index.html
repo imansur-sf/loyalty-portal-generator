@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Loyalty Portal Generator</title>
-  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <link rel="stylesheet" href="./assets/builder.css?v=ce0948aa126b">
   <style>
     /* ── Salesforce Sans + Avant Garde For Salesforce (self-hosted) ── */
     @font-face { font-family: 'Salesforce Sans'; font-weight: 300; font-style: normal; font-display: swap; src: url('./assets/fonts/SalesforceSans-Light.woff2') format('woff2'); }
@@ -320,6 +320,15 @@
         </section>
 
         <!-- STEP 1: Brand & Identity -->
+        <section class="editor-toolbar" aria-label="Editing tools">
+          <div class="program-actions"><button type="button" id="editor-undo" disabled>Undo</button><button type="button" id="editor-redo" disabled>Redo</button><button type="button" onclick="openPortalPreview()">Preview portal</button></div>
+          <label for="editor-search">Find an editable field</label><input id="editor-search" type="search" placeholder="Search headings, rewards, colors…" autocomplete="off"><div id="editor-search-results" hidden></div>
+          <details><summary>Preview and sample options</summary><label for="sample-content-mode">Sample content behavior</label><select id="sample-content-mode"><option value="fill">Fill blanks</option><option value="add">Add samples</option><option value="replace">Replace section (can undo)</option></select>
+          <label for="preview-device">Preview device</label><select id="preview-device"><option value="desktop">Desktop · 1440 × 900</option><option value="tablet">Tablet · 820 × 1180</option><option value="phone">Phone · 390 × 844</option><option value="landscape">Phone landscape · 844 × 390</option></select>
+          <label><input id="preview-edit-mode" type="checkbox"> Select a section in the preview to edit it</label>
+          </details><div id="display-label-editor"></div>
+          <p id="editor-tool-status" role="status" aria-live="polite"></p><p id="editor-step-status" class="sr-only" role="status" aria-live="polite"></p>
+        </section>
         <div class="step-panel active fade-in" data-step="0">
           <!-- Quick Start (AI URL analysis) — only meaningful on Page Host -->
           <div class="quickstart" id="quickstart-panel">
@@ -393,6 +402,12 @@
             <h2 id="program-controls-title" class="wizard-title">Portal experience</h2>
             <label class="program-field" for="output-template">Output template<select id="output-template"><option value="cinematic" selected>Cinematic Journey · Scroll-driven storytelling</option><option value="classic">Classic · Original portal</option><option value="dashboard">Member Dashboard · Overview and activity</option><option value="showcase">Rewards Showcase · Image-led catalogue</option><option value="editorial">Brand Experience · Immersive brand stories</option></select></label>
 
+            <details class="editor-options"><summary>AI update scope and imagery</summary>
+              <p class="program-help">Choose what AI may update. Review the proposal before applying it. Generating and editing do not require sign-in.</p>
+              <label class="program-field" for="ai-refine-sections">Sections to update<select id="ai-refine-sections" multiple size="5"><option value="all" selected>Entire program and portal</option><option value="offers">Promotions</option><option value="vouchers">Rewards</option><option value="benefits">Benefits</option><option value="earnMore">Earning activities</option><option value="badges">Badges</option><option value="clubs">Communities</option><option value="profileTasks">Profile tasks</option><option value="upsell">Membership feature</option><option value="navLinks">Brand navigation</option><option value="footerLinks">Footer</option><option value="cinematic">Cinematic wording</option></select></label>
+              <label class="program-field" for="ai-refine-mode">How to apply selected sections<select id="ai-refine-mode"><option value="replace">Propose replacements</option><option value="fill">Fill blank fields only</option><option value="add">Add suggestions</option></select></label>
+              <label class="program-field" for="ai-image-budget">Images per generation<select id="ai-image-budget"><option value="8">Fast draft · up to 8 images</option><option value="16" selected>Balanced · up to 16 images</option><option value="48">Full imagery · up to 48 images</option></select></label>
+            </details>
             <div id="cinematic-settings" hidden></div>
             <p id="program-mode-note" class="program-help"></p>
             <div class="program-actions"><button type="button" id="program-edit">Program details &amp; assumptions</button><button type="button" id="program-sample">Start with a sample</button><button type="button" onclick="openPortalPreview()">Preview full size</button></div>
@@ -794,7 +809,7 @@
             <div class="w-3 h-3 rounded-full bg-green-400"></div>
             <span class="text-[11px] font-600 text-gray-500 ml-2 tracking-wider uppercase">Live Preview</span><button type="button" onclick="openPortalPreview()" class="ml-auto text-xs font-semibold text-blue-700">Expand ↗</button>
           </div>
-          <div class="preview-viewport-bar"><span>Desktop browser · 1440 × 900</span><span id="preview-scale-label">Scaled to fit</span></div>
+          <div class="preview-viewport-bar"><span>Device preview</span><span id="preview-scale-label">Scaled to fit</span></div>
           <div id="preview-stage"><iframe id="preview-iframe" title="Desktop loyalty portal preview, scaled to fit" width="1440" height="900" sandbox="allow-scripts"></iframe></div>
           <div class="preview-footnote">Scroll inside to explore. Expand for a larger view.</div>
         </div>
@@ -809,22 +824,34 @@
       <button id="expanded-preview-retry" type="button" onclick="openPortalPreview()" class="btn-secondary-sf" hidden>Reload preview</button><button type="button" onclick="closePortalPreview()" class="btn-secondary-sf">Close preview</button></div>
     <iframe id="expanded-preview-iframe" title="Full size loyalty portal" sandbox="allow-scripts"></iframe>
   </dialog>
+  <style>
+    .editor-toolbar,.editor-options {background:white;border:1px solid #dbe3ef;border-radius:14px;padding:16px;margin:0 0 18px;}
+    .editor-toolbar label,.editor-options label {display:block;font-size:12px;font-weight:600;margin:10px 0 4px;}
+    .editor-toolbar input:not([type=checkbox]),.editor-toolbar select,.editor-options select,.image-framing select {border:1px solid #c9d2df;border-radius:8px;padding:8px;width:100%;font-size:13px;}
+    .editor-search-result {display:block;text-align:left;width:100%;padding:8px;border-bottom:1px solid #e5e7eb;}
+    .editor-search-result:focus-visible,button:focus-visible,summary:focus-visible {outline:3px solid #066afe;outline-offset:3px;}
+    .image-framing {font-size:12px;margin-top:8px;}.image-framing label {display:block;margin-top:8px;}.image-framing input {width:100%;}
+    @media(max-width:1023px){.editor-toolbar {position:relative;}.editor-toolbar .program-actions {position:sticky;top:0;background:white;z-index:5;}}
+  </style>
   <!-- Scripts -->
-  <script src="./js/accounts-loader.js?v=20261018"></script>
-  <script src="./js/defaults.js?v=20260718c"></script>
-  <script src="./js/images.js?v=20261019a"></script>
-  <script src="./js/cinematic-settings.js?v=20261018o"></script>
-  <script src="./js/program-model.js?v=20261018j"></script>
-  <script src="./js/program-runtime.js?v=20261018j"></script>
-  <script src="./js/portal-templates.js?v=20261018o"></script>
-  <script src="./js/requirements.js?v=20261018n"></script>
-  <script src="./js/portal-content.js?v=20261018o"></script>
-  <script src="./js/variants.js?v=20261018n"></script>
-  <script src="./js/requirements-editor.js?v=20261018p"></script>
-  <script src="./js/generator.js?v=20261019a"></script>
-  <script src="./js/pagehost.js?v=20261018j"></script>
-  <script src="./js/localai.js?v=20261019b"></script>
-  <script src="./js/app.js?v=20261019a"></script>
-  <script src="./js/projects.js?v=20261018j"></script>
+  <script src="./js/accounts-loader.js?v=d7eb6095c4cd"></script>
+  <script src="./js/defaults.js?v=bc138671a8e0"></script>
+  <script src="./js/images.js?v=0ccf092540c8"></script>
+  <script src="./js/cinematic-settings.js?v=6c674c6377e8"></script>
+  <script src="./js/program-model.js?v=853c3637cc34"></script>
+  <script src="./js/program-runtime.js?v=866e718ff2d7"></script>
+  <script src="./js/portal-templates.js?v=b040df124022"></script>
+  <script src="./js/requirements.js?v=242055a01d7e"></script>
+  <script src="./js/content-contract.js?v=7b62dbe35a95"></script>
+  <script src="./js/program-provenance.js?v=736da9474de0"></script>
+  <script src="./js/portal-content.js?v=2a8a3a9f82ac"></script>
+  <script src="./js/variants.js?v=8bb370744bde"></script>
+  <script src="./js/requirements-editor.js?v=b8aba8e3b667"></script>
+  <script src="./js/generator.js?v=560810d8df95"></script>
+  <script src="./js/pagehost.js?v=f65fb1ea48d2"></script>
+  <script src="./js/localai.js?v=9c2d00fedd30"></script>
+  <script src="./js/app.js?v=afedc321e7ad"></script>
+  <script src="./js/projects.js?v=91616aa5f87d"></script>
+  <script src="./js/editor-tools.js?v=c9deb363db04"></script>
 </body>
 </html>

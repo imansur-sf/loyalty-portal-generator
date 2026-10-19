@@ -53,6 +53,8 @@
     }
     const card = source.card || {};
     return { copy, card: {
+      artworkFit: card.artworkFit === 'contain' ? 'contain' : 'cover',
+      artworkPosition: /^\d{1,3}% \d{1,3}%$/.test(card.artworkPosition || '') ? card.artworkPosition : '50% 50%',
       mode: card.mode === 'image' ? 'image' : 'loyalty',
       markMode: ['brand', 'custom'].includes(card.markMode) ? card.markMode : 'orbit',
       markImageUrl: safeImage(card.markImageUrl), markImageData: safeImage(card.markImageData),
@@ -148,7 +150,7 @@
           <p class="text-xs text-gray-600">Without artwork, the loyalty card appears automatically.</p></div>
       </div></details></div>`;
     host.querySelectorAll('[data-cinematic-copy]').forEach(input => input.addEventListener('input', () => {
-      settings().copy[input.dataset.cinematicCopy] = input.value; changed();
+      root.LPGEditor?.record('Edit cinematic copy',input.dataset.cinematicCopy);settings().copy[input.dataset.cinematicCopy] = input.value; changed();
     }));
     const mode = document.getElementById('cinematic-card-mode'), mark = document.getElementById('cinematic-card-mark');
     const details = document.getElementById('cinematic-card-details');
@@ -158,9 +160,9 @@
       document.getElementById('cinematic-artwork-controls').hidden = config.card.mode !== 'image';
       document.getElementById('cinematic-custom-mark').hidden = config.card.markMode !== 'custom';
     };
-    mode.onchange = () => { config.card.mode = mode.value; bump('card-artwork'); visibility(); changed(); };
-    mark.onchange = () => { config.card.markMode = mark.value; bump('card-mark'); visibility(); changed(); };
-    details.onchange = () => { config.card.showDetails = details.checked; changed(); };
+    mode.onchange = () => { root.LPGEditor?.record('Change card appearance'); config.card.mode = mode.value; bump('card-artwork'); visibility(); changed(); };
+    mark.onchange = () => { root.LPGEditor?.record('Change card emblem'); config.card.markMode = mark.value; bump('card-mark'); visibility(); changed(); };
+    details.onchange = () => { root.LPGEditor?.record('Change card text'); config.card.showDetails = details.checked; changed(); };
     visibility(); bindAsset('card-mark'); bindAsset('card-artwork');
   }
   function context() {
@@ -201,7 +203,7 @@
       }
       const image = safeImage(destination[target.data] || destination[target.url]);
       if (!image) throw new Error('No image was returned. Try again or upload an image.');
-      setImage(type, index, image);
+      root.LPGEditor?.record('Generate image');setImage(type, index, image);
       if (status?.isConnected) status.textContent = 'Image generated.';
       const preview = document.getElementById('preview-' + slot), url = document.getElementById('url-' + slot);
       if (preview) { preview.src = image; preview.classList.remove('hidden'); }

@@ -7,14 +7,19 @@
     "start": "node server.js",
     "test": "node --test test/*.test.js",
     "build:portal-css": "node scripts/build-portal-css.cjs",
-    "check:portal-css": "node scripts/build-portal-css.cjs --check"
+    "check:portal-css": "node scripts/build-portal-css.cjs --check",
+    "build:editor": "node scripts/build-editor.cjs",
+    "build": "npm run build:portal-css && npm run build:editor && python3 build-standalone.py",
+    "check:build": "node scripts/check-build.cjs",
+    "heroku-postbuild": "npm run check:build && npm test"
   },
   "engines": {
     "node": "22.x"
   },
   "dependencies": {
-    "express": "^4.21.0",
-    "pdfjs-dist": "6.4.299"
+    "express": "^4.22.3",
+    "pdfjs-dist": "6.4.299",
+    "pg": "8.23.1"
   },
   "devDependencies": {
     "jsdom": "30.1.3",

@@ -17,13 +17,13 @@ function presentation(program) {
     navLinks:['Rewards','Learning','Community'],footerLinks:Object.fromEntries(['col1','col2','col3'].map(k=>[k,{title:'Member resources',links:['Support','Learning']}])),member:{name:program.member.name,joinDate:'October 2026'}
   };
 }
-async function editor() {
+async function editor({review=false}={}) {
   const html=fs.readFileSync('index.html','utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,'');
   const dom=new JSDOM(html,{runScripts:'outside-only',url:'https://lpg.test/'}),w=dom.window;
   await new Promise(r=>w.document.addEventListener('DOMContentLoaded',r,{once:true}));
   w.HTMLElement.prototype.scrollIntoView=()=>{};w.confirm=()=>true;
   const run=code=>vm.runInContext(code,dom.getInternalVMContext());
-  for(const file of ['defaults','images','cinematic-settings','program-model','program-runtime','portal-templates','generator','pagehost','requirements','portal-content','variants','requirements-editor','app','projects']) run(fs.readFileSync(`js/${file}.js`,'utf8'));
+  for(const file of ['defaults','images','cinematic-settings','program-model','program-runtime','portal-templates','generator','pagehost',...(review?['content-contract','program-provenance']:[]),'requirements','portal-content','variants','requirements-editor','app','projects']) run(fs.readFileSync(`js/${file}.js`,'utf8'));
   run(`applyIndustryDefaults('generic'); editorDefaults=cloneProject(state); scheduleDraftRecovery=()=>{}; schedulePreview=updatePreview; populateFormFromState(); LPGRequirementsEditor.init();`);
   let imageCalls=0;
   w.LocalAI={fillMissingImages:async data=>{imageCalls++; for(const key of ['vouchers','offers','benefits','badges','clubs']) data[key].forEach((item,i)=>{if(!item.imageUrl&&!item.imageData)item.imageUrl='https://brand.test/'+key+i+'.png';});return {generated:5,total_empty:5};}};
@@ -340,8 +340,8 @@ test('both-audience AI requests carry each selected template before rule and ima
     }, prompt => { observed.push(prompt.presentationPreferences); return presentation(prompt.validatedProgram); });
     await e.w.LPGRequirementsEditor.analyze(client, '');
     assert.deepEqual(JSON.parse(JSON.stringify(observed)), [
-      { outputTemplate: 'cinematic', defaultRewardCount: 5 }, { outputTemplate: 'cinematic' },
-      { outputTemplate: 'editorial', defaultRewardCount: 4 }, { outputTemplate: 'editorial' }
+      { outputTemplate: 'cinematic', locale:'en-US', defaultRewardCount: 5 }, { outputTemplate: 'cinematic' },
+      { outputTemplate: 'editorial', locale:'en-US', defaultRewardCount: 4 }, { outputTemplate: 'editorial' }
     ]);
   } finally { e.close(); }
 });
@@ -401,4 +401,139 @@ test('preview position is retained only for the current frame token and project'
     e.run('projectEpoch++;updatePreview()');assert.ok(!f.srcdoc.includes('"y":2400'));
     assert.doesNotMatch(e.run('generatePortalHTML(state)'),/lpg-preview-position/);
   } finally {e.close();}
+});
+
+test('source-aware text proposal leaves current portal intact until accepted and can be discarded without images',async()=>{
+ const e=await editor({review:true});try {
+  e.field('brief-text','A professional member program');
+  const before=e.run('JSON.stringify(state)');
+  const result=await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+  assert.equal(result.pending,true);assert.equal(e.w.LPGRequirementsEditor.pending(),true);
+  assert.equal(e.run('JSON.stringify(state)'),before);assert.equal(e.imageCalls(),0);
+  const review=e.w.document.getElementById('generation-review');
+  assert.equal(review.hidden,false);assert.match(review.textContent,/illustrative/);assert.match(review.textContent,/currencies.qualifyingName/);
+  assert.ok(e.w.document.getElementById('generation-review-preview').srcdoc.includes('ISACA Member Rewards'));
+  e.w.LPGRequirementsEditor.cancelGeneration();assert.equal(e.w.LPGRequirementsEditor.pending(),false);
+  assert.equal(e.run('JSON.stringify(state)'),before);assert.equal(e.imageCalls(),0);
+ }finally{e.close();}
+});
+test('accept commits usable text before background images and preserves author-uploaded replacements',async()=>{
+ const e=await editor({review:true});try {
+  e.field('brief-text','A professional program');
+  await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+  let resume,started;const ready=new Promise(r=>started=r);const waiting=new Promise(r=>resume=r);
+  e.w.LocalAI.fillMissingImages=async data=>{started();await waiting;data.offers[0].imageData='data:image/png;base64,ai';data.benefits[0].imageData='data:image/png;base64,benefit';return {generated:2,total_empty:2};};
+  const accept=e.w.LPGRequirementsEditor.acceptGeneration();await ready;
+  assert.equal(e.run('state.programEnabled'),true);assert.equal(e.run('state.offers[0].title'),'CPE learning series');
+  assert.ok(e.run('state.offers[0].id'));assert.ok(e.run('state.programEvidence.records.length')>5);
+  e.run("state.offers[0].imageData='data:image/png;base64,author';state.offers[0].description='Edited while images generate'");
+  resume();await accept;
+  assert.equal(e.run('state.offers[0].imageData'),'data:image/png;base64,author');
+  assert.equal(e.run('state.offers[0].description'),'Edited while images generate');
+  assert.equal(e.run('state.benefits[0].imageData'),'data:image/png;base64,benefit');
+ }finally{e.close();}
+});
+test('stale AI proposal cannot overwrite edits made during review',async()=>{
+ const e=await editor({review:true});try {
+  e.field('brief-text','A professional program');await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+  e.run("state.brand.name='Author brand'");await e.w.LPGRequirementsEditor.acceptGeneration();
+  assert.equal(e.run('state.brand.name'),'Author brand');assert.equal(e.run('state.program'),null);
+  assert.match(e.w.document.getElementById('generation-review-error').textContent,/editor changed/);assert.equal(e.imageCalls(),0);
+ }finally{e.close();}
+});
+test('scoped AI refinement preserves policy and unrelated authored sections with a reviewable text diff',async()=>{
+ const e=await editor({review:true});try {
+  e.field('brief-text','Professional rewards');await e.w.LPGRequirementsEditor.analyze(e.client(),'');await e.w.LPGRequirementsEditor.acceptGeneration();
+  e.run("state.benefits[0].name='Author custom benefit';state.footerLinks.col1.title='Author footer'");
+  const accepted=e.run('JSON.stringify(state.program)');
+  let scope=e.w.document.getElementById('ai-refine-sections');
+  if(!scope){scope=e.w.document.createElement('select');scope.id='ai-refine-sections';scope.multiple=true;scope.innerHTML='<option selected value="offers">Offers</option>';e.w.document.body.append(scope);}else{for(const option of scope.options)option.selected=option.value==='offers';}
+  assert.equal(e.run('state.programEnabled'),true);
+  assert.deepEqual(Array.from(scope.options).filter(o=>o.selected).map(o=>o.value),['offers']);
+  e.field('brief-text','Rewrite offers about certification');
+  let rulesCalls=0;
+  await e.w.LPGRequirementsEditor.analyze(e.client(()=>{rulesCalls++;throw new Error('Must not reinterpret policy');},program=>({...presentation(program.validatedProgram),offers:[{title:'Certification pathways',description:'Find your path',cta:'Explore'}]})),'');
+  assert.equal(rulesCalls,0);assert.equal(e.run('state.offers[0].title'),'CPE learning series');
+  assert.match(e.w.document.getElementById('generation-review').textContent,/Certification pathways/);
+  await e.w.LPGRequirementsEditor.acceptGeneration();
+  assert.equal(e.run('state.offers[0].title'),'Certification pathways');assert.equal(e.run('state.benefits[0].name'),'Author custom benefit');
+  assert.equal(e.run('state.footerLinks.col1.title'),'Author footer');assert.equal(e.run('JSON.stringify(state.program)'),accepted);
+ }finally{e.close();}
+});
+test('program details exposes no-tier, descriptive qualification and independent member metrics',async()=>{
+ const e=await editor();try {
+  e.w.LPGRequirementsEditor.sample();e.w.LPGRequirementsEditor.editProgram();
+  const tiers=e.w.document.querySelector('[data-program-path="capabilities.tiers"]');assert.ok(tiers);
+  tiers.checked=false;tiers.dispatchEvent(new e.w.Event('input',{bubbles:true}));
+  assert.equal(e.run('state.program.capabilities.tiers'),false);
+  e.edit('qualification.basis','nights');assert.equal(e.run('state.program.capabilities.presentationOnly'),true);
+  e.w.document.querySelector('[data-add-program="metrics"]').click();
+  e.edit('metrics.0.name','Annual nights');e.edit('metrics.0.value','12');e.edit('metrics.0.unit','nights');e.edit('metrics.0.singularUnit','night');
+  assert.equal(e.run('state.program.metrics[0].value'),12);assert.equal(e.run('state.program.metrics[0].name'),'Annual nights');
+  e.edit('locale','fr-FR');assert.equal(e.run('state.locale'),'fr-FR');
+ }finally{e.close();}
+});
+
+test('unfinished text generation recovery matches editor checkpoint and forwards explicit resume through both AI stages',async()=>{
+ const e=await editor({review:true});try {
+  e.field('brief-text','Source-aware professional program');
+  let jobs=[],failed=false;const resumes=[];
+  e.w.LocalAI.getPendingJobs=()=>jobs;
+  const base=e.client();
+  const client={callLLM:async args=>{
+   const payload=JSON.parse(args.prompt);resumes.push({content:!!payload.validatedProgram,resume:args.resumeUnknown});
+   if(payload.validatedProgram&&!failed){failed=true;jobs=[{id:'pending-content',kind:'llm',status:'unknown'}];throw new Error('Submission outcome unknown');}
+   if(payload.validatedProgram)jobs=[];
+   return base.callLLM(args);
+  }};
+  await assert.rejects(e.w.LPGRequirementsEditor.analyze(client,''),/unknown/);
+  assert.equal(e.run('state.program'),null);
+  assert.equal(e.w.document.getElementById('recover-generation').disabled,false);
+  await e.w.LPGRequirementsEditor.recoverGeneration();
+  assert.equal(e.w.LPGRequirementsEditor.pending(),true);assert.equal(e.run('state.program'),null);
+  assert.deepEqual(resumes.slice(-2).map(item=>item.resume),[true,true]);
+  assert.equal(e.imageCalls(),0);
+ }finally{e.close();}
+});
+test('recovery never applies an unfinished request over changed author inputs',async()=>{
+ const e=await editor({review:true});try {
+  e.field('brief-text','Original request');let jobs=[];
+  e.w.LocalAI.getPendingJobs=()=>jobs;
+  let calls=0;const client={callLLM:async()=>{calls++;jobs=[{id:'pending-rules',kind:'llm',status:'unknown'}];throw new Error('Outcome unknown');}};
+  await assert.rejects(e.w.LPGRequirementsEditor.analyze(client,''),/unknown/);
+  e.field('brief-text','Changed author intent');e.w.LPGRequirementsEditor.renderRecovery();
+  assert.equal(e.w.document.getElementById('recover-generation').disabled,true);
+  await e.w.LPGRequirementsEditor.recoverGeneration();assert.equal(calls,1);assert.equal(e.run('state.program'),null);
+ }finally{e.close();}
+});
+test('partial image checkpoints keep completed assets and recover only remaining image work',async()=>{
+ const e=await editor({review:true});try {
+  e.field('brief-text','Professional program');let jobs=[],attempt=0;
+  e.w.LocalAI.getPendingJobs=()=>jobs;
+  e.w.LocalAI.fillMissingImages=async(data,options)=>{
+   attempt++;
+   if(attempt===1){data.benefits[0].imageData='data:image/png;base64,first-batch';options.onStatus('generating_images',{generated:1,attempted:1,total:16,remaining:8});jobs=[{id:'pending-images',kind:'images',status:'unknown'}];return {generated:1,total_empty:9,remaining:8,warning:'Image request outcome unknown'};}
+   assert.equal(options.resumeUnknown,true);assert.equal(options.maxImages,15);assert.equal(data.benefits[0].imageData,'data:image/png;base64,first-batch');
+   data.offers[0].imageData='data:image/png;base64,recovered';jobs=[];return {generated:1,total_empty:8,remaining:7};
+  };
+  await e.w.LPGRequirementsEditor.analyze(e.client(),'');await e.w.LPGRequirementsEditor.acceptGeneration();
+  assert.equal(e.run('state.benefits[0].imageData'),'data:image/png;base64,first-batch');
+  assert.equal(e.w.document.getElementById('recover-generation').disabled,false);
+  await e.w.LPGRequirementsEditor.recoverGeneration();
+  assert.equal(attempt,2);assert.equal(e.run('state.offers[0].imageData'),'data:image/png;base64,recovered');
+  assert.equal(e.run('state.benefits[0].imageData'),'data:image/png;base64,first-batch');
+ }finally{e.close();}
+});
+
+test('recovery refuses changed website evidence before another paid-stage request, including repeated attempts',async()=>{
+ const e=await editor({review:true});try {
+  e.field('brief-text','Use the source policy');e.w.document.getElementById('quickstart-url').value='https://brand.test';
+  let jobs=[],calls=0,changed=false;
+  e.w.LocalAI.getPendingJobs=()=>jobs;
+  const client={scrapeViaCorsProxy:async()=>changed?'<title>Changed policy</title><p>Different source rules</p>':'<title>Original policy</title><p>Original source rules</p>',callLLM:async()=>{calls++;jobs=[{id:'unknown-rules',kind:'llm',status:'unknown'}];throw new Error('Outcome unknown');}};
+  await assert.rejects(e.w.LPGRequirementsEditor.analyze(client,'https://brand.test'),/unknown/);
+  changed=true;await e.w.LPGRequirementsEditor.recoverGeneration();await e.w.LPGRequirementsEditor.recoverGeneration();
+  assert.equal(calls,1);assert.match(e.w.document.getElementById('generation-recovery-note').textContent,/website source changed/);
+  assert.equal(e.run('state.program'),null);
+ }finally{e.close();}
 });

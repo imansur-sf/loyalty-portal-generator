@@ -64,3 +64,12 @@ test('configured signing key accepts an unexpired capability after a process rep
  assert.equal(after.authorize(request,res()),undefined);
  const other=res();createApiSecurity({secret:'another-synthetic-signing-key-1234567890'}).authorize(request,other);assert.equal(other.statusCode,401);
 });
+
+test('configured shared accounting is used across replacement processes and fails closed',async()=>{
+ const shared={issued:0,calls:0,active:0,async issue(){this.issued++;return {expiresAt:Date.now()+60000};},async reserve(owner,cost){assert.equal(owner,'203.0.113.1');if(this.calls>=1)return {error:'generation_budget_exceeded'};this.calls++;this.active++;return {id:'reservation'};},async release(){this.active--;}};
+ const secret='shared-persistent-synthetic-key';const first=createApiSecurity({secret,store:shared});const issued=res();await first.issue(req(),issued);assert.equal(issued.statusCode,200);
+ const after=createApiSecurity({secret,store:shared});const r=req({headers:{...req().headers,'x-lpg-capability':issued.body.token}});
+ const release=await after.reserve(r,res(),{tokens:10});assert.equal(shared.active,1);await release();await release();assert.equal(shared.active,0);
+ const denied=res();await first.reserve(r,denied);assert.equal(denied.statusCode,429);assert.equal(shared.calls,1);
+ shared.reserve=async()=>{throw Error('database credential');};const failure=res();await first.reserve(r,failure);assert.equal(failure.statusCode,503);assert.deepEqual(failure.body,{error:'generation_storage_unavailable',retryAfterMs:5000});
+});

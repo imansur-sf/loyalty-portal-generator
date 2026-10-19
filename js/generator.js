@@ -7,7 +7,7 @@ function generatePortalHTML(s) {
     ? window.LPGProgramRuntime.projectState(s, window.LPGProgram) : s;
   let html = generateClassicPortalHTML(view);
   if (typeof window !== 'undefined' && window.LPGProgramRuntime) html = window.LPGProgramRuntime.enhance(html, s);
-  if (typeof window !== 'undefined' && window.PortalTemplates) html = window.PortalTemplates.apply(html, s);
+  if (typeof window !== 'undefined' && window.PortalTemplates) html = window.PortalTemplates.apply(html, view);
   return html;
 }
 
@@ -21,6 +21,13 @@ function lpgEscape(value) {
 function lpgImageSource(value) {
   const source = String(value == null ? '' : value).trim();
   return /^(?:https?:\/\/[^/\s?#]+(?:[/?#][^\u0000-\u001f\u007f]*)?|data:image\/(?:png|jpe?g|webp|gif|avif|svg\+xml)(?:;base64)?,[\s\S]+)$/i.test(source) ? source : '';
+}
+function lpgLocale(s) { try{return Intl.getCanonicalLocales(s._program?.locale || s.locale || 'en-US')[0] || 'en-US';}catch{return 'en-US';} }
+function lpgLabel(s,key,fallback) { return lpgEscape(typeof s.displayLabels?.[key]==='string'?s.displayLabels[key]:fallback); }
+function lpgImageStyle(item,prefix='image') {
+  const fit=item?.[prefix+'Fit']==='contain'?'contain':'cover';
+  const values=String(item?.[prefix+'Position']||'50% 50%').split(' ').map(n=>Math.max(0,Math.min(100,parseFloat(n)||0)));
+  return `object-fit:${fit};object-position:${values[0]??50}% ${values[1]??50}%;`;
 }
 function lpgColor(value, fallback = '#243447') {
   const color = String(value || '');
@@ -72,7 +79,7 @@ function generateClassicPortalHTML(s) {
   const pointsToNext = s.tiers[1] ? Math.max(0, s.tiers[1].points - (s.member.points||0)) : 0;
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lpgEscape(lpgLocale(s))}" dir="${/^(ar|he|fa|ur)(-|$)/.test(lpgLocale(s))?'rtl':'ltr'}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -213,8 +220,8 @@ function buildMemberCard(s) {
         <div class="text-right">
           <div class="text-white/70 text-[11px] font-600 tracking-[0.15em] uppercase">${s._program ? lpgEscape(s._program.currencies.redeemableName) : 'Perks Points'}</div>
           <div class="flex items-baseline gap-1 justify-end mt-1">
-            <span data-lpg-balance="redeemable" class="text-white text-3xl font-900 tracking-tight">${lpgNumber(s.member.points||0).toLocaleString()}</span>
-            <span class="text-white/80 text-sm font-600">Pts</span>
+            <span data-lpg-balance="redeemable" class="text-white text-3xl font-900 tracking-tight">${lpgNumber(s.member.points||0).toLocaleString(lpgLocale(s))}</span>
+            ${s._program ? '' : '<span class="text-white/80 text-sm font-600">Pts</span>'}
           </div>
         </div>
         <div class="hidden md:flex items-center gap-2" style="color: ${lpgColor(s.colors.accent)};">
@@ -228,13 +235,15 @@ function buildMemberCard(s) {
 function buildTierProgress(s, pointsToNext) {
   if (s._program) {
     const p = s._program, summary = s._summary;
+    if (p.capabilities?.tiers === false && !p.qualification?.description) return '';
+    if (p.capabilities?.presentationOnly || p.capabilities?.tiers === false) return `<section data-lpg-section="tiers" class="card p-6 mb-8"><h2 class="text-2xl font-800">${lpgEscape(p.member.status || 'Your membership')}</h2><p class="text-sm text-muted">${lpgEscape(p.qualification?.description || 'Explore your membership benefits and opportunities.')}</p>${p.capabilities?.tiers === false ? '' : p.tiers.map(t=>`<p class="mt-3">${lpgEscape(t.name)}</p>`).join('')}</section>`;
     const progress = summary.nextTier ? Math.max(0, Math.min(100, (summary.qualifying-summary.tier.threshold)/(summary.nextTier.threshold-summary.tier.threshold)*100)) : 100;
     return `<section data-lpg-section="tiers" class="card p-6 mb-8">
       <div class="flex items-center justify-between gap-4 mb-6"><div><p class="text-xs text-muted">Your status</p><h2 data-lpg-tier class="text-2xl font-800 text-dark">${lpgEscape(summary.tier.name)}</h2></div>
-      <div class="text-right"><strong data-lpg-balance="qualifying" class="text-2xl font-800 text-dark">${lpgNumber(summary.qualifying).toLocaleString()}</strong><p class="text-xs text-muted">${lpgEscape(p.currencies.qualifyingName)}</p></div></div>
-      <div class="flex items-center justify-between gap-4 mb-6" style="flex-wrap:wrap">${p.tiers.map((t,i) => `<div data-lpg-tier-index="${i}" class="p-3 text-center"><strong>${lpgEscape(t.name)}</strong><p class="text-xs text-muted">${lpgNumber(t.threshold).toLocaleString()} ${lpgEscape(p.currencies.qualifyingName)}</p></div>`).join('')}</div>
+      <div class="text-right"><strong data-lpg-balance="qualifying" class="text-2xl font-800 text-dark">${lpgNumber(summary.qualifying).toLocaleString(lpgLocale(s))}</strong><p class="text-xs text-muted">${lpgEscape(p.currencies.qualifyingName)}</p></div></div>
+      <div class="flex items-center justify-between gap-4 mb-6" style="flex-wrap:wrap">${p.tiers.map((t,i) => `<div data-lpg-tier-index="${i}" class="p-3 text-center"><strong>${lpgEscape(t.name)}</strong><p class="text-xs text-muted">${lpgNumber(t.threshold).toLocaleString(lpgLocale(s))} ${lpgEscape(p.currencies.qualifyingName)}</p></div>`).join('')}</div>
       <div class="h-2.5 bg-gray-100 rounded-full mb-3 overflow-hidden"><div data-lpg-progress class="h-full rounded-full" style="width:${lpgPercent(progress)}%;background:linear-gradient(90deg,${lpgColor(s.colors.accent)},${lpgColor(s.colors.primary)})"></div></div>
-      <p data-lpg-progress-text class="text-sm text-muted">${summary.nextTier ? lpgNumber(summary.gap).toLocaleString()+' '+lpgEscape(p.currencies.qualifyingName)+' to '+lpgEscape(summary.nextTier.name) : 'Highest tier achieved'}</p>
+      <p data-lpg-progress-text class="text-sm text-muted">${summary.nextTier ? lpgNumber(summary.gap).toLocaleString(lpgLocale(s))+' '+lpgEscape(p.currencies.qualifyingName)+' to '+lpgEscape(summary.nextTier.name) : 'Highest tier achieved'}</p>
     </section>`;
   }
   const tierIcons = [
@@ -251,7 +260,7 @@ function buildTierProgress(s, pointsToNext) {
               <div class="flex flex-col items-center text-center">
                 <div class="w-16 h-16 rounded-full flex items-center justify-center mb-2 transition-transform hover:scale-105" style="background-color: ${bg}; color: ${iconColor}; ${ring}">${tierIcons[i]||tierIcons[2]}</div>
                 <span class="text-sm font-700 text-dark">${lpgEscape(t.name)}</span>
-                <span class="text-[11px] text-muted mt-0.5">${lpgNumber(t.points||0).toLocaleString()} Tier Points</span>
+                <span class="text-[11px] text-muted mt-0.5">${lpgNumber(t.points||0).toLocaleString(lpgLocale(s))} Tier Points</span>
               </div>`;
   }).join('');
 
@@ -266,18 +275,18 @@ function buildTierProgress(s, pointsToNext) {
               <div class="absolute left-0 top-0 h-full rounded-full transition-all" style="width: ${lpgPercent(s.tierProgress)}%; background: linear-gradient(90deg, ${lpgColor(s.colors.accent)}, ${lpgColor(s.colors.primary)});"></div>
               <div class="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-white shadow-md" style="left: calc(${lpgPercent(s.tierProgress)}% - 8px); background-color: ${lpgColor(s.colors.accent)};"></div>
             </div>
-            <p class="text-sm text-dark">Earn <span class="font-800" style="color: ${lpgColor(s.colors.primary)};">${lpgNumber(pointsToNext).toLocaleString()} points</span> to reach ${lpgEscape(nextTierName)}! <a href="#" class="font-600 hover:underline ml-2" style="color: ${lpgColor(s.colors.primary)};">View Benefits</a></p>
+            <p class="text-sm text-dark">Earn <span class="font-800" style="color: ${lpgColor(s.colors.primary)};">${lpgNumber(pointsToNext).toLocaleString(lpgLocale(s))} points</span> to reach ${lpgEscape(nextTierName)}! <a href="#" class="font-600 hover:underline ml-2" style="color: ${lpgColor(s.colors.primary)};">View Benefits</a></p>
           </div>
         </div>
       </div>
       <div class="space-y-4">
         <div class="card card-hover p-4 flex gap-3">
           <div class="w-10 h-10 rounded-full bg-warning/10 flex items-center justify-center shrink-0"><svg class="w-5 h-5 text-warning" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg></div>
-          <div><p class="text-sm font-700 text-dark">How to retain your ${lpgEscape(s.tiers[0].name)} tier</p><p class="text-xs text-muted mt-1 leading-relaxed">${lpgEscape(s.tiers[0].name)} membership expiring in 3 days. Retain by earning 1000 tier points.</p><a href="#" class="text-xs font-700 hover:underline mt-2 inline-block" style="color: ${lpgColor(s.colors.primary)};">Refer Now →</a></div>
+          <div><p class="text-sm font-700 text-dark">How to retain your ${lpgEscape(s.tiers[0].name)} tier</p><p class="text-xs text-muted mt-1 leading-relaxed">${lpgLabel(s,'retention','Explore the activities and benefits available with your membership.')}</p><a href="#" class="text-xs font-700 hover:underline mt-2 inline-block" style="color: ${lpgColor(s.colors.primary)};">Refer Now →</a></div>
         </div>
         <div class="card card-hover p-4 flex gap-3">
           <div class="w-10 h-10 rounded-full bg-danger/10 flex items-center justify-center shrink-0"><svg class="w-5 h-5 text-danger" fill="currentColor" viewBox="0 0 24 24"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg></div>
-          <div><p class="text-sm font-700 text-dark">Redeem 200 pts before they expire</p><p class="text-xs text-muted mt-1 leading-relaxed">200 Perks Points are expiring in 2 days. Redeem them now before it's too late!</p><a href="#" class="text-xs font-700 hover:underline mt-2 inline-block" style="color: ${lpgColor(s.colors.primary)};">Redeem Now →</a></div>
+          <div><p class="text-sm font-700 text-dark">${lpgLabel(s,'opportunityTitle','Explore your next reward')}</p><p class="text-xs text-muted mt-1 leading-relaxed">${lpgLabel(s,'opportunityDescription','Discover ways to use your points through eligible rewards.')}</p><a href="#" class="text-xs font-700 hover:underline mt-2 inline-block" style="color: ${lpgColor(s.colors.primary)};">Redeem Now →</a></div>
         </div>
       </div>
     </div>`;
@@ -317,13 +326,13 @@ function buildBenefits(s) {
             <div class="benefit-card ${cover ? 'cj-benefit-has-cover' : ''} flex items-center gap-3 p-3 rounded-xl bg-page-bg transition-colors hover:bg-gray-100">
               <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style="background-color: ${lpgColor(s.colors.primary)}12;">${iconInner}</div>
               <div class="benefit-copy"><p class="text-sm font-700 text-dark">${lpgEscape(b.name)}</p></div>
-              ${cover ? `<img class="lpg-benefit-cover" src="${lpgEscape(cover)}" alt="" loading="lazy" onerror="this.parentElement.classList.remove('cj-benefit-has-cover');this.remove();">` : ''}
+              ${cover ? `<img class="lpg-benefit-cover" style="${lpgImageStyle(b,'cover')}" src="${lpgEscape(cover)}" alt="" loading="lazy" onerror="this.parentElement.classList.remove('cj-benefit-has-cover');this.remove();">` : ''}
             </div>`;
   }).join('');
 
   return `<div data-lpg-section="benefits" class="card mb-8 overflow-hidden">
       <button onclick="toggleSection('benefits')" class="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/60 transition-colors">
-        <span class="text-base font-700 text-dark">My Benefits</span>
+        <span class="text-base font-700 text-dark">${lpgLabel(s,'benefits','My Benefits')}</span>
         <svg id="benefits-chevron" class="w-5 h-5 text-muted chevron-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
       </button>
       <div id="benefits-content" class="toggle-content">
@@ -345,7 +354,9 @@ function buildVouchers(s) {
     const isExpiring = expiryText.includes('today') || expiryText.includes('expire');
     const expiryStyle = isExpiring ? 'color: #DC2626;' : 'color: #059669;';
     let actionHTML = '';
-    if (v.programRewardId) {
+    if (v.programRewardId && s._program?.capabilities?.presentationOnly) {
+      actionHTML = `<button type="button" data-lpg-action="opportunity" data-id="${lpgEscape(v.programRewardId)}" class="btn-primary px-4 py-1.5 text-xs font-700 rounded-full">Explore opportunity</button>`;
+    } else if (v.programRewardId) {
       actionHTML = `<span class="text-xs font-700">${lpgEscape(v.actionValue)}</span><button type="button" data-lpg-action="request" data-id="${lpgEscape(v.programRewardId)}" class="btn-primary px-4 py-1.5 text-xs font-700 rounded-full">Redeem reward</button>`;
     } else if (v.actionType === 'points') {
       actionHTML = `<button class="btn-primary px-4 py-1.5 text-xs font-700 rounded-full">${lpgEscape(v.actionValue||'Redeem')}</button>`;
@@ -356,7 +367,7 @@ function buildVouchers(s) {
     }
     return `<div ${v.programRewardId ? `data-program-reward-id="${lpgEscape(v.programRewardId)}"` : ''} class="voucher-card card p-4 flex gap-4 cursor-pointer">
               <div class="w-20 h-20 rounded-xl bg-gradient-to-br from-${grad[0]} to-${grad[1]} flex items-center justify-center shrink-0 overflow-hidden shadow-inner">
-                ${imgSrc ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(v.title)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-3xl hidden">${lpgEscape(v.emoji||'🎁')}</span>` : `<span class="text-3xl">${lpgEscape(v.emoji||'🎁')}</span>`}
+                ${imgSrc ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(v.title)}" style="${lpgImageStyle(v)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-3xl hidden">${lpgEscape(v.emoji||'🎁')}</span>` : `<span class="text-3xl">${lpgEscape(v.emoji||'🎁')}</span>`}
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-start justify-between"><div><h3 class="text-sm font-700 text-dark leading-tight">${lpgEscape(v.title)}</h3><p class="text-xs text-muted mt-1">${lpgEscape(v.vendor||'')}</p>${v.description ? `<p class="text-xs text-muted mt-1" style="white-space:pre-wrap">${lpgEscape(v.description)}</p>` : ''}</div></div>
@@ -370,7 +381,7 @@ function buildVouchers(s) {
 
   return `<section data-lpg-section="vouchers" id="section-vouchers">
           <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${lpgColor(s.colors.primary)};"></span>My Vouchers</h2>
+            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${lpgColor(s.colors.primary)};"></span>${lpgLabel(s,'vouchers','My Vouchers')}</h2>
             <a href="#" class="text-sm font-700 hover:underline transition-colors" style="color: ${lpgColor(s.colors.primary)};">View All →</a>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${cards}</div>
@@ -388,7 +399,7 @@ function buildOffers(s) {
     if (o.expiry) meta.push(`<span class="flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>${lpgEscape(o.expiry)}</span>`);
     return `<div class="offer-card card overflow-hidden flex">
               <div class="w-48 h-40 bg-gradient-to-br from-${grad[0]} to-${grad[1]} flex items-center justify-center shrink-0 overflow-hidden relative">
-                ${imgSrc ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(o.title)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-5xl hidden">${lpgEscape(o.emoji||'🎯')}</span>` : `<span class="text-6xl drop-shadow-lg">${lpgEscape(o.emoji||'🎯')}</span>`}
+                ${imgSrc ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(o.title)}" style="${lpgImageStyle(o)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-5xl hidden">${lpgEscape(o.emoji||'🎯')}</span>` : `<span class="text-6xl drop-shadow-lg">${lpgEscape(o.emoji||'🎯')}</span>`}
                 <div class="absolute inset-0" style="background: linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.25) 100%);"></div>
               </div>
               <div class="p-5 flex-1 flex flex-col justify-between">
@@ -404,7 +415,7 @@ function buildOffers(s) {
 
   return `<section data-lpg-section="offers" id="section-offers">
           <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${lpgColor(s.colors.primary)};"></span>My Offers &amp; Promotions</h2>
+            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${lpgColor(s.colors.primary)};"></span>${lpgLabel(s,'offers','My Offers & Promotions')}</h2>
             <a href="#" class="text-sm font-700 hover:underline" style="color: ${lpgColor(s.colors.primary)};">View All →</a>
           </div>
           <div class="space-y-4">${cards}</div>
@@ -457,7 +468,7 @@ function buildEarnMore(s) {
 
   return `<section data-lpg-section="earn" id="section-earn-more">
           <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${lpgColor(s.colors.primary)};"></span>Earn More</h2>
+            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${lpgColor(s.colors.primary)};"></span>${lpgLabel(s,'earn','Earn More')}</h2>
           </div>
           <div class="earn-grid grid grid-cols-1 sm:grid-cols-2 gap-4">${cards}</div>
         </section>`;
@@ -499,7 +510,7 @@ function buildBadges(s) {
 
   return `<section data-lpg-section="badges" id="section-badges">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-base font-800 text-dark section-title">My Badges (${s.badges.length})</h3>
+            <h3 class="text-base font-800 text-dark section-title">${lpgLabel(s,'badges','My Badges')} (${s.badges.length})</h3>
             <a href="#" class="text-sm font-700 hover:underline" style="color: ${lpgColor(s.colors.primary)};">View All →</a>
           </div>
           <div class="flex items-center justify-start gap-6 flex-wrap">${items}</div>
@@ -519,14 +530,14 @@ function buildClubs(s) {
               <div class="min-w-0">
                 <h4 class="text-sm font-800 text-dark leading-tight">${lpgEscape(c.name)}</h4>
                 <p class="text-xs text-muted mt-1 leading-relaxed line-clamp-2">${lpgEscape(c.description||'')}</p>
-                <p class="text-[11px] text-muted mt-2 flex items-center gap-1 font-600"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>${lpgNumber(c.memberCount||0).toLocaleString()} Members</p>
+                <p class="text-[11px] text-muted mt-2 flex items-center gap-1 font-600"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>${lpgNumber(c.memberCount||0).toLocaleString(lpgLocale(s))} Members</p>
               </div>
             </div>`;
   }).join('');
 
   return `<section data-lpg-section="clubs" id="section-clubs">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-base font-800 text-dark section-title">My Social Clubs (${s.clubs.length})</h3>
+            <h3 class="text-base font-800 text-dark section-title">${lpgLabel(s,'clubs','My Social Clubs')} (${s.clubs.length})</h3>
             <a href="#" class="text-sm font-700 hover:underline" style="color: ${lpgColor(s.colors.primary)};">View All →</a>
           </div>
           <div class="space-y-4">${items}</div>

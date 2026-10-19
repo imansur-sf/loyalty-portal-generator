@@ -99,6 +99,7 @@ function hydratePortal(payload) {
   const restored = Object.assign(cloneProject(editorDefaults), copy);
   for (const key of Object.keys(state)) delete state[key];
   Object.assign(state, restored);
+  if (window.LPGContentContract) Object.assign(state,window.LPGContentContract.ensure(state));
   window.LPGImages?.invalidate();
   populateFormFromState(); renderDynamicSections();
   for (const [name, src] of [['logo', state.brand.logoData || state.brand.logoUrl], ['avatar', state.member.avatarData || state.member.avatarUrl]]) {

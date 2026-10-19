@@ -8,11 +8,13 @@ const response = (status, body, type = 'application/json') => ({ status, ok: sta
   headers: { get: () => type }, clone: () => response(status,body,type), json: async () => body, text: async () => typeof body === 'string' ? body : JSON.stringify(body) });
 const complete = (status, body) => response(200, { status: 'complete', result: { status, body } });
 
-function client(handler) {
+function client(handler, { storage, metadata = null, crypto } = {}) {
   let now = 0, next = 0, issued = 0;
   const calls = [], timers = new Map(), timeoutValues = [];
   const context = vm.createContext({ console, AbortController, URL, Date: { now: () => now } });
   context.window = context;
+  if (crypto) { context.crypto = crypto; context.TextEncoder = TextEncoder; }
+  if (storage) context.sessionStorage = storage;
   context.location = { origin: 'https://portal.test' };
   context.PageHost = { _analysis: {} };
   context.setTimeout = (fn, ms) => {
@@ -26,7 +28,7 @@ function client(handler) {
     const [id, timer] = [...timers].find(([, value]) => value.ms > 1500) || [];
     assert.ok(timer); timers.delete(id); now += timer.ms; timer.fn();
   };
-  context.fetch = async (url, options) => { if (url.endsWith('/api/capability')) {issued++;return response(200, {token:issued===1?'capability-for-test-1234567890':'renewed-capability-for-test-1234567890',expiresAt:now+900000});} calls.push({ url, ...options }); return handler(url, options, { expireRequest }); };
+  context.fetch = async (url, options) => { if (url.endsWith('/api/capabilities')) return response(metadata ? 200 : 404, metadata || {}); if (url.endsWith('/api/capability')) {issued++;return response(200, {token:issued===1?'capability-for-test-1234567890':'renewed-capability-for-test-1234567890',expiresAt:now+900000});} calls.push({ url, ...options }); return handler(url, options, { expireRequest }); };
   vm.runInContext(fs.readFileSync('js/localai.js', 'utf8'), context);
   return { api: context.LocalAI, calls, timeoutValues, timers, capabilityRequests: () => issued };
 }
@@ -278,4 +280,133 @@ test('simultaneous expired-token responses share one permission renewal',async()
  await Promise.all([c.api.callDefaultBackend({prompt:'First request'}),c.api.callDefaultBackend({prompt:'Second request'})]);
  assert.equal(c.capabilityRequests(),2);assert.equal(accepted,2);
  assert.equal(c.calls.filter(r=>r.method==='POST').length,4);
+});
+
+const modernMetadata = { version: 1, adapter: 'heroku', jobs: { submit: '/api/jobs', poll: '/api/jobs/:id', resume: '/api/jobs/:id/resume', idempotency: true } };
+function browserStorage() { const values = new Map(); return { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value), values }; }
+const browserCrypto = require('node:crypto').webcrypto;
+
+test('durable ticket survives refresh and identical inputs resume polling without paid submission', async () => {
+  const storage = browserStorage();
+  const first = client(async (_url, options) => options.method === 'POST' ? response(202, ticket) : response(200, { status: 'pending' }), { storage, metadata: modernMetadata, crypto: browserCrypto });
+  await assert.rejects(first.api.callDefaultBackend({ prompt: 'Persist this exact program' }), error => error.code === 'generation_deadline');
+  assert.match(first.calls[0].headers['Idempotency-Key'], /^[A-Za-z0-9_-]{16,200}$/);
+  const raw = [...storage.values.values()].join(); assert.ok(raw.includes(ticket.token)); assert.ok(!raw.includes('Persist this exact program'));
+  const next = client(async (_url, options) => options.method === 'DELETE' ? response(204) : complete(200, { text: 'Recovered after refresh' }), { storage, metadata: modernMetadata, crypto: browserCrypto });
+  assert.equal((await next.api.callDefaultBackend({ prompt: 'Persist this exact program' })).text, 'Recovered after refresh');
+  assert.equal(next.calls.filter(call => call.method === 'POST').length, 0);
+  assert.equal(next.api.getPendingJobs().length, 0);
+});
+
+test('uncertain submission stays blocked until explicit same-key idempotent recovery', async () => {
+  const storage = browserStorage();
+  const failed = client(async () => { throw new TypeError('Connection lost after accept'); }, { storage, metadata: modernMetadata, crypto: browserCrypto });
+  await assert.rejects(failed.api.callDefaultBackend({ prompt: 'Unknown outcome' }), error => error.code === 'generation_submission_unknown');
+  const key = failed.calls[0].headers['Idempotency-Key'];
+  const next = client(async (_url, options) => options.method === 'POST' ? response(200, ticket) : options.method === 'DELETE' ? response(204) : complete(200, { text: 'Recovered original result' }), { storage, metadata: modernMetadata, crypto: browserCrypto });
+  await assert.rejects(next.api.callDefaultBackend({ prompt: 'Unknown outcome' }), error => error.code === 'generation_submission_unknown');
+  assert.equal(next.calls.length, 0);
+  assert.equal((await next.api.callDefaultBackend({ prompt: 'Unknown outcome', resumeUnknown: true })).text, 'Recovered original result');
+  assert.equal(next.calls[0].headers['Idempotency-Key'], key);
+});
+
+test('interrupted and expired durable tickets never trigger a replacement paid call', async () => {
+  for (const status of ['interrupted', 'cancelled', 'expired']) {
+    const storage = browserStorage();
+    const c = client(async (_url, options) => options.method === 'POST' ? response(202, ticket) : response(200, { status }), { storage, metadata: modernMetadata, crypto: browserCrypto });
+    await assert.rejects(c.api.callDefaultBackend({ prompt: 'Terminal ' + status }), error => error.code === 'generation_' + status);
+    await assert.rejects(c.api.callDefaultBackend({ prompt: 'Terminal ' + status }), error => error.code === 'generation_' + status);
+    assert.equal(c.calls.filter(call => call.method === 'POST').length, 1);
+    assert.equal(c.api.discardBackendJob(ticket.id), true);
+  }
+});
+
+test('queued durable job requires explicit resume and reuses its ticket', async () => {
+  let started = false;
+  const c = client(async (url, options) => {
+    if (url.endsWith('/resume')) { started = true; return response(200, { status: 'pending' }); }
+    if (options.method === 'POST') return response(202, ticket);
+    if (options.method === 'DELETE') return response(204);
+    return started ? complete(200, { text: 'Safely resumed' }) : response(200, { status: 'pending', resumable: true });
+  }, { storage: browserStorage(), metadata: modernMetadata, crypto: browserCrypto });
+  await assert.rejects(c.api.callDefaultBackend({ prompt: 'Queued work' }), error => error.code === 'generation_resume_required');
+  assert.equal((await c.api.resumeBackendJob(ticket.id)).text, 'Safely resumed');
+  assert.equal(c.calls.filter(call => call.url.endsWith('/api/jobs') && call.method === 'POST').length, 1);
+  assert.equal(c.calls.filter(call => call.url.endsWith('/resume')).length, 1);
+});
+
+test('Worker metadata uses declared synchronous routes and explicit404 is the only legacy reroute', async () => {
+  const c = client(async (url, options) => {
+    assert.equal(url, 'https://worker.test/llm'); assert.equal(options.method, 'POST'); return response(200, { text: 'Worker adapted' });
+  }, { metadata: { version: 1, adapter: 'worker', jobs: false, llm: '/llm' } });
+  assert.equal((await c.api.runBackendJob('llm', { prompt: 'Worker' }, 'https://worker.test')).text, 'Worker adapted');
+  const old = client(async url => url.endsWith('/llm') && !url.endsWith('/api/llm') ? response(200, { text: 'Legacy Worker' }) : response(404, {}));
+  assert.equal((await old.api.runBackendJob('llm', { prompt: 'Old Worker' }, 'https://worker.test')).text, 'Legacy Worker');
+  assert.deepEqual(old.calls.map(call => call.url), ['https://worker.test/api/jobs','https://worker.test/api/llm','https://worker.test/llm']);
+  const unsafe = client(async () => response(503, { error: 'network_error' }));
+  await assert.rejects(unsafe.api.runBackendJob('llm', { prompt: 'No fallback' }, 'https://worker.test'));
+  assert.equal(unsafe.calls.length, 1);
+});
+
+test('fast image budget prefers cinematic covers, reports batch counts and cancellation prevents later paid batches', async () => {
+  let active;
+  const c = client(async (_url, options) => {
+    if (options.method === 'POST') { active = JSON.parse(options.body).prompts; return response(202, ticket); }
+    if (options.method === 'DELETE') return response(204);
+    return complete(200, { results: active.map(item => ({ slot: item.slot, imageData: 'data:image/png;base64,small' })) });
+  });
+  const data = { benefits: Array.from({ length: 5 }, (_, i) => ({ name: 'Benefit ' + i })) };
+  const statuses = [];
+  const result = await c.api.fillMissingImages(data, { outputTemplate: 'cinematic', maxImages: 2, onStatus: (_stage, counts) => statuses.push(counts) });
+  assert.equal(result.attempted, 2); assert.equal(result.generated, 2); assert.equal(result.skipped, 8);
+  assert.deepEqual(active.map(item => item.slot), ['benefit-cover-0', 'benefit-cover-1']);
+  assert.equal(statuses.at(-1).generated, 2); assert.equal(statuses.at(-1).total, 2);
+  const controller = new AbortController();
+  const cancelled = await c.api.fillMissingImages({ benefits: Array.from({ length: 10 }, () => ({ name: 'Member opportunity' })) }, { signal: controller.signal, onStatus: (_stage, counts) => { if (counts.generated) controller.abort(); } });
+  assert.equal(cancelled.generated, 4); assert.equal(cancelled.attempted, 4); assert.equal(cancelled.cancelled, true);
+});
+
+test('abort during pending job sends cancellation and never retries provider work', async () => {
+  const controller = new AbortController();
+  const c = client(async (_url, options) => {
+    if (options.method === 'POST') return response(202, ticket);
+    if (options.method === 'DELETE') return response(204);
+    controller.abort(); return response(200, { status: 'pending' });
+  }, { storage: browserStorage(), metadata: modernMetadata, crypto: browserCrypto });
+  await assert.rejects(c.api.callDefaultBackend({ prompt: 'Cancel this job', signal: controller.signal }), error => error.code === 'generation_cancelled');
+  assert.equal(c.calls.filter(call => call.method === 'POST').length, 1);
+  assert.equal(c.calls.filter(call => call.method === 'DELETE').length, 1);
+});
+
+test('recovering a pipeline reuses completed checkpoints but ordinary generate starts a fresh request', async () => {
+  let counter = 0;
+  const storage = browserStorage();
+  const c = client(async (_url, options) => {
+    if (options.method === 'POST') { counter++; return response(202, { id: 'checkpoint-job-' + counter, token: ticket.token }); }
+    if (options.method === 'DELETE') return response(204);
+    return complete(200, { text: 'Rules checkpoint ' + counter });
+  }, { storage, metadata: modernMetadata, crypto: browserCrypto });
+  await c.api.callDefaultBackend({ prompt: 'Rules stage' });
+  assert.equal((await c.api.callDefaultBackend({ prompt: 'Rules stage', resumeUnknown: true })).text, 'Rules checkpoint 1');
+  assert.equal(counter, 1); assert.equal(c.api.getPendingJobs().length, 0);
+  await c.api.callDefaultBackend({ prompt: 'Rules stage' }); assert.equal(counter, 2);
+});
+
+test('SHA256 fallback matches WebCrypto and blocks uncertain replay on older hosts', async () => {
+  const storage = browserStorage();
+  const failed = client(async () => { throw new TypeError('Interrupted'); }, { storage });
+  await assert.rejects(failed.api.callDefaultBackend({ prompt: 'Résumé 🌍' }));
+  const raw = JSON.parse([...storage.values.values()][0])[0];
+  const body = { prompt: 'Résumé 🌍', tier: 'balanced', maxTokens: 8000 };
+  const expected = require('node:crypto').createHash('sha256').update(JSON.stringify(['', 'llm', Object.fromEntries(Object.keys(body).sort().map(key => [key, body[key]]))])).digest('hex');
+  assert.equal(raw.fingerprint, expected);
+  await assert.rejects(failed.api.callDefaultBackend({ prompt: 'Résumé 🌍' }), error => error.code === 'generation_submission_unknown');
+  assert.equal(failed.calls.length, 1);
+});
+
+test('identical in-flight requests share one paid submission', async () => {
+  const c = client(async (_url, options) => options.method === 'POST' ? response(202, ticket) : options.method === 'DELETE' ? response(204) : complete(200, { text: 'Shared paid request' }), { metadata: modernMetadata, crypto: browserCrypto });
+  const results = await Promise.all([c.api.callDefaultBackend({ prompt: 'Same' }), c.api.callDefaultBackend({ prompt: 'Same' })]);
+  assert.equal(results[0].text, results[1].text);
+  assert.equal(c.calls.filter(call => call.method === 'POST').length, 1);
 });

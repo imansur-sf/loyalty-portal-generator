@@ -19,7 +19,7 @@
     let roleId = program.member.role;
     let sequence = 0;
     const role = () => program.roles.find(item => item.id === roleId);
-    const can = permission => permission === 'approve' ? role().canApprove : ['earn', 'redeem'].includes(permission) && role().canRequest;
+    const can = permission => !program.capabilities.presentationOnly && (permission === 'approve' ? role().canApprove : ['earn', 'redeem'].includes(permission) && role().canRequest);
     function need(permission) {
       if (!can(permission)) throw new Error('This account does not permit that action.');
     }
@@ -79,7 +79,7 @@
       _program: p, _summary: summary };
     result.vouchers = p.rewards.map(reward => {
       const rich = (state.vouchers || []).find(v => v.programRewardId === reward.id) || {};
-      return { ...rich, title: reward.name, programRewardId: reward.id, actionType: 'points', actionValue: reward.cost.toLocaleString('en-US') + ' ' + p.currencies.redeemableName };
+      return { ...rich, title: reward.name, programRewardId: reward.id, actionType: p.capabilities.presentationOnly ? 'detail' : 'points', actionValue: reward.cost == null ? '' : model.formatUnits(reward.cost, p.currencies.redeemableName, '', p.locale) };
     });
     result.earnMore = p.earnRules.map(rule => {
       const rich = (state.earnMore || []).find(e => e.programRuleId === rule.id) || {};
@@ -105,7 +105,7 @@
     const root = document.querySelector('main');
     if (!root) return;
     const session = createSession(program, model), p = session.program;
-    const number = value => Number(value).toLocaleString('en-US', { maximumFractionDigits: 6 });
+    const number = value => model.formatNumber(Number(value), p.locale);
     function el(tag, text, className) {
       const node = document.createElement(tag);
       if (text != null) node.textContent = String(text);
@@ -137,9 +137,18 @@
     }
     const live = el('div'); live.id = 'lpg-p-status'; live.setAttribute('role', 'status'); live.setAttribute('aria-live', 'polite'); document.body.append(live);
     const activity = el('section', null, 'card lpg-activity-panel'); activity.dataset.lpgSection = 'activity';
-    activity.append(el('h2', 'Recent activity')); const events = el('ul'); activity.append(events); root.append(activity);
+    activity.append(el('h2', 'Recent activity')); const events = el('ul'); activity.append(events); if (!p.capabilities.presentationOnly) root.append(activity);
+    if (p.metrics.length) {
+      const metrics = el('section', null, 'card lpg-activity-panel'); metrics.dataset.lpgSection = 'metrics';
+      metrics.append(el('h2', 'Member activity'));
+      const list = el('ul');
+      p.metrics.forEach(metric => {
+        const row = el('li'); row.append(el('strong', metric.name), el('span', model.formatUnits(metric.value, metric.unit, metric.singularUnit, p.locale)), el('span', metric.period)); list.append(row);
+      });
+      metrics.append(list); root.append(metrics);
+    }
     let requests;
-    if (p.mode === 'b2b' && p.approvalRequired) {
+    if (!p.capabilities.presentationOnly && p.mode === 'b2b' && p.approvalRequired) {
       const approvals = el('section', null, 'card lpg-activity-panel'); approvals.dataset.lpgSection = 'team';
       approvals.append(el('h2', 'Team reward requests'), el('p', 'Requests are reviewed by another authorized member of your organization.'));
       requests = el('ul'); approvals.append(requests); root.append(approvals);
@@ -159,6 +168,13 @@
       activityDetail.hidden = true; root.inert = !welcome.hidden;
       if (restoreFocus && activityTrigger?.isConnected) activityTrigger.focus();
     }
+    function showOpportunity(id, trigger) {
+      const reward = p.rewards.find(item => item.id === id);
+      if (!reward) throw new Error('This opportunity is unavailable.');
+      detailTitle.textContent = reward.name;
+      detailCopy.textContent = trigger.closest('[data-program-reward-id]')?.querySelector('p')?.textContent || 'Explore this member opportunity. Eligibility and redemption follow your program’s terms.';
+      activityTrigger = trigger; live.textContent = ''; activityDetail.hidden = false; root.inert = true; closeDetail.focus();
+    }
     function showActivity(id, trigger) {
       const rule = p.earnRules.find(item => item.id === id);
       if (!rule) throw new Error('This activity is unavailable.');
@@ -173,13 +189,14 @@
       const summary = session.summary();
       document.querySelectorAll('[data-lpg-balance]').forEach(node => { node.textContent = number(summary[node.dataset.lpgBalance]); });
       document.querySelectorAll('[data-lpg-tier]').forEach(node => { node.textContent = summary.tier.name; });
-      document.querySelectorAll('[data-lpg-tier-index]').forEach(node => { node.dataset.lpgCurrentTier = String(p.tiers[Number(node.dataset.lpgTierIndex)].name === summary.tier.name); });
-      document.querySelectorAll('[data-lpg-progress-text]').forEach(node => { node.textContent = summary.nextTier ? number(summary.gap) + ' ' + p.currencies.qualifyingName + ' to ' + summary.nextTier.name : 'Highest tier achieved'; });
+      document.querySelectorAll('[data-lpg-tier-index]').forEach(node => { node.dataset.lpgCurrentTier = String(p.capabilities.tiers && !p.capabilities.presentationOnly && p.tiers[Number(node.dataset.lpgTierIndex)]?.name === summary.tier.name); });
+      document.querySelectorAll('[data-lpg-progress-text]').forEach(node => { node.hidden = p.capabilities.presentationOnly || !p.capabilities.tiers; node.textContent = summary.nextTier ? number(summary.gap) + ' ' + p.currencies.qualifyingName + ' to ' + summary.nextTier.name : 'Highest tier achieved'; });
       const progress = summary.nextTier ? Math.max(0, Math.min(100, (summary.qualifying-summary.tier.threshold)/(summary.nextTier.threshold-summary.tier.threshold)*100)) : 100;
-      document.querySelectorAll('[data-lpg-progress]').forEach(node => { node.style.width = progress + '%'; });
+      document.querySelectorAll('[data-lpg-progress]').forEach(node => { node.hidden = p.capabilities.presentationOnly || !p.capabilities.tiers; node.style.width = progress + '%'; });
       document.querySelectorAll('[data-lpg-action="request"]').forEach(node => {
         const reward = p.rewards.find(item => item.id === node.dataset.id);
         const pending = session.requests.some(item => item.rewardId === node.dataset.id && item.requestedBy === session.role().id && item.status === 'pending');
+        if (p.capabilities.presentationOnly) { node.dataset.lpgAction = 'opportunity'; node.disabled = false; node.textContent = 'Explore opportunity'; return; }
         node.disabled = !reward || !session.can('redeem') || reward.cost > summary.redeemable || pending;
         node.textContent = pending ? 'Awaiting approval' : p.mode === 'b2b' && p.approvalRequired ? 'Request reward' : 'Redeem reward';
       });
@@ -220,6 +237,7 @@
       const control = event.target.closest('[data-lpg-action]'); if (!control || control.disabled) return;
       report(() => {
         const action = control.dataset.lpgAction, id = control.dataset.id;
+        if (action === 'opportunity') { event.preventDefault(); showOpportunity(id, control); }
         if (action === 'activity') { event.preventDefault(); showActivity(id, control); }
         if (action === 'close-activity') closeActivity();
         if (action === 'request') { const result = session.request(id); live.textContent = result.status === 'pending' ? 'Reward requested. Awaiting approval.' : 'Reward redeemed. Enjoy your benefit!'; }

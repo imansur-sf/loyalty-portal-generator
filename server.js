@@ -1,19 +1,29 @@
 const express = require('express');
 const path = require('path');
+const fs = require('node:fs');
 const { createAccountsProxy } = require('./accounts-proxy');
 const { createGenerationJobs } = require('./generation-jobs');
 const { scrapeText } = require('./outbound-fetch');
 const { createApiSecurity } = require('./api-security');
+const { createDurableStore } = require('./durable-store');
+const { createDurableGenerationJobs } = require('./durable-generation-jobs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+let buildId = null;
+try {
+  const metadata = JSON.parse(fs.readFileSync(path.join(__dirname,'assets/build-meta.json'),'utf8'));
+  if (typeof metadata.buildId === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(metadata.buildId)) buildId = metadata.buildId;
+} catch { /* Local development may not have built browser assets yet. */ }
 // Heroku appends the real connecting address as the last X-Forwarded-For hop.
 // Outside Heroku trust no proxy unless deployment explicitly configures hops.
 const proxyHops = Number(process.env.LPG_TRUST_PROXY_HOPS ?? (process.env.DYNO ? 1 : 0));
 app.set('trust proxy', Number.isInteger(proxyHops) && proxyHops >= 0 && proxyHops <= 3 ? proxyHops : 0);
 const capabilitySecret = process.env.LPG_GENERATION_SECRET;
 if (capabilitySecret && capabilitySecret.length < 32) throw new Error('LPG_GENERATION_SECRET must contain at least 32 characters');
-const apiSecurity = createApiSecurity(capabilitySecret ? { secret: capabilitySecret } : {});
+if (process.env.LPG_DATABASE_URL && !capabilitySecret) throw new Error('Durable generation requires LPG_GENERATION_SECRET');
+const durableStore = process.env.LPG_DATABASE_URL ? createDurableStore() : null;
+const apiSecurity = createApiSecurity({ ...(capabilitySecret ? { secret: capabilitySecret } : {}), store: durableStore });
 
 // ============================================================
 // Configuration
@@ -58,7 +68,11 @@ app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
     service: 'loyalty-portal',
-    version: 5,
+    version: 6,
+    release: /^[a-f0-9]{7,40}$/i.test(process.env.HEROKU_SLUG_COMMIT || process.env.SOURCE_VERSION || '') ? (process.env.HEROKU_SLUG_COMMIT || process.env.SOURCE_VERSION) : buildId,
+    buildId,
+    storage: durableStore ? 'postgres' : 'memory',
+    durable_generation: Boolean(durableStore),
     generation_capabilities: true,
     generation_jobs: true,
     endpoints: ['POST /api/capability', 'GET /api/scrape', 'POST /api/jobs', 'GET /api/jobs/:id', 'DELETE /api/jobs/:id', 'POST /api/llm', 'POST /api/generate-images', 'GET /api/health'],
@@ -69,7 +83,7 @@ app.get('/api/health', (req, res) => {
 // --- Scrape Endpoint ---
 app.get('/api/scrape', async (req, res) => {
   if (!req.query.url || typeof req.query.url !== 'string') return res.status(400).json({error:'missing_url'});
-  const release = apiSecurity.reserve(req,res,{scrape:true});
+  const release = await apiSecurity.reserve(req,res,{scrape:true});
   if (!release) return;
   try {
     const result = await scrapeText(req.query.url,{maxBytes:MAX_SCRAPE_BYTES,timeoutMs:SCRAPE_TIMEOUT_MS});
@@ -77,7 +91,7 @@ app.get('/api/scrape', async (req, res) => {
     res.json(result);
   } catch(error) {
     res.status(error.status || 502).json({error:error.code && error.status ? error.code : 'network_error'});
-  } finally {release();}
+  } finally {await release();}
 });
 
 app.use(['/api/llm','/api/generate-image','/api/generate-images'], (req,res,next)=>{if(!apiSecurity.authorize(req,res))next();});
@@ -149,7 +163,7 @@ async function handleLLM(req, res) {
 
     if (upstream.status === 400) {
       const body = await upstream.text().catch(() => '');
-      return res.status(502).json({ error: 'gemini_bad_request', body: body.slice(0, 300) });
+      return res.status(502).json({ error: 'gemini_bad_request' });
     }
     if (upstream.status === 401 || upstream.status === 403) {
       return res.status(502).json({ error: 'gemini_auth_failed' });
@@ -162,7 +176,7 @@ async function handleLLM(req, res) {
     }
     if (!upstream.ok) {
       const body = await upstream.text().catch(() => '');
-      return res.status(502).json({ error: 'gemini_failed', status: upstream.status, body: body.slice(0, 300) });
+      return res.status(502).json({ error: 'gemini_failed', status: upstream.status });
     }
 
     const data = await upstream.json();
@@ -188,7 +202,7 @@ async function handleLLM(req, res) {
     });
   } catch (err) {
     const code = err && err.name === 'AbortError' ? 'timeout' : 'network_error';
-    res.status(502).json({ error: code, message: (err && err.message) || 'unknown' });
+    res.status(502).json({ error: code, message: 'The generation provider did not complete the request.' });
   } finally {
     clearTimeout(timeout);
   }
@@ -199,9 +213,9 @@ function protectedHandler(kind, handler) {
     // Reserve the maximum output plus a conservative input-token bound. Failed
     // provider work also consumes quota so retries cannot bypass the budget.
     const tokens=kind==='llm' ? Math.min(Math.max(parseInt(req.body.maxTokens,10)||8000,100),16000) + (req.body.prompt.length+(req.body.system?.length||0)) : 0;
-    const release=apiSecurity.reserve(req,res,{images,tokens});
+    const release=await apiSecurity.reserve(req,res,{images,tokens});
     if(!release)return;
-    try {await handler(req,res);}finally{release();}
+    try {await handler(req,res);}finally{await release();}
   };
 }
 const secureLLM=protectedHandler('llm',handleLLM);
@@ -230,8 +244,8 @@ async function handleImage(req, res) {
     const result = await generateImage(prompt);
     res.json(result);
   } catch (err) {
-    console.error('[ImageGen] single failed:', err.message || err);
-    res.status(502).json({ error: 'image_gen_failed', message: err.message || 'unknown' });
+    console.error('[ImageGen] single_failed');
+    res.status(502).json({ error: 'image_gen_failed' });
   }
 }
 const secureImage=protectedHandler('image',handleImage);
@@ -272,8 +286,8 @@ async function handleImages(req, res) {
 
   const output = results.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;
-    console.warn(`[ImageGen] batch slot "${prompts[i].slot}" failed:`, r.reason?.message || r.reason);
-    return { slot: prompts[i].slot, error: r.reason?.message || 'generation_failed' };
+    console.warn('[ImageGen] batch_slot_failed');
+    return { slot: prompts[i].slot, error: 'generation_failed' };
   });
 
   res.json({ results: output });
@@ -284,13 +298,20 @@ app.post('/api/generate-images', (req, res) => {
 });
 
 // Short requests keep AI work independent of Heroku's router deadline.
-const generationJobs = createGenerationJobs({
+const generationJobs = (durableStore ? createDurableGenerationJobs : createGenerationJobs)({
+  store: durableStore, secret: capabilitySecret,
   handlers: { llm: secureLLM, images: secureImages, image: secureImage },
   validators: { llm: validateLLM, images: validateImages, image: validateImage }
 });
 app.post('/api/jobs', (req,res,next)=>{if(!apiSecurity.authorize(req,res))next();}, generationJobs.submit);
 app.get('/api/jobs/:id', generationJobs.poll);
 app.delete('/api/jobs/:id', generationJobs.remove);
+app.post('/api/jobs/:id/resume', (req,res,next)=>{if(!apiSecurity.authorize(req,res))next();}, (req,res)=>generationJobs.resume ? generationJobs.resume(req,res) : res.status(409).json({error:'generation_not_resumable'}));
+app.get('/api/capabilities', (req,res)=>res.set('Cache-Control','no-store').json({version:1,adapter:'heroku',guestGeneration:true,requiresAccount:false,capabilityEndpoint:'/api/capability',scrape:'/api/scrape',llm:'/api/llm',images:'/api/generate-images',jobs:{submit:'/api/jobs',poll:'/api/jobs/:id',cancel:'/api/jobs/:id',resume:'/api/jobs/:id/resume',durable:Boolean(durableStore),idempotency:Boolean(durableStore),automaticPaidReplay:false,resultRetentionSeconds:{llm:86400,image:3600,images:3600}},limits:{imageBatch:MAX_IMAGE_GEN_BATCH}}));
+app.get('/api/ready',async(req,res)=>{
+  try{if(durableStore)await durableStore.check();res.set('Cache-Control','no-store').json({ok:true,storage:durableStore?'postgres':'memory',llm_configured:Boolean(GEMINI_API_KEY)});}
+  catch{res.status(503).json({ok:false,error:'generation_storage_unavailable'});}
+});
 app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
 
 // Shared image generation helper
@@ -315,7 +336,7 @@ async function generateImage(prompt) {
 
     if (!upstream.ok) {
       const body = await upstream.text().catch(() => '');
-      throw new Error(`Gemini ${upstream.status}: ${body.slice(0, 200)}`);
+      throw new Error('image_provider_failed');
     }
 
     const data = await upstream.json();

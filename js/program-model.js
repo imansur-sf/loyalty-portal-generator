@@ -53,21 +53,44 @@
     }
     const mode = input.mode === undefined ? (options.mode || 'b2c') : input.mode;
     if (!['b2c', 'b2b'].includes(mode)) error('mode', 'expected b2c or b2b');
-    if (input.version !== undefined && input.version !== 1) error('version', 'unsupported program version');
+    if (input.version !== undefined && ![1, 2].includes(input.version)) error('version', 'unsupported program version');
     const b2b = mode === 'b2b';
+    const requestedCapabilities = record(input.capabilities, 'capabilities');
+    const capabilities = {
+      presentationOnly: boolean(requestedCapabilities.presentationOnly, false, 'capabilities.presentationOnly'),
+      tiers: boolean(requestedCapabilities.tiers, true, 'capabilities.tiers')
+    };
+    const qualification = record(input.qualification, 'qualification');
+    const basis = text(qualification.basis, 'points', 'qualification.basis', 80);
+    const period = text(qualification.period, 'lifetime', 'qualification.period', 80);
+    if (!['points', 'spend', 'nights', 'segments', 'activities', 'other'].includes(basis)) error('qualification.basis', 'unknown qualification basis');
+    if (!['lifetime', 'calendar-year', 'rolling-year', 'custom'].includes(period)) error('qualification.period', 'unknown qualification period');
+    // Non-point and periodic qualification is descriptive until a dedicated rules engine exists.
+    if (basis !== 'points' || period !== 'lifetime') capabilities.presentationOnly = true;
+    let locale = text(input.locale, 'en-US', 'locale', 80);
+    try { locale = Intl.getCanonicalLocales(locale)[0]; if (!locale) throw new Error(); new Intl.NumberFormat(locale); }
+    catch (_) { error('locale', 'expected a valid locale such as en-US or fr-FR'); locale = 'en-US'; }
+    const descriptive = capabilities.presentationOnly;
+
     const member = record(input.member, 'member'), currencies = record(input.currencies, 'currencies'), opening = record(input.opening, 'opening');
     const model = {
-      version: 1, mode,
+      version: input.version || (input.capabilities || input.qualification || input.locale || input.metrics ? 2 : 1), mode,
+      locale, capabilities,
+      qualification: { basis, period, description: text(qualification.description, '', 'qualification.description', 2000) },
+      metrics: list(input.metrics, [], 'metrics', 20, (entry, path, index) => {
+        const metric = record(entry, path);
+        return { id: id(metric.id, `metric-${index + 1}`, `${path}.id`), name: text(metric.name, '', `${path}.name`, 160), value: number(metric.value, 0, `${path}.value`), unit: text(metric.unit, '', `${path}.unit`, 80), singularUnit: text(metric.singularUnit, '', `${path}.singularUnit`, 80), period: text(metric.period, '', `${path}.period`, 160) };
+      }),
       name: text(input.name, 'Loyalty Program', 'name', 160),
       providerName: text(input.providerName, '', 'providerName', 160),
-      member: { name: text(member.name, 'Avery Morgan', 'member.name', 160), organization: text(member.organization, b2b ? 'Northstar Services' : '', 'member.organization', 160), role: text(member.role, b2b ? 'purchaser' : 'member', 'member.role', 80) },
+      member: { name: text(member.name, 'Avery Morgan', 'member.name', 160), organization: text(member.organization, b2b ? 'Northstar Services' : '', 'member.organization', 160), role: text(member.role, b2b ? 'purchaser' : 'member', 'member.role', 80), status: text(member.status, '', 'member.status', 160) },
       currencies: { qualifyingName: text(currencies.qualifyingName, 'Tier Points', 'currencies.qualifyingName', 80), redeemableName: text(currencies.redeemableName, 'Reward Points', 'currencies.redeemableName', 80), pointsPerUnit: number(currencies.pointsPerUnit, 100, 'currencies.pointsPerUnit', MAX, 0.000001) },
-      tiers: list(input.tiers, [{ name: 'Member', threshold: 0, multiplier: 1 }, { name: 'Plus', threshold: 1000, multiplier: 1.25 }, { name: 'Premier', threshold: 2500, multiplier: 1.5 }], 'tiers', 12, (entry, path) => {
+      tiers: list(input.tiers, descriptive || !capabilities.tiers ? [] : [{ name: 'Member', threshold: 0, multiplier: 1 }, { name: 'Plus', threshold: 1000, multiplier: 1.25 }, { name: 'Premier', threshold: 2500, multiplier: 1.5 }], 'tiers', 12, (entry, path) => {
         const tier = record(entry, path);
-        return { name: text(tier.name, '', `${path}.name`, 80), threshold: number(tier.threshold, undefined, `${path}.threshold`), multiplier: number(tier.multiplier, 1, `${path}.multiplier`, 1000) };
+        return { name: text(tier.name, '', `${path}.name`, 80), threshold: tier.threshold == null && descriptive ? null : number(tier.threshold, undefined, `${path}.threshold`), multiplier: number(tier.multiplier, 1, `${path}.multiplier`, 1000) };
       }),
       opening: { qualifying: number(opening.qualifying, 0, 'opening.qualifying'), redeemable: number(opening.redeemable, 0, 'opening.redeemable') },
-      earnRules: list(input.earnRules, [{ id: 'purchase', name: b2b ? 'Eligible business order' : 'Eligible purchase', kind: 'spend', qualifyingRate: 1, redeemableRate: 1, qualifyingPoints: 0, redeemablePoints: 0, amount: 100, monthlyCap: null }], 'earnRules', 40, (entry, path, index) => {
+      earnRules: list(input.earnRules, descriptive ? [] : [{ id: 'purchase', name: b2b ? 'Eligible business order' : 'Eligible purchase', kind: 'spend', qualifyingRate: 1, redeemableRate: 1, qualifyingPoints: 0, redeemablePoints: 0, amount: 100, monthlyCap: null }], 'earnRules', 40, (entry, path, index) => {
         const rule = record(entry, path), kind = rule.kind;
         if (!['spend', 'fixed'].includes(kind)) error(`${path}.kind`, 'expected spend or fixed');
         const normalized = { id: id(rule.id, `earn-${index + 1}`, `${path}.id`), name: text(rule.name, `Activity ${index + 1}`, `${path}.name`, 160), kind,
@@ -82,9 +105,9 @@
         if (normalized.monthlyCap !== null && (kind === 'fixed' ? normalized.qualifyingPoints : normalized.qualifyingRate) === 0) error(path, 'monthlyCap limits qualifying points and requires qualifying earning');
         return normalized;
       }),
-      rewards: list(input.rewards, [{ id: 'credit', name: 'Reward credit', cost: 100 }], 'rewards', 40, (entry, path, index) => {
+      rewards: list(input.rewards, descriptive ? [] : [{ id: 'credit', name: 'Reward credit', cost: 100 }], 'rewards', 40, (entry, path, index) => {
         const reward = record(entry, path);
-        return { id: id(reward.id, `reward-${index + 1}`, `${path}.id`), name: text(reward.name, `Reward ${index + 1}`, `${path}.name`, 160), cost: number(reward.cost, undefined, `${path}.cost`, MAX, 0.000001) };
+        return { id: id(reward.id, `reward-${index + 1}`, `${path}.id`), name: text(reward.name, `Reward ${index + 1}`, `${path}.name`, 160), cost: reward.cost == null && descriptive ? null : number(reward.cost, undefined, `${path}.cost`, MAX, 0.000001) };
       }),
       roles: list(input.roles, b2b ? [{ id: 'administrator', name: 'Account administrator', canRequest: true, canApprove: true }, { id: 'purchaser', name: 'Purchaser', canRequest: true, canApprove: false }, { id: 'approver', name: 'Rewards approver', canRequest: false, canApprove: true }] : [{ id: 'member', name: 'Member', canRequest: true, canApprove: false }], 'roles', 12, (entry, path, index) => {
         const role = record(entry, path);
@@ -105,31 +128,32 @@
     if (b2b && !model.member.organization) error('member.organization', 'a participating business name is required for B2B');
     for (const key of ['qualifyingName', 'redeemableName']) if (!model.currencies[key]) error(`currencies.${key}`, 'required');
     for (const key of ['roles', 'rewards', 'earnRules']) model[key].forEach((item, index) => { if (!item.name) error(`${key}[${index}].name`, 'required'); });
-    if (!model.tiers.length) error('tiers', 'at least one tier is required');
+    if (capabilities.tiers && !descriptive && !model.tiers.length) error('tiers', 'at least one tier is required');
     model.tiers.forEach((tier, index) => {
       if (!tier.name) error(`tiers[${index}].name`, 'required');
+      if (descriptive) return;
       if (tier.threshold === undefined) error(`tiers[${index}].threshold`, 'required');
       if (index === 0 && tier.threshold !== 0) error('tiers[0].threshold', 'the first tier must start at zero');
       if (index > 0 && tier.threshold <= model.tiers[index - 1].threshold) error(`tiers[${index}].threshold`, 'tiers must have strictly increasing thresholds');
     });
-    model.rewards.forEach((reward, index) => { if (reward.cost === undefined) error(`rewards[${index}].cost`, 'required'); });
+    model.rewards.forEach((reward, index) => { if (!descriptive && reward.cost === undefined) error(`rewards[${index}].cost`, 'required'); });
     if (!model.roles.length) error('roles', 'at least one role is required');
     if (member.role === undefined && model.roles.length) model.member.role = (model.roles.find(role => role.canRequest) || model.roles[0]).id;
     if (!model.roles.some(role => role.id === model.member.role)) error('member.role', 'must match a role id');
     if (model.approvalRequired && !b2b) error('approvalRequired', 'approval workflow is supported for B2B programs');
     if (model.approvalRequired && !model.roles.some(role => role.canApprove)) error('roles', 'approval requires an approver role');
-    ['earnRules', 'rewards', 'roles', 'requirements'].forEach(key => unique(model[key], key));
-    if (input.tiers === undefined) assumed.push('Tier names, thresholds and multipliers are illustrative defaults.');
-    if (input.earnRules === undefined) assumed.push('Purchase earning rules are illustrative defaults.');
-    if (input.rewards === undefined) assumed.push('Reward credit and its cost are illustrative defaults.');
-    if (!own(currencies, 'pointsPerUnit')) assumed.push('The illustrative conversion is 100 redeemable points per currency unit.');
+    ['earnRules', 'rewards', 'roles', 'requirements', 'metrics'].forEach(key => unique(model[key], key));
+    if (!descriptive && capabilities.tiers && input.tiers === undefined) assumed.push('Tier names, thresholds and multipliers are illustrative defaults.');
+    if (!descriptive && input.earnRules === undefined) assumed.push('Purchase earning rules are illustrative defaults.');
+    if (!descriptive && input.rewards === undefined) assumed.push('Reward credit and its cost are illustrative defaults.');
+    if (!descriptive && !own(currencies, 'pointsPerUnit')) assumed.push('The illustrative conversion is 100 redeemable points per currency unit.');
     if (member.name === undefined) assumed.push('Avery Morgan is a fictional participant name.');
     if (opening.qualifying === undefined) assumed.push('The opening qualifying balance defaults to a synthetic zero.');
     if (opening.redeemable === undefined) assumed.push('The opening redeemable balance defaults to a synthetic zero.');
     if (input.roles === undefined) assumed.push('Participant roles are demo defaults; review their permissions.');
     if (b2b && member.organization === undefined) assumed.push('Northstar Services is a fictional participating organization.');
     if (input.approvalRequired === undefined && b2b) assumed.push('Direct redemption is the default; approval must be explicitly enabled.');
-    assumed.push('Spend earning uses the tier before each transaction and rounds redeemable points to the nearest whole point; fixed awards use their stated points without a tier multiplier.');
+    if (!descriptive) assumed.push('Spend earning uses the tier before each transaction and rounds redeemable points to the nearest whole point; fixed awards use their stated points without a tier multiplier.');
     if (model.freeContentMonthlyCap !== null) assumed.push('The shared monthly cap applies to qualifying points from all fixed activities, using UTC calendar months.');
     assumed.forEach(value => { if (!model.assumptions.includes(value)) model.assumptions.push(value); });
     if (model.assumptions.length > 80) error('assumptions', 'including demo calculation assumptions, at most 80 items are supported');
@@ -171,13 +195,15 @@
       qualifying = round(qualifying + event.qualifying); redeemable = round(redeemable + event.redeemable);
       if (redeemable < 0 || qualifying > MAX || redeemable > MAX) throw new RangeError('Ledger balance is out of range');
     }
-    const tierIndex = model.tiers.reduce((best, tier, index) => qualifying >= tier.threshold ? index : best, 0);
-    const tier = model.tiers[tierIndex], nextTier = model.tiers[tierIndex + 1] || null;
-    return { qualifying, redeemable, tier, nextTier, gap: nextTier ? round(nextTier.threshold - qualifying) : 0, monetaryValue: Math.round(redeemable / model.currencies.pointsPerUnit * 100) / 100 };
+    const ladder = !model.capabilities.presentationOnly && model.capabilities.tiers ? model.tiers : [];
+    const tierIndex = ladder.reduce((best, tier, index) => qualifying >= tier.threshold ? index : best, 0);
+    const tier = ladder[tierIndex] || { name: model.member.status || '', threshold: 0, multiplier: 1 }, nextTier = ladder[tierIndex + 1] || null;
+    return { qualifying, redeemable, tier, nextTier, gap: nextTier ? round(nextTier.threshold - qualifying) : 0, monetaryValue: model.capabilities.presentationOnly ? null : Math.round(redeemable / model.currencies.pointsPerUnit * 100) / 100 };
   }
   function earn(program, events = [], ruleId, amount, date) {
     const model = normalize(program), summary = summarize(model, events), rule = model.earnRules.find(item => item.id === ruleId);
     if (!rule) throw new RangeError('Unknown earning activity');
+    if (model.capabilities.presentationOnly) throw new Error('This program is presentation-only; earning is unavailable.');
     const at = dateString(date), quantity = amount === undefined ? rule.amount : amount;
     if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0 || quantity > 1e9) throw new RangeError('Enter a positive amount no greater than one billion');
     if (rule.kind === 'fixed' && amount !== undefined && amount !== 1) throw new RangeError('Fixed activities award points once per action');
@@ -198,6 +224,7 @@
   }
   function redeem(program, events = [], rewardId, date) {
     const model = normalize(program), summary = summarize(model, events), reward = model.rewards.find(item => item.id === rewardId);
+    if (model.capabilities.presentationOnly) throw new Error('This program is presentation-only; redemption is unavailable.');
     if (!reward) throw new RangeError('Unknown reward');
     if (summary.redeemable < reward.cost) throw new RangeError('Not enough redeemable points');
     const at = dateString(date);
@@ -205,5 +232,13 @@
     summarize(model, events.concat(event));
     return event;
   }
-  return { version: 1, validate, normalize, summarize, earn, redeem, factory: createProgramModel };
+  function formatNumber(value, locale = 'en-US', options = {}) {
+    return new Intl.NumberFormat(locale, { maximumFractionDigits: 6, ...options }).format(value);
+  }
+  function formatUnits(value, pluralUnit, singularUnit, locale = 'en-US') {
+    const unit = singularUnit && new Intl.PluralRules(locale).select(value) === 'one' ? singularUnit : pluralUnit;
+    return formatNumber(value, locale) + (unit ? ' ' + unit : '');
+  }
+  function getCapabilities(program) { return normalize(program).capabilities; }
+  return { version: 2, formatNumber, formatUnits, getCapabilities, validate, normalize, summarize, earn, redeem, factory: createProgramModel };
 });
