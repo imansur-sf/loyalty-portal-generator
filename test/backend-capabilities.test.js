@@ -5,7 +5,7 @@ test('backend advertises guest adapter paths, honest storage and readiness witho
  const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>new Promise(r=>server.close(r)));
  const base='http://127.0.0.1:'+server.address().port;
  const metadata=await(await fetch(base+'/api/capabilities')).json();
- assert.equal(metadata.requiresAccount,false);assert.equal(metadata.guestGeneration,true);assert.equal(metadata.jobs.automaticPaidReplay,false);assert.equal(metadata.jobs.durable,Boolean(process.env.LPG_DATABASE_URL));assert.equal(metadata.llm,'/api/llm');assert.equal(metadata.limits.imageBatch,4);
+ assert.equal(metadata.requiresAccount,false);assert.equal(metadata.guestGeneration,true);assert.equal(metadata.jobs.automaticPaidReplay,false);assert.equal(metadata.jobs.durable,Boolean(process.env.LPG_DATABASE_URL));assert.equal(metadata.llm,'/api/llm');assert.deepEqual(metadata.responseContracts,['loyalty-program-v2','loyalty-presentation-v1']);assert.equal(metadata.limits.imageBatch,4);
  const health=await(await fetch(base+'/api/health')).json();assert.equal(health.storage,process.env.LPG_DATABASE_URL?'postgres':'memory');assert.equal(health.durable_generation,Boolean(process.env.LPG_DATABASE_URL));
  try{const meta=JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname,'../assets/build-meta.json'),'utf8'));assert.equal(health.buildId,meta.buildId);}catch(error){if(error.code!=='ENOENT')throw error;}
  const ready=await fetch(base+'/api/ready');assert.equal(ready.status,200);

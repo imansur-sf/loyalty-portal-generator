@@ -119,3 +119,88 @@ test('reward defaults follow the selected template without overriding accepted o
   assert.match(requirements.SYSTEM, /explicit author\/source counts and accepted-program rewards take precedence/);
   assert.doesNotMatch(requirements.SYSTEM, /propose 4 relevant rewards/);
 });
+
+test('native v2 response schema is complete, audience-specific and matches descriptive nullability',()=>{
+ const schema=requirements.responseSchema('b2b'),program=schema.properties.program;
+ assert.equal(schema.type,'object');assert.deepEqual(schema.required,['program','brand','evidence']);
+ assert.deepEqual(program.properties.version.enum,[2]);assert.deepEqual(program.properties.mode.enum,['b2b']);
+ for(const key of ['locale','capabilities','qualification','metrics'])assert.ok(program.required.includes(key));
+ assert.deepEqual(program.properties.capabilities.required,['presentationOnly','tiers']);
+ assert.deepEqual(program.properties.qualification.required,['basis','period','description']);
+ assert.ok(program.properties.member.required.includes('status'));
+ assert.ok(program.properties.tiers.items.properties.threshold.anyOf.some(type=>type.type==='null'));
+ assert.ok(program.properties.rewards.items.properties.cost.anyOf.some(type=>type.type==='null'));
+ assert.equal(program.properties.earnRules.items.properties.amount.minimum,0.000001);
+ assert.equal(program.properties.currencies.properties.pointsPerUnit.minimum,0.000001);
+ assert.ok(program.properties.earnRules.items.properties.monthlyCap.anyOf.some(type=>type.type==='null'));
+ assert.throws(()=>requirements.responseSchema('both'),/audience/);
+ assert.deepEqual(requirements.responseSchema().properties.program.properties.mode.enum,['b2c','b2b']);
+ const canonical=JSON.stringify(requirements.responseSchema());assert.ok(requirements.SYSTEM.includes(canonical));assert.ok(requirements.SYSTEM.length<20000);
+ assert.match(requirements.SYSTEM,/MUST have monthlyCap=null/);assert.match(requirements.SYSTEM,/Never silently remove or change a sourced cap/);
+ assert.doesNotMatch(requirements.SYSTEM,/Use empty arrays only when the author or source explicitly excludes/);
+});
+test('v2 policy representation fields cannot silently become lifetime points defaults while legacy v1 stays readable',()=>{
+ const full=model.normalize({version:2,mode:'b2c'});
+ for(const key of ['locale','capabilities','qualification','metrics']){
+  const program=structuredClone(full);delete program[key];
+  assert.throws(()=>requirements.parseResponse(JSON.stringify({program}),model,'b2c'),error=>error.code==='invalid_program'&&error.details.some(detail=>detail.includes('program.'+key)));
+ }
+ const old=model.normalize({version:1,mode:'b2c'});for(const key of ['locale','capabilities','qualification','metrics'])delete old[key];
+ const accepted=requirements.parseResponse(JSON.stringify({program:old}),model,'b2c');assert.equal(accepted.program.version,1);
+});
+test('a redeemable-only monthly cap is rejected with its complete private candidate available for targeted repair',()=>{
+ const program=model.normalize({version:2,mode:'b2c',earnRules:Array.from({length:4},(_,index)=>({id:`activity-${index}`,name:`Activity ${index}`,kind:'fixed',amount:1,qualifyingRate:0,redeemableRate:0,qualifyingPoints:index===3?0:10,redeemablePoints:25,monthlyCap:null}))});
+ program.earnRules[3].monthlyCap=100;
+ const candidate={program,brand:{name:'Brand',primary:'#112233',accent:'#445566'},evidence:[]};
+ let failure;try{requirements.parseResponse({text:JSON.stringify(candidate),finish_reason:'STOP'},model,'b2c');}catch(error){failure=error;}
+ assert.equal(failure.code,'invalid_program');assert.ok(failure.details.includes('earnRules[3]: monthlyCap limits qualifying points and requires qualifying earning'));
+ assert.deepEqual(failure.candidate,candidate);assert.equal(Object.keys(failure).includes('candidate'),false);assert.ok(!JSON.stringify(failure).includes('Activity 3'));
+ const original=requirements.buildPrompt({mode:'b2c',text:'A sourced redeemable-point cap must stay explicit',sources:[{name:'Policy.pdf',pages:[{text:'Activity 3 earns redeemable points, capped at 100 per month.'}]}]},null,null);
+ const repair=requirements.repairPrompt(original,failure),feedback=JSON.parse(repair.split('\nValidation feedback (return a complete corrected program):\n')[1]);
+ assert.equal(repair.slice(0,original.length),original);assert.deepEqual(feedback.failedCandidate,candidate);assert.deepEqual(feedback.details,failure.details);
+ assert.match(feedback.instruction,/sourced redeemable-point cap must remain explicitly unsupported/);
+ assert.equal(program.earnRules[3].monthlyCap,100);assert.equal(program.earnRules[3].qualifyingPoints,0);
+});
+test('schema-complete but invalid numeric policy is retained privately, never coerced to pass',()=>{
+ const program=model.normalize({version:2});program.rewards[0].cost='100';
+ assert.throws(()=>requirements.parseResponse(JSON.stringify({program}),model,'b2c'),error=>{
+  assert.equal(error.candidate.program.rewards[0].cost,'100');assert.equal(error.code,'invalid_program');return true;
+ });
+ const incomplete=structuredClone(program);delete incomplete.capabilities;
+ assert.throws(()=>requirements.parseResponse(JSON.stringify({program:incomplete}),model,'b2c'),error=>{
+  assert.deepEqual(error.candidate,{program:incomplete});assert.ok(error.details.some(detail=>detail.includes('capabilities')));return true;
+ });
+});
+test('malformed STOP output remains strict and never supplies a partial failed candidate to repair',()=>{
+ const raw='{"program":'+ 'x'.repeat(3521);let failure;
+ try{requirements.parseResponse({text:raw,finish_reason:'STOP'},model,'b2c');}catch(error){failure=error;}
+ assert.equal(failure.code,'incomplete_program');assert.equal(failure.candidate,undefined);
+ const repair=requirements.repairPrompt('{"sourceDocuments":[]}',failure);
+ assert.ok(!repair.includes('failedCandidate'));assert.ok(!repair.includes('xxxxx'));
+});
+test('correction budget preserves all source pages and omits an oversized candidate in full',()=>{
+ const pages=Array.from({length:22},(_,index)=>({text:`Page ${index+1}: ${'Source policy '.repeat(150)}`}));
+ const original=requirements.buildPrompt({mode:'b2c',sources:[{name:'Source.pdf',pages}]},null,null);
+ const candidate={program:{assumptions:['UNSAFE_PARTIAL_CANDIDATE'.repeat(15000)]}};
+ const failure=Object.assign(new Error('Validation'),{code:'invalid_program',details:['program.name is required']});Object.defineProperty(failure,'candidate',{value:candidate,enumerable:false});
+ const repair=requirements.repairPrompt(original,failure),feedback=JSON.parse(repair.split('\nValidation feedback (return a complete corrected program):\n')[1]);
+ assert.ok(repair.length<=requirements.MAX_REPAIR_PROMPT);assert.equal(repair.slice(0,original.length),original);
+ assert.equal(JSON.parse(original).sourceDocuments[0].pages.length,22);assert.equal(feedback.failedCandidate,undefined);assert.match(feedback.candidateOmitted,/omitted in full/);
+ assert.ok(!repair.includes('UNSAFE_PARTIAL_CANDIDATE'));assert.deepEqual(feedback.details,failure.details);
+ assert.throws(()=>requirements.repairPrompt('x'.repeat(200000),failure),error=>error.code==='repair_context_too_large');
+});
+
+
+test('brand-only QuickStart explicitly requests an illustrative demo while preserving source, descriptive and accepted-policy precedence',()=>{
+ const fresh=JSON.parse(requirements.buildPrompt({mode:'b2c',text:''},{url:'https://brand.test',title:'Brand'},null,{outputTemplate:'cinematic'}));
+ assert.equal(fresh.presentationPreferences.generationIntent,'illustrative-branded-demo');assert.equal(fresh.presentationPreferences.defaultRewardCount,5);
+ assert.match(fresh.presentationPreferences.intentInstructions,/where actual policy is unspecified/);assert.match(fresh.presentationPreferences.intentInstructions,/descriptive-only requests and supplied source policies take precedence/);
+ const accepted=model.normalize({version:2,rewards:[{id:'authored',name:'Authored reward',cost:250}]});
+ const refined=JSON.parse(requirements.buildPrompt({mode:'b2c',text:'Change only colors'},null,accepted));
+ assert.equal(refined.presentationPreferences.generationIntent,'refine-accepted-program');assert.deepEqual(refined.acceptedProgramToRefine,accepted);
+ assert.match(refined.presentationPreferences.intentInstructions,/Preserve unrelated accepted rules/);
+ const descriptive=JSON.parse(requirements.buildPrompt({mode:'b2c',text:'Descriptive only. Do not invent points or tiers.',sources:[{name:'Policy.pdf',pages:[{text:'Eligibility requires calendar-year attendance; no points program exists.'}]}]},null,null));
+ assert.equal(descriptive.author.request,'Descriptive only. Do not invent points or tiers.');assert.equal(descriptive.sourceDocuments[0].pages[0].text,'Eligibility requires calendar-year attendance; no points program exists.');
+ assert.match(requirements.SYSTEM,/must NOT override descriptive-only author instructions/);assert.match(requirements.SYSTEM,/never a sourced company fact/);
+ assert.ok(requirements.SYSTEM.length<20000);
+});

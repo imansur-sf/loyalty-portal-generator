@@ -8,11 +8,12 @@ const response = (status, body, type = 'application/json') => ({ status, ok: sta
   headers: { get: () => type }, clone: () => response(status,body,type), json: async () => body, text: async () => typeof body === 'string' ? body : JSON.stringify(body) });
 const complete = (status, body) => response(200, { status: 'complete', result: { status, body } });
 
-function client(handler, { storage, metadata = null, crypto } = {}) {
+function client(handler, { storage, metadata = null, crypto, apiKey } = {}) {
   let now = 0, next = 0, issued = 0;
   const calls = [], timers = new Map(), timeoutValues = [];
   const context = vm.createContext({ console, AbortController, URL, Date: { now: () => now } });
   context.window = context;
+  if (apiKey) context.localStorage = { getItem: key => key === 'anthropic_api_key' ? apiKey : null };
   if (crypto) { context.crypto = crypto; context.TextEncoder = TextEncoder; }
   if (storage) context.sessionStorage = storage;
   context.location = { origin: 'https://portal.test' };
@@ -409,4 +410,48 @@ test('identical in-flight requests share one paid submission', async () => {
   const results = await Promise.all([c.api.callDefaultBackend({ prompt: 'Same' }), c.api.callDefaultBackend({ prompt: 'Same' })]);
   assert.equal(results[0].text, results[1].text);
   assert.equal(c.calls.filter(call => call.method === 'POST').length, 1);
+});
+
+test('program contract and audience reach jobs and remain distinct in durable request identity',async()=>{
+ const storage=browserStorage();let submits=0;
+ const c=client(async(_url,options)=>{
+  if(options.method==='POST'){
+   submits++;const body=JSON.parse(options.body);assert.equal(body.kind,'llm');
+   if(submits===1){assert.equal(body.responseAudience,'b2c');assert.equal(body.responseContract,'loyalty-program-v2');throw new TypeError('Unknown accepted outcome');}
+   if(submits===2){assert.equal(body.responseAudience,'b2b');assert.equal(body.responseContract,'loyalty-program-v2');}
+   if(submits===3){assert.equal(Object.hasOwn(body,'responseContract'),false);assert.equal(Object.hasOwn(body,'responseAudience'),false);}
+   return response(202,ticket);
+  }
+  if(options.method==='DELETE')return response(204);
+  return complete(200,{text:'Structured result'});
+ },{storage,metadata:modernMetadata,crypto:browserCrypto});
+ const common={prompt:'Same prompt',responseFormat:'json'};
+ await assert.rejects(c.api.callLLM({...common,responseContract:'loyalty-program-v2',responseAudience:'b2c'}),error=>error.code==='generation_submission_unknown');
+ assert.equal((await c.api.callLLM({...common,responseContract:'loyalty-program-v2',responseAudience:'b2b'})).text,'Structured result');
+ assert.equal((await c.api.callLLM(common)).text,'Structured result');
+ assert.equal(submits,3);
+ const bodies=c.calls.filter(x=>x.method==='POST').map(x=>JSON.parse(x.body));
+ assert.equal(new Set(c.calls.filter(x=>x.method==='POST').map(x=>x.headers['Idempotency-Key'])).size,3);
+ assert.equal(bodies[0].responseContract,'loyalty-program-v2');
+});
+
+test('BYO providers keep prompt validation without unsupported native contract fields',async()=>{
+ for(const apiKey of ['sk-ant-synthetic-test','sk-synthetic-gateway']){
+  const c=client(async(_url,options)=>{
+   const body=JSON.parse(options.body);assert.equal(Object.hasOwn(body,'responseContract'),false);assert.equal(Object.hasOwn(body,'responseAudience'),false);assert.equal(Object.hasOwn(body,'responseJsonSchema'),false);
+   return response(200,apiKey.startsWith('sk-ant-')?{content:[{type:'text',text:'{"program":{}}'}],model:'test'}:{choices:[{message:{content:'{"program":{}}'}}],model:'test'});
+  },{apiKey});
+  assert.equal((await c.api.callLLM({prompt:'Validated by caller',responseFormat:'json',responseContract:'loyalty-program-v2',responseAudience:'b2c'})).text,'{"program":{}}');assert.equal(c.calls.length,1);assert.equal(c.capabilityRequests(),0);
+ }
+});
+
+test('presentation response contract is forwarded without a program audience',async()=>{
+ const c=client(async(_url,options)=>{
+  if(options.method==='POST'){
+   const body=JSON.parse(options.body);assert.equal(body.responseFormat,'json');assert.equal(body.responseContract,'loyalty-presentation-v1');assert.equal(Object.hasOwn(body,'responseAudience'),false);return response(202,ticket);
+  }
+  if(options.method==='DELETE')return response(204);
+  return complete(200,{text:'{"presentation":{}}'});
+ });
+ assert.equal((await c.api.callLLM({prompt:'Decorate program',responseFormat:'json',responseContract:'loyalty-presentation-v1'})).text,'{"presentation":{}}');
 });

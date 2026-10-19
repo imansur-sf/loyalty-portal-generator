@@ -315,7 +315,7 @@
   //   sk-ant-* key     → api.anthropic.com direct
   //   any other sk-*   → SF LLM Gateway direct
   // Same return shape from every path so callers don't care which was used.
-  async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat, signal, resumeUnknown }) {
+  async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat, responseContract, responseAudience, signal, resumeUnknown }) {
     const provider = currentProvider();
     if (provider === 'anthropic') {
       return callAnthropicDirect({ prompt, system, tier, model, maxTokens });
@@ -323,7 +323,7 @@
     if (provider === 'sfgateway') {
       return callSFGateway({ prompt, system, tier, model, maxTokens });
     }
-    return callDefaultBackend({ prompt, system, tier, model, maxTokens, responseFormat, signal, resumeUnknown });
+    return callDefaultBackend({ prompt, system, tier, model, maxTokens, responseFormat, responseContract, responseAudience, signal, resumeUnknown });
   }
 
   // ---- DEFAULT BACKEND (Worker's /llm endpoint) ----
@@ -533,9 +533,9 @@
     try { return await pending; } finally { if (fingerprint) activeJobs.delete(fingerprint); }
   }
 
-  async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat, signal, resumeUnknown }) {
+  async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat, responseContract, responseAudience, signal, resumeUnknown }) {
     const base = getScraperEndpoint(); // empty = same origin; both /api/scrape and /api/llm live here
-    const data = await runBackendJob('llm', { prompt, system, tier, model, maxTokens, ...(responseFormat ? { responseFormat } : {}) }, base, { signal, resumeUnknown });
+    const data = await runBackendJob('llm', { prompt, system, tier, model, maxTokens, ...(responseFormat ? { responseFormat } : {}), ...(responseContract !== undefined ? { responseContract } : {}), ...(responseAudience !== undefined ? { responseAudience } : {}) }, base, { signal, resumeUnknown });
     if (!data || (!data.text && data.finish_reason !== 'MAX_TOKENS')) throw localError('default_empty_response');
     return { text: data.text, model_used: data.model_used, usage: data.usage, finish_reason: data.finish_reason };
   }

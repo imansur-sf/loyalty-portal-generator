@@ -51,6 +51,10 @@ test('rich generation retains website candidates and requests full branded conte
     brief: { text: 'Personalize for professional members.', sources: [{ pages: [{ text: 'RAW_DOCUMENT_SHOULD_NOT_BE_DUPLICATED' }] }] },
     program, website, onStatus: phase => phases.push(phase)
   });
+  assert.equal(call.responseContract, 'loyalty-presentation-v1');
+  assert.equal(call.responseFormat, 'json');
+  assert.equal(call.responseAudience, undefined);
+  assert.equal(call.responseSchema, undefined);
   const prompt = JSON.parse(call.prompt);
   assert.match(call.system, /UNTRUSTED SOURCE DATA/);
   assert.match(prompt.websitePresentationContext, /Certification learning/);
@@ -84,14 +88,14 @@ test('generation rejects truncated or incomplete rich content before images or s
   const program = makeProgram();
   let imageCalls = 0;
   const context = harness(async () => { imageCalls++; return {}; });
-  for (const value of ['{"vouchers":[]', JSON.stringify({ vouchers: [] }), JSON.stringify({ ...content(program), offers: [] })]) {
+  for (const value of ['{"vouchers":[]', JSON.stringify({ vouchers: [] }), JSON.stringify({ ...content(program), offers: null })]) {
     await assert.rejects(context.LPGPortalContent.generate({ program, client: { callLLM: async () => value } }), /kept/);
   }
   assert.equal(imageCalls, 0);
 });
 test('content truncation and incomplete presentation each receive one complete-context repair before images', async () => {
   const program = makeProgram();
-  for (const failure of ['{\"vouchers\":', JSON.stringify({ ...content(program), offers: [] }),
+  for (const failure of ['{\"vouchers\":', JSON.stringify({ ...content(program), offers: null }),
     { text: JSON.stringify(content(program)), finish_reason: 'MAX_TOKENS' }]) {
     let calls = 0, imageCalls = 0;
     const requests = [], phases = [];
@@ -100,7 +104,7 @@ test('content truncation and incomplete presentation each receive one complete-c
       onStatus: phase => phases.push(phase), client: { callLLM: async args => { requests.push(args); return ++calls === 1 ? failure : JSON.stringify(content(program)); } } });
     assert.equal(calls, 2); assert.equal(imageCalls, 1);
     assert.deepEqual(requests.map(request => request.maxTokens), [12000, 16000]);
-    assert.ok(requests.every(request => request.responseFormat === 'json'));
+    assert.ok(requests.every(request => request.responseFormat === 'json' && request.responseContract === 'loyalty-presentation-v1' && request.responseAudience === undefined && request.responseSchema === undefined));
     const original = JSON.parse(requests[0].prompt), repaired = JSON.parse(requests[1].prompt);
     assert.deepEqual(repaired.validatedProgram, original.validatedProgram);
     assert.deepEqual(repaired.author, original.author);
@@ -560,4 +564,92 @@ test('background image filling forwards accepted slot limits without changing it
  let received;const context=harness(async(_data,options)=>{received=options;return {generated:0,total_empty:0};});
  const data={offers:[]};await context.LPGPortalContent.fillImages(data,{onlySlots:['benefit-0','offer-1'],maxImages:8});
  assert.deepEqual(received.onlySlots,['benefit-0','offer-1']);assert.equal(received.maxImages,8);
+});
+
+function schemaAccepts(schema,value) {
+  if(schema.anyOf)return schema.anyOf.some(child=>schemaAccepts(child,value));
+  if(schema.enum&&!schema.enum.includes(value))return false;
+  if(schema.type==='null')return value===null;
+  if(schema.type==='string')return typeof value==='string';
+  if(schema.type==='boolean')return typeof value==='boolean';
+  if(schema.type==='number')return typeof value==='number'&&Number.isFinite(value)&&(schema.minimum===undefined||value>=schema.minimum)&&(schema.maximum===undefined||value<=schema.maximum);
+  if(schema.type==='array')return Array.isArray(value)&&(schema.maxItems===undefined||value.length<=schema.maxItems)&&value.every(item=>schemaAccepts(schema.items,item));
+  if(schema.type==='object')return value!==null&&typeof value==='object'&&!Array.isArray(value)&&(schema.required||[]).every(key=>Object.hasOwn(value,key))&&Object.entries(value).every(([key,item])=>!schema.properties[key]||schemaAccepts(schema.properties[key],item));
+  return false;
+}
+function fillSchemaStrings(schema,value) {
+  if(schema.anyOf)return value===null?null:fillSchemaStrings(schema.anyOf[0],value);
+  if(schema.type==='object')return Object.fromEntries(Object.keys(schema.properties).filter(key=>schema.required.includes(key)||value?.[key]!==undefined).map(key=>[key,fillSchemaStrings(schema.properties[key],value?.[key])]));
+  if(schema.type==='array')return (value||[]).map(item=>fillSchemaStrings(schema.items,item));
+  return value??(schema.type==='number'?0:schema.type==='boolean'?false:schema.enum?schema.enum[0]:'');
+}
+
+test('native presentation schema is pure, shared with the server and contains only the supported provider subset',()=>{
+  const server=require('../js/portal-content');
+  const schema=server.responseSchema(),browser=harness().LPGPortalContent.responseSchema();
+  assert.deepEqual(schema,JSON.parse(JSON.stringify(browser)));
+  const allowed=new Set(['type','properties','required','items','maxItems','enum','anyOf','minimum','maximum']);
+  const visit=node=>{
+    assert.ok(Object.keys(node).every(key=>allowed.has(key)));
+    for(const child of Object.values(node.properties||{}))visit(child);
+    if(node.items)visit(node.items);for(const child of node.anyOf||[])visit(child);
+  };visit(schema);
+  schema.properties.colors.properties.primary.type='broken';
+  assert.equal(server.responseSchema().properties.colors.properties.primary.type,'string');
+  assert.equal(server.responseSchema().properties.program,undefined);
+  assert.equal(server.responseSchema().properties.cinematic.properties.card,undefined);
+  for(const key of ['vouchers','offers','clubs','benefits','badges','earnMore','profileTasks']){
+    const item=server.responseSchema().properties[key].items;
+    assert.ok(!item.required.includes('id'));assert.ok(!item.required.includes('programRewardId'));assert.ok(!item.required.includes('programRuleId'));
+  }
+});
+
+test('native presentation schema permits empty descriptive modules, unknown thresholds, blank fees and optional identities',()=>{
+  const schema=require('../js/portal-content').responseSchema();
+  const program=makeProgram({version:2,capabilities:{presentationOnly:true},tiers:[{name:'Member',threshold:null}],rewards:[],earnRules:[]});
+  const data=fillSchemaStrings(schema,content(program));
+  data.tiers=[{name:'Member',points:null}];
+  data.cinematic={copy:{progressSummary:'Explore member activities.\nYour membership, your choice.'}};
+  assert.equal(data.upsell.price,'');assert.equal(data.upsell.period,'');
+  assert.equal(schemaAccepts(schema,data),true);
+  data.vouchers=[fillSchemaStrings(schema.properties.vouchers.items,{title:'Member journal',description:'Explore your journal.',actionType:'detail'})];
+  assert.equal(Object.hasOwn(data.vouchers[0],'programRewardId'),false);
+  assert.equal(schemaAccepts(schema,data),true);
+  for(const key of ['vouchers','earnMore','offers','clubs','benefits','badges','profileTasks'])data[key]=[];
+  assert.equal(schemaAccepts(schema,data),true);
+  delete data.cinematic;assert.equal(schemaAccepts(schema,data),true);
+});
+
+test('native presentation schema rejects wrong types and missing sections without inventing policy constraints',()=>{
+  const schema=require('../js/portal-content').responseSchema(),data=fillSchemaStrings(schema,content(makeProgram()));
+  assert.equal(schemaAccepts(schema,data),true);
+  for(const change of [value=>delete value.colors,value=>delete value.footerLinks.col2,value=>{value.clubs[0].memberCount='120';},value=>{value.earnMore[0].hasCodeInput='false';},value=>{value.offers[0].description=20;},value=>{value.vouchers[0].title=null;}]){
+    const changed=JSON.parse(JSON.stringify(data));change(changed);assert.equal(schemaAccepts(schema,changed),false);
+  }
+  assert.equal(schema.properties.vouchers.minItems,undefined);
+  assert.equal(schema.properties.earnMore.minItems,undefined);
+  assert.equal(schema.properties.vouchers.items.properties.cost,undefined);
+});
+
+test('authored empty optional collections navigation and footer links generate without a repair',async()=>{
+  const program=makeProgram({version:2,capabilities:{presentationOnly:true,tiers:false},tiers:[],rewards:[],earnRules:[]});
+  const data=content(program);
+  for(const key of ['vouchers','earnMore','offers','benefits','badges','clubs','profileTasks','navLinks'])data[key]=[];
+  for(const key of ['col1','col2','col3'])data.footerLinks[key]={title:'',links:[]};
+  let calls=0,images=0;
+  const context=harness(async()=>{images++;return {generated:0,total_empty:0};});
+  const output=await context.LPGPortalContent.generate({program,brief:{text:'Do not include promotional sections or navigation links.'},client:{callLLM:async()=>{calls++;return JSON.stringify(data);}}});
+  assert.equal(calls,1);assert.equal(images,1);
+  for(const key of ['vouchers','earnMore','offers','benefits','badges','clubs','profileTasks','navLinks'])assert.equal(output[key].length,0,key);
+  for(const column of Object.values(output.footerLinks))assert.equal(column.links.length,0);
+});
+
+test('missing and mistyped optional list fields remain invalid before image work',async()=>{
+  const program=makeProgram();
+  for(const alter of [data=>delete data.offers,data=>{data.benefits=null;},data=>delete data.navLinks,data=>{data.navLinks=['Member',false];},data=>delete data.footerLinks.col1.links,data=>{data.footerLinks.col2.links='Support';}]){
+    const data=content(program);alter(data);let calls=0,images=0;
+    const context=harness(async()=>{images++;return {};});
+    await assert.rejects(context.LPGPortalContent.generate({program,client:{callLLM:async()=>{calls++;return JSON.stringify(data);}}}),/kept|unchanged/);
+    assert.equal(calls,2);assert.equal(images,0);
+  }
 });

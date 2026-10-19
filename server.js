@@ -7,6 +7,23 @@ const { scrapeText } = require('./outbound-fetch');
 const { createApiSecurity } = require('./api-security');
 const { createDurableStore } = require('./durable-store');
 const { createDurableGenerationJobs } = require('./durable-generation-jobs');
+const requirements = require('./js/requirements');
+const portalContent = require('./js/portal-content');
+
+function nativeGeminiSchema(schema) {
+  // Live checks against the configured Gemini model rejected the full contracts
+  // with numeric bounds/array limits, but accepted the same typed schemas with
+  // these three constraints omitted. Keep the canonical prompt/model validators
+  // strict; adapt only the provider transport, with no paid retry or fallback.
+  if (Array.isArray(schema)) return schema.map(nativeGeminiSchema);
+  if (!schema || typeof schema !== 'object') return schema;
+  return Object.fromEntries(Object.entries(schema)
+    .filter(([key]) => !['maxItems','minimum','maximum'].includes(key))
+    .map(([key,value]) => [key,key === 'properties'
+      ? Object.fromEntries(Object.entries(value).map(([name,child]) => [name,nativeGeminiSchema(child)]))
+      : nativeGeminiSchema(value)]));
+}
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -122,11 +139,28 @@ function validateLLM(req, res) {
   if (req.body.responseFormat !== undefined && req.body.responseFormat !== 'json') {
     return res.status(400).json({ error: 'invalid_response_format' });
   }
+  const { responseContract, responseAudience, responseJsonSchema, responseSchema } = req.body;
+  // Clients select reviewed contracts; schemas are never supplied by clients.
+  const programContract = responseContract === 'loyalty-program-v2';
+  const presentationContract = responseContract === 'loyalty-presentation-v1';
+  if (responseJsonSchema !== undefined || responseSchema !== undefined ||
+      (responseContract === undefined && responseAudience !== undefined) ||
+      (responseContract !== undefined && (req.body.responseFormat !== 'json' ||
+        (!programContract && !presentationContract) ||
+        (programContract && !['b2c','b2b'].includes(responseAudience)) ||
+        (presentationContract && responseAudience !== undefined)))) {
+    return res.status(400).json({ error: 'invalid_response_contract' });
+  }
+  if ((programContract && typeof requirements.responseSchema !== 'function') ||
+      (presentationContract && typeof portalContent.responseSchema !== 'function')) {
+    return res.status(503).json({ error: 'response_schema_unavailable' });
+  }
+
 
 }
 
 async function handleLLM(req, res) {
-  const { prompt, system, tier, maxTokens, responseFormat } = req.body || {};
+  const { prompt, system, tier, maxTokens, responseFormat, responseContract, responseAudience } = req.body || {};
 
   const chosenTier = ['fast', 'balanced', 'powerful'].includes(tier) ? tier : 'balanced';
   const model = TIER_MODELS[chosenTier] || DEFAULT_MODEL;
@@ -141,6 +175,8 @@ async function handleLLM(req, res) {
   };
   if (responseFormat === 'json') {
     geminiBody.generationConfig.responseMimeType = 'application/json';
+    if (responseContract === 'loyalty-program-v2') geminiBody.generationConfig.responseJsonSchema = nativeGeminiSchema(requirements.responseSchema(responseAudience));
+    if (responseContract === 'loyalty-presentation-v1') geminiBody.generationConfig.responseJsonSchema = nativeGeminiSchema(portalContent.responseSchema());
     // The output limit also includes internal reasoning. Reserve capacity for
     // complete portal JSON instead of spending most of it on hidden thinking.
     geminiBody.generationConfig.thinkingConfig = { thinkingLevel: 'low' };
@@ -307,7 +343,7 @@ app.post('/api/jobs', (req,res,next)=>{if(!apiSecurity.authorize(req,res))next()
 app.get('/api/jobs/:id', generationJobs.poll);
 app.delete('/api/jobs/:id', generationJobs.remove);
 app.post('/api/jobs/:id/resume', (req,res,next)=>{if(!apiSecurity.authorize(req,res))next();}, (req,res)=>generationJobs.resume ? generationJobs.resume(req,res) : res.status(409).json({error:'generation_not_resumable'}));
-app.get('/api/capabilities', (req,res)=>res.set('Cache-Control','no-store').json({version:1,adapter:'heroku',guestGeneration:true,requiresAccount:false,capabilityEndpoint:'/api/capability',scrape:'/api/scrape',llm:'/api/llm',images:'/api/generate-images',jobs:{submit:'/api/jobs',poll:'/api/jobs/:id',cancel:'/api/jobs/:id',resume:'/api/jobs/:id/resume',durable:Boolean(durableStore),idempotency:Boolean(durableStore),automaticPaidReplay:false,resultRetentionSeconds:{llm:86400,image:3600,images:3600}},limits:{imageBatch:MAX_IMAGE_GEN_BATCH}}));
+app.get('/api/capabilities', (req,res)=>res.set('Cache-Control','no-store').json({version:1,adapter:'heroku',responseContracts:['loyalty-program-v2','loyalty-presentation-v1'],guestGeneration:true,requiresAccount:false,capabilityEndpoint:'/api/capability',scrape:'/api/scrape',llm:'/api/llm',images:'/api/generate-images',jobs:{submit:'/api/jobs',poll:'/api/jobs/:id',cancel:'/api/jobs/:id',resume:'/api/jobs/:id/resume',durable:Boolean(durableStore),idempotency:Boolean(durableStore),automaticPaidReplay:false,resultRetentionSeconds:{llm:86400,image:3600,images:3600}},limits:{imageBatch:MAX_IMAGE_GEN_BATCH}}));
 app.get('/api/ready',async(req,res)=>{
   try{if(durableStore)await durableStore.check();res.set('Cache-Control','no-store').json({ok:true,storage:durableStore?'postgres':'memory',llm_configured:Boolean(GEMINI_API_KEY)});}
   catch{res.status(503).json({ok:false,error:'generation_storage_unavailable'});}

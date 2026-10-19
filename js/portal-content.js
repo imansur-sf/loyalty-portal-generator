@@ -6,6 +6,40 @@
   const collections = ['vouchers', 'offers', 'badges', 'clubs', 'benefits', 'earnMore', 'profileTasks'];
   const preservedCollections = ['offers', 'badges', 'clubs', 'benefits', 'profileTasks'];
   const isRefinement = existing => !!(existing?.programEnabled && existing.program);
+  const cinematicCopyKeys = ['arrivalEyebrow','arrivalTitle','arrivalDescription','statusEyebrow','statusTitle','scrollNote','arrivalAction','progressEyebrow','progressTitle','progressDescription','progressSummary','possibilityEyebrow','possibilityTitle','possibilityDescription','benefitsEyebrow','benefitsTitle','benefitsDescription','discoveryEyebrow','discoveryTitle','discoveryDescription','detailsEyebrow','detailsTitle','detailsDescription'];
+
+  // The server selects this named, repository-owned contract. Customers never
+  // supply a provider schema, and presentation cannot redefine program policy.
+  // Keep the schema in the same supported JSON Schema subset as program-v2.
+  function responseSchema() {
+    const string = () => ({ type: 'string' });
+    const number = () => ({ type: 'number', minimum: 0, maximum: 1e12 });
+    const boolean = () => ({ type: 'boolean' });
+    const object = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required });
+    const array = (items, maxItems = 40) => ({ type: 'array', items, maxItems });
+    const enumeration = values => ({ type: 'string', enum: values });
+    const optionalIdentity = (properties, reference) => object({ id: string(), ...(reference ? { [reference]: string() } : {}), ...properties }, Object.keys(properties));
+    const footerColumn = () => object({ title: string(), links: array(string()) });
+    const properties = {
+      brandName: string(), industry: enumeration(['carwash','restaurant','retail','fitness','healthcare','generic']), programName: string(),
+      colors: object({ primary: string(), accent: string(), secondary: string(), dark: string() }),
+      brand: object({ logoUrl: string() }),
+      tiers: array(object({ name: string(), points: { anyOf: [number(), { type: 'null' }] } }), 12),
+      vouchers: array(optionalIdentity({ title: string(), description: string(), vendor: string(), expiry: string(), actionType: enumeration(['points','none','detail']), actionValue: string(), emoji: string(), imageUrl: string() }, 'programRewardId')),
+      offers: array(optionalIdentity({ title: string(), description: string(), cta: string(), playerCount: string(), expiry: string(), emoji: string(), imageUrl: string() })),
+      badges: array(optionalIdentity({ name: string(), emoji: string(), color: enumeration(['amber','emerald','blue','purple','rose','teal','orange','indigo','red','green']), imageUrl: string() })),
+      clubs: array(optionalIdentity({ name: string(), description: string(), memberCount: number(), emoji: string(), imageUrl: string() })),
+      benefits: array(object({ id: string(), name: string(), emoji: string(), imageUrl: string(), coverImageUrl: string() }, ['name','emoji','imageUrl'])),
+      earnMore: array(optionalIdentity({ title: string(), description: string(), cta: string(), hasCodeInput: boolean(), imageUrl: string() }, 'programRuleId')),
+      profileTasks: array(optionalIdentity({ description: string(), cta: string() })),
+      upsell: object({ title: string(), subtitle: string(), price: string(), period: string(), tagline: string(), cta: string(), bgImageUrl: string() }),
+      navLinks: array(string()), footerLinks: object({ col1: footerColumn(), col2: footerColumn(), col3: footerColumn() }),
+      member: object({ name: string(), joinDate: string(), number: string(), email: string(), phone: string(), avatarUrl: string() }, ['name','joinDate']),
+      cinematic: object({ copy: object(Object.fromEntries(cinematicCopyKeys.map(key => [key, string()])), []) })
+    };
+    // Cinematic wording is optional for the other presentation templates.
+    return object(properties, Object.keys(properties).filter(key => key !== 'cinematic'));
+  }
   const instruction = `
 ADDITIONAL REQUIREMENTS FOR THIS REQUEST (override conflicting generic schema guidance above):
 Produce the rich presentation for the supplied validated loyalty program, not a second program.
@@ -31,8 +65,8 @@ For spending, say eligible purchases earn the applicable points without displayi
 or transaction controls. Mention only currencies for which that rule awards a positive amount.
 Return these promotional cards in earnMore with hasCodeInput=false. Empty rule/reward lists
 mean empty corresponding arrays.
-Return the complete original presentation schema, including offers, badges, clubs, benefits,
-profileTasks, upsell, navLinks and all three footer columns. Supply useful brand-specific copy
+Return every field of the original presentation schema, including offers, badges, clubs, benefits,
+profileTasks, upsell, navLinks and all three footer columns. Explicitly excluded or unsupported optional lists must be [] (including navigation and footer links), not omitted fields. Do not invent filler to populate those lists. Supply useful brand-specific copy
 and imagery candidates across these sections, not generic loyalty filler. Related informational
 offers, communities and benefits can be illustrative demo content when absent from sources;
 do not claim integrations or operational behavior not implemented by validatedProgram. Do not
@@ -214,13 +248,12 @@ complete every required section and exact reward/earning mapping before closing 
       if (data[key].some(item => !item || typeof item !== 'object' || typeof item[title] !== 'string' || !item[title].trim())) throw new Error(`AI returned invalid ${key} content. Your portal was kept.`);
       if (['vouchers', 'offers', 'clubs', 'earnMore'].includes(key) && data[key].some(item => typeof item.description !== 'string' || !item.description.trim())) throw new Error(`AI omitted ${key} descriptions. Your portal was kept; generate again.`);
     }
-    for (const key of ['offers', 'benefits']) if (!data[key].length) throw new Error(`AI omitted ${key} presentation content. Your portal was kept; generate again.`);
-    if (!data.upsell || typeof data.upsell.title !== 'string' || !data.upsell.title.trim() || !Array.isArray(data.navLinks) || !data.navLinks.length || data.navLinks.some(item => typeof item !== 'string')) throw new Error('AI returned incomplete portal navigation or membership content. Your portal was kept.');
+    if (!data.upsell || typeof data.upsell.title !== 'string' || !data.upsell.title.trim() || !Array.isArray(data.navLinks) || data.navLinks.some(item => typeof item !== 'string')) throw new Error('AI returned incomplete portal navigation or membership content. Your portal was kept.');
     for (const key of ['primary', 'accent', 'secondary', 'dark']) if (!/^#[0-9a-f]{6}$/i.test(data.colors?.[key] || '')) throw new Error('AI returned an incomplete brand palette. Your portal was kept; generate again.');
     for (const key of ['subtitle', 'tagline', 'cta']) if (typeof data.upsell[key] !== 'string' || !data.upsell[key].trim()) throw new Error('AI omitted membership presentation copy. Your portal was kept; generate again.');
     for (const key of ['col1', 'col2', 'col3']) {
       const column = data.footerLinks?.[key];
-      if (!column || typeof column.title !== 'string' || !column.title.trim() || !Array.isArray(column.links) || !column.links.length || column.links.some(item => typeof item !== 'string')) throw new Error('AI returned incomplete portal footer content. Your portal was kept.');
+      if (!column || typeof column.title !== 'string' || !Array.isArray(column.links) || column.links.some(item => typeof item !== 'string')) throw new Error('AI returned incomplete portal footer content. Your portal was kept.');
     }
   }
 
@@ -315,7 +348,7 @@ complete every required section and exact reward/earning mapping before closing 
       checkCancelled();
       const response = await client.callLLM({ signal, resumeUnknown, system: programSystemPrompt(shared),
         prompt: JSON.stringify(repairFeedback ? { ...payload, repairFeedback } : payload),
-        maxTokens: attempt ? 16000 : 12000, tier: 'balanced', responseFormat: 'json' });
+        maxTokens: attempt ? 16000 : 12000, tier: 'balanced', responseFormat: 'json', responseContract: 'loyalty-presentation-v1' });
       checkCancelled();
       try {
         const finishReason = response?.finish_reason || response?.finishReason || '';
@@ -357,8 +390,7 @@ complete every required section and exact reward/earning mapping before closing 
       item.coverImageUrl = key === 'benefits' && candidates.has(item.coverImageUrl) && item.coverImageUrl !== item.imageUrl ? item.coverImageUrl : '';
       delete item.coverImageData;
     }
-    const cinematicKeys=['arrivalEyebrow','arrivalTitle','arrivalDescription','statusEyebrow','statusTitle','scrollNote','arrivalAction','progressEyebrow','progressTitle','progressDescription','progressSummary','possibilityEyebrow','possibilityTitle','possibilityDescription','benefitsEyebrow','benefitsTitle','benefitsDescription','discoveryEyebrow','discoveryTitle','discoveryDescription','detailsEyebrow','detailsTitle','detailsDescription'];
-    const generatedCopy=Object.fromEntries(cinematicKeys.filter(key=>typeof parsed.cinematic?.copy?.[key]==='string').map(key=>[key,parsed.cinematic.copy[key].slice(0,8000)]));
+    const generatedCopy=Object.fromEntries(cinematicCopyKeys.filter(key=>typeof parsed.cinematic?.copy?.[key]==='string').map(key=>[key,parsed.cinematic.copy[key].slice(0,8000)]));
     const generatedProgressMessage = generatedCopy.progressSummary;
     delete parsed.cinematic;
     parsed.brand = { logoUrl: candidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl : '' };
@@ -400,5 +432,7 @@ complete every required section and exact reward/earning mapping before closing 
       ...(imageResult.error ? { image_error: imageResult.error } : {}), ...(imageWarning ? { image_warning: imageWarning } : {}) };
     return data;
   }
-  root.LPGPortalContent = { get promptSignature() { return programSystemPrompt({ SYSTEM_PROMPT: root.PageHost?._analysis?.SYSTEM_PROMPT || '' }); }, generate, fillImages, reconcile, reconcileActivities, reconcileRewards };
+  const api = { responseSchema, get promptSignature() { return programSystemPrompt({ SYSTEM_PROMPT: root.PageHost?._analysis?.SYSTEM_PROMPT || '' }); }, generate, fillImages, reconcile, reconcileActivities, reconcileRewards };
+  root.LPGPortalContent = api;
+  if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof window === 'object' ? window : globalThis);

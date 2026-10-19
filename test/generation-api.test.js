@@ -81,3 +81,49 @@ test('direct and pollable paid routes share concurrency and rightmost trusted ad
   assert.equal(JSON.parse(Buffer.from(cap.token.split('.')[0],'base64url')).id,'203.0.113.44');
   releases.forEach(r=>r());assert.equal((await direct).status,200);
 });
+
+test('reviewed program response contracts are validated before paid work and passed as native Gemini JSON schema',async t=>{
+ const requirements=require('../js/requirements');let calls=0;const submitted=[];
+ const nativeSchema=schema=>JSON.parse(JSON.stringify(schema,(key,value)=>['maxItems','minimum','maximum'].includes(key)?undefined:value));
+ const strictProgramBefore=JSON.stringify(requirements.responseSchema('b2c'));
+ const strictPresentationBefore=JSON.stringify(require('../js/portal-content').responseSchema());
+ global.fetch=async(url,options)=>{calls++;submitted.push(JSON.parse(options.body));return new Response(JSON.stringify({candidates:[{content:{parts:[{text:'{"program":{}}'}]}}]}));};
+ const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
+ t.after(async()=>{global.fetch=nativeFetch;await new Promise(r=>server.close(r));});
+ const base='http://127.0.0.1:'+server.address().port;
+ const capability=await(await nativeFetch(base+'/api/capability',{method:'POST',headers:{Origin:base}})).json();
+ const headers={'Content-Type':'application/json','X-LPG-Capability':capability.token};
+ const request={prompt:'Synthetic schema request',responseFormat:'json',responseContract:'loyalty-program-v2',responseAudience:'b2c'};
+ const bad=[{...request,responseContract:'unknown'},{...request,responseContract:null},{...request,responseContract:[]},{...request,responseFormat:undefined},{...request,responseAudience:undefined},{...request,responseAudience:'B2C'},{...request,responseAudience:{}},{prompt:'Orphan audience',responseAudience:'b2b'}, {...request,responseJsonSchema:{type:'object'}},{...request,responseSchema:{type:'object'}},{...request,responseContract:'loyalty-presentation-v1',responseAudience:'b2c'}];
+ for(const body of bad)for(const route of ['/api/llm','/api/jobs']){
+  const response=await nativeFetch(base+route,{method:'POST',headers,body:JSON.stringify({...body,...(route.endsWith('jobs')?{kind:'llm'}:{})})});
+  assert.equal(response.status,400);assert.equal((await response.json()).error,'invalid_response_contract');
+ }
+ assert.equal(calls,0);
+ for(const audience of ['b2c','b2b']){
+  const body={...request,responseAudience:audience,kind:'llm'};
+  const accepted=await nativeFetch(base+'/api/jobs',{method:'POST',headers,body:JSON.stringify(body)});assert.equal(accepted.status,202);
+  const job=await accepted.json();const result=await(await nativeFetch(base+'/api/jobs/'+job.id,{headers:{Authorization:'Bearer '+job.token}})).json();assert.equal(result.result.status,200);
+  assert.deepEqual(submitted.at(-1).generationConfig.responseJsonSchema,nativeSchema(requirements.responseSchema(audience)));
+  assert.equal(submitted.at(-1).generationConfig.responseMimeType,'application/json');
+ }
+ // Ordinary text/JSON callers keep their previous provider request shape.
+ for(const format of [undefined,'json']){
+  const result=await nativeFetch(base+'/api/llm',{method:'POST',headers,body:JSON.stringify({prompt:'Legacy request',...(format?{responseFormat:format}:{})})});assert.equal(result.status,200);
+  assert.equal(Object.hasOwn(submitted.at(-1).generationConfig,'responseJsonSchema'),false);
+ }
+ const presentation=await nativeFetch(base+'/api/llm',{method:'POST',headers,body:JSON.stringify({prompt:'Synthetic presentation',responseFormat:'json',responseContract:'loyalty-presentation-v1'})});
+ assert.equal(presentation.status,200);assert.deepEqual(submitted.at(-1).generationConfig.responseJsonSchema,nativeSchema(require('../js/portal-content').responseSchema()));
+ assert.equal(JSON.stringify(requirements.responseSchema('b2c')),strictProgramBefore);
+ assert.equal(JSON.stringify(require('../js/portal-content').responseSchema()),strictPresentationBefore);
+ const nativeProgram=submitted[0].generationConfig.responseJsonSchema.properties.program;
+ assert.deepEqual(nativeProgram.required,requirements.responseSchema('b2c').properties.program.required);
+ assert.deepEqual(nativeProgram.properties.mode.enum,['b2c']);
+ assert.equal(nativeProgram.properties.earnRules.items.properties.monthlyCap.anyOf[1].type,'null');
+ assert.equal(nativeProgram.properties.earnRules.items.properties.qualifyingRate.type,'number');
+ assert.equal(nativeProgram.properties.earnRules.items.properties.qualifyingRate.maximum,undefined);
+ assert.equal(requirements.responseSchema('b2c').properties.program.properties.earnRules.items.properties.qualifyingRate.maximum,1e6);
+ assert.ok(requirements.responseSchema('b2c').properties.program.properties.earnRules.maxItems);
+ assert.equal(submitted.at(-1).generationConfig.responseJsonSchema.properties.offers.items.properties.title.type,'string');
+ assert.equal(calls,5);
+});

@@ -108,6 +108,7 @@ test('truncated rules retry once with all 22 source pages and only then generate
     await e.w.LPGRequirementsEditor.analyze(client,'');
     assert.equal(ruleCalls.length,2);assert.equal(ruleCalls[0].maxTokens,12000);assert.equal(ruleCalls[1].maxTokens,16000);
     assert.ok(ruleCalls.every(call=>call.responseFormat==='json'));
+    assert.ok(ruleCalls.every(call=>call.responseContract==='loyalty-program-v2'&&call.responseAudience==='b2c'));
     assert.equal(ruleCalls[1].prompt.split('\nValidation feedback')[0],ruleCalls[0].prompt);
     assert.equal(JSON.parse(ruleCalls[0].prompt).sourceDocuments[0].pages.length,22);
     assert.equal(e.run('JSON.stringify(state.brief.sources)'),original);
@@ -339,7 +340,9 @@ test('both-audience AI requests carry each selected template before rule and ima
       return e.w.LPGProgram.normalize({ mode: prompt.author.mode, providerName: 'ISACA' });
     }, prompt => { observed.push(prompt.presentationPreferences); return presentation(prompt.validatedProgram); });
     await e.w.LPGRequirementsEditor.analyze(client, '');
-    assert.deepEqual(JSON.parse(JSON.stringify(observed)), [
+    assert.equal(observed[0].generationIntent, 'illustrative-branded-demo');
+    assert.equal(observed[2].generationIntent, 'illustrative-branded-demo');
+    assert.deepEqual(JSON.parse(JSON.stringify(observed.map(({generationIntent,intentInstructions,...preferences})=>preferences))), [
       { outputTemplate: 'cinematic', locale:'en-US', defaultRewardCount: 5 }, { outputTemplate: 'cinematic' },
       { outputTemplate: 'editorial', locale:'en-US', defaultRewardCount: 4 }, { outputTemplate: 'editorial' }
     ]);
@@ -694,5 +697,18 @@ test('selected new audience card artwork persists in that audience without chang
   await e.w.LPGRequirementsEditor.acceptGeneration();assert.equal(e.run('state.activeVariant'),'b2c');
   assert.equal(e.run('state.cinematic.card.artworkImageData'),'');assert.equal(e.run('state.variants.b2b.cinematic.card.markImageData'),'data:image/png;base64,b2b-mark');
   assert.equal(e.run('state.variants.b2b.cinematic.card.artworkImageData'),'data:image/png;base64,b2b-card');
+ }finally{e.close();}
+});
+
+test('repeated monthly-cap violations explain the rule conflict without changing the portal or adding retries',async()=>{
+ const e=await editor({review:true});try{
+  e.field('brief-text','Synthetic points program');const before=e.run('JSON.stringify(state)'),normal=e.client();let calls=0;
+  const client={callLLM:async args=>{
+   calls++;const response=await normal.callLLM(args),data=JSON.parse(response.text);
+   data.program.earnRules[0].qualifyingRate=0;data.program.earnRules[0].redeemableRate=1;data.program.earnRules[0].monthlyCap=100;
+   assert.equal(args.responseContract,'loyalty-program-v2');assert.equal(args.responseAudience,'b2c');return JSON.stringify(data);
+  }};
+  await assert.rejects(e.w.LPGRequirementsEditor.analyze(client,''),/monthly cap conflicts with its qualifying points/);
+  assert.equal(calls,2);assert.equal(e.imageCalls(),0);assert.equal(e.run('JSON.stringify(state)'),before);
  }finally{e.close();}
 });

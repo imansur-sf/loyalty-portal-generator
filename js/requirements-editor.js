@@ -389,6 +389,16 @@
     try { return await performAnalyze(client,rawURL,options); }
     finally { renderRecovery(); }
   }
+  function programFailureSummary(error) {
+    if (error.code === 'incomplete_program') return 'The AI response was incomplete or malformed.';
+    const details = Array.isArray(error.details) ? error.details.join(' ') : '';
+    if (/monthlyCap.*qualifying|monthlyCap limits qualifying/.test(details)) return 'An activity’s monthly cap conflicts with its qualifying points.';
+    if (/member\.role|roles.*approv|approvalRequired/.test(details)) return 'The proposed member roles and approval rules were inconsistent.';
+    if (/tiers\[|tiers\./.test(details)) return 'The proposed tier requirements were inconsistent.';
+    if (/rewards.*cost/.test(details)) return 'A proposed reward had an invalid points cost.';
+    if (/required|expected an object|expected a list/.test(details)) return 'The AI left out a required program detail.';
+    return 'Some proposed program rules were inconsistent.';
+  }
   async function performAnalyze(client, rawURL, {resumeUnknown=false}={}) {
     if (importing) throw new Error('Please wait for the requirements documents to finish reading.');
     changed();
@@ -434,7 +444,7 @@
       setQuickStartStatus(`Designing the ${mode.toUpperCase()} loyalty experience…`, true);
       const prompt = LPGRequirements.buildPrompt(audienceBrief, website, current, { outputTemplate, locale:existing?.locale || state.locale || 'en-US' });
       const scoped = !!(refinement && current);
-      let result = scoped ? null : await client.callLLM({ signal, resumeUnknown, system: LPGRequirements.SYSTEM, prompt, maxTokens: 12000, tier: 'balanced', responseFormat: 'json' });
+      let result = scoped ? null : await client.callLLM({ signal, resumeUnknown, system: LPGRequirements.SYSTEM, prompt, maxTokens: 12000, tier: 'balanced', responseFormat: 'json', responseContract: 'loyalty-program-v2', responseAudience: mode });
       checkCurrent();
       let proposal;
       try { proposal = scoped ? {program:current,evidence:[]} : LPGRequirements.parseResponse(result, LPGProgram, mode); }
@@ -442,11 +452,11 @@
         if (!['invalid_program', 'incomplete_program'].includes(error.code)) throw error;
         setQuickStartStatus(error.code === 'incomplete_program' ? 'AI is completing the program response. Your requirements are retained…' : 'AI is correcting a program detail…', true);
         result = await client.callLLM({ signal, resumeUnknown, system: LPGRequirements.SYSTEM,
-          prompt: LPGRequirements.repairPrompt(prompt, error), maxTokens: 16000, tier: 'balanced', responseFormat: 'json' });
+          prompt: LPGRequirements.repairPrompt(prompt, error), maxTokens: 16000, tier: 'balanced', responseFormat: 'json', responseContract: 'loyalty-program-v2', responseAudience: mode });
         checkCurrent();
         try { proposal = LPGRequirements.parseResponse(result, LPGProgram, mode); }
         catch (retryError) {
-          if (['invalid_program', 'incomplete_program'].includes(retryError.code)) retryError.message = 'AI could not finish a valid program after an automatic retry. Your portal and requirements documents were kept. Please try generating again.';
+          if (['invalid_program', 'incomplete_program'].includes(retryError.code)) retryError.message = 'AI could not finish a valid program after an automatic retry. ' + programFailureSummary(retryError) + ' Your portal and requirements documents were kept.';
           throw retryError;
         }
       }
