@@ -389,9 +389,9 @@ complete every required section and exact reward/earning mapping before closing 
     if (deferImages) return data;
     return fillImages(data, { onStatus, outputTemplate, signal, maxImages, resumeUnknown });
   }
-  async function fillImages(data, { onStatus = () => {}, outputTemplate = 'classic', signal, maxImages, resumeUnknown } = {}) {
+  async function fillImages(data, { onStatus = () => {}, outputTemplate = 'classic', signal, maxImages, resumeUnknown, onlySlots } = {}) {
     if (signal?.aborted) { const error = new Error('Generation cancelled.'); error.name = 'AbortError'; throw error; }
-    const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus, outputTemplate, signal, maxImages, resumeUnknown });
+    const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus, outputTemplate, signal, maxImages, resumeUnknown, onlySlots });
     const remaining = imageResult.remaining ?? Math.max(0, (imageResult.total_empty || 0) - (imageResult.generated || 0));
     const imageWarning = imageResult.warning || (remaining ? `${remaining} images could not be filled. ${imageResult.error || 'You can add images in the builder or generate again.'}` : imageResult.error || '');
     data._meta = { ...(data._meta || {}), images_pending: false,

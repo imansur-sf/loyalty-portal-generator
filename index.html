@@ -219,6 +219,39 @@
     .program-authoring button {border:1px solid #8b9bb0;border-radius:7px;padding:10px 14px;font-size:13px;font-weight:600;min-height:44px}
     .program-actions {display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
     .program-edit-card {padding:12px;border:1px solid #cbd5e1;border-radius:10px;margin:12px 0}.program-edit-card legend {font-weight:600;font-size:13px;padding:0 6px}
+    #generation-review {padding:clamp(18px,3vw,28px);margin:20px 0;background:#fff;color:#182333;border:1px solid #ccd6e5;border-radius:20px;box-shadow:0 8px 28px -18px #112d61}
+    #generation-review h3 {font-size:22px;line-height:1.25;font-weight:700;margin-bottom:12px}
+    #generation-review h4 {font-size:16px;font-weight:700;margin:20px 0 10px}
+    #generation-review p {font-size:13px;line-height:1.65;color:#475569;margin:8px 0}
+    #generation-review fieldset {min-width:0;border:1px solid #d9e1ed;border-radius:12px;margin:16px 0;padding:12px}
+    #generation-review legend {font-size:14px;font-weight:700;padding:0 6px}
+    #generation-review label {display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:10px 4px;font-size:14px;line-height:1.5;cursor:pointer}
+    #generation-review input[type="checkbox"] {width:20px;height:20px;flex:0 0 20px;margin-top:1px;accent-color:#023fcc;cursor:pointer}
+    #generation-review ul {list-style:none;margin:8px 0;padding:0}
+    #generation-review li {font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+    #generation-review details {margin:10px 0;padding:10px 12px;border:1px solid #e1e7f0;border-radius:10px;background:#f8faff}
+    #generation-review summary {font-size:13px;line-height:1.5;font-weight:600;cursor:pointer;padding:4px 0}
+    #generation-review blockquote {border-left:3px solid #8ca7df;padding-left:12px;margin:10px 0;color:#475569}
+    #generation-review button {min-height:44px;border:1px solid #9aacc9;border-radius:10px;padding:10px 16px;font-size:14px;font-weight:600;background:#fff;color:#18386a;text-decoration:none;cursor:pointer}
+    #generation-review .generation-review-actions {position:sticky;bottom:12px;z-index:5;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:20px -8px 0;padding:14px;background:#fff;border:1px solid #d9e1ed;border-radius:14px;box-shadow:0 5px 24px -12px #163d7c}
+    #generation-review #generation-accept {background:#023fcc;border:1px solid #023fcc;color:#fff;padding:12px 22px;box-shadow:0 3px 8px #023fcc26}
+    #generation-review #generation-accept:hover:not(:disabled) {background:#002d99;border-color:#002d99}
+    #generation-review #generation-discard:hover {background:#f0f4fb}
+    #generation-review button:disabled {opacity:.5;cursor:not-allowed;box-shadow:none}
+    #generation-review :focus-visible {outline:3px solid #005fcc;outline-offset:3px}
+    #generation-review iframe {max-width:100%;background:#fff;border-radius:8px}
+    #generation-review #generation-review-error:not(:empty) {color:#b42318;background:#fff4ed;border:1px solid #fed7aa;border-radius:8px;padding:10px}
+    #generation-review .generation-review-change {padding:12px 0;border-top:1px solid #e1e7f0}
+    #generation-review .generation-review-selection-tools {display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:16px 0}
+    #generation-review #generation-selection-count {flex-basis:100%;font-weight:600;color:#18386a}
+    #generation-review .generation-review-comparison {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:10px 0}
+    #generation-review .generation-review-path {grid-column:1 / -1;display:block;font-size:11px;color:#53647b;overflow-wrap:anywhere}
+    #generation-review .generation-review-before,#generation-review .generation-review-after {min-width:0;border:1px solid #d9e1ed;border-radius:8px;padding:10px;background:#fff}
+    #generation-review .generation-review-after {background:#edf4ff;border-color:#c6d8f4}
+    #generation-review pre {max-height:24rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;font-size:12px;line-height:1.6;margin-top:6px}
+    @media(max-width:640px){#generation-review .generation-review-comparison {grid-template-columns:minmax(0,1fr)}}
+    #generation-review .generation-review-value {white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
+    @media(max-width:640px){#generation-review .generation-review-actions {bottom:8px;gap:10px}#generation-review .generation-review-actions button {flex:1 1 180px}}
     .program-coverage {display:grid;gap:10px;font-size:13px}.program-coverage li {padding:12px;background:#f1f5f9;border-radius:8px}.program-coverage small {display:block;color:#475569;margin-top:4px}
     .program-warning {color:#b42318!important;font-size:13px;line-height:1.6;background:#fff4ed;border-radius:6px;padding:8px}.program-warning:empty {display:none}
     .brief-inputs :focus-visible,.program-authoring :focus-visible {outline:3px solid #2b83f6;outline-offset:3px}
@@ -837,16 +870,16 @@
   <script src="./js/accounts-loader.js?v=d7eb6095c4cd"></script>
   <script src="./js/defaults.js?v=bc138671a8e0"></script>
   <script src="./js/images.js?v=0ccf092540c8"></script>
-  <script src="./js/cinematic-settings.js?v=6c674c6377e8"></script>
+  <script src="./js/cinematic-settings.js?v=f15b2303d036"></script>
   <script src="./js/program-model.js?v=853c3637cc34"></script>
   <script src="./js/program-runtime.js?v=866e718ff2d7"></script>
-  <script src="./js/portal-templates.js?v=6ac4d102e744"></script>
+  <script src="./js/portal-templates.js?v=49c56a49eee2"></script>
   <script src="./js/requirements.js?v=242055a01d7e"></script>
   <script src="./js/content-contract.js?v=7b62dbe35a95"></script>
   <script src="./js/program-provenance.js?v=736da9474de0"></script>
-  <script src="./js/portal-content.js?v=db8dea9f2b46"></script>
+  <script src="./js/portal-content.js?v=634adecbeadd"></script>
   <script src="./js/variants.js?v=8bb370744bde"></script>
-  <script src="./js/requirements-editor.js?v=b8aba8e3b667"></script>
+  <script src="./js/requirements-editor.js?v=6bc3f06b457d"></script>
   <script src="./js/generator.js?v=cabc638279d6"></script>
   <script src="./js/pagehost.js?v=f65fb1ea48d2"></script>
   <script src="./js/localai.js?v=9c2d00fedd30"></script>

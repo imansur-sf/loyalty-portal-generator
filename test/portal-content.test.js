@@ -555,3 +555,9 @@ test('cinematic AI drafts a rule-grounded tier message while preserving author e
     if (saved === undefined) assert.equal(output.cinematic.copy.arrivalTitle, 'Keep this heading');
   }
 });
+
+test('background image filling forwards accepted slot limits without changing its content',async()=>{
+ let received;const context=harness(async(_data,options)=>{received=options;return {generated:0,total_empty:0};});
+ const data={offers:[]};await context.LPGPortalContent.fillImages(data,{onlySlots:['benefit-0','offer-1'],maxImages:8});
+ assert.deepEqual(received.onlySlots,['benefit-0','offer-1']);assert.equal(received.maxImages,8);
+});

@@ -56,7 +56,7 @@
       artworkFit: card.artworkFit === 'contain' ? 'contain' : 'cover',
       artworkPosition: /^\d{1,3}% \d{1,3}%$/.test(card.artworkPosition || '') ? card.artworkPosition : '50% 50%',
       mode: card.mode === 'image' ? 'image' : 'loyalty',
-      markMode: ['brand', 'custom'].includes(card.markMode) ? card.markMode : 'orbit',
+      markMode: ['orbit', 'brand', 'custom'].includes(card.markMode) ? card.markMode : 'brand',
       markImageUrl: safeImage(card.markImageUrl), markImageData: safeImage(card.markImageData),
       artworkImageUrl: safeImage(card.artworkImageUrl), artworkImageData: safeImage(card.artworkImageData),
       showDetails: card.showDetails !== false

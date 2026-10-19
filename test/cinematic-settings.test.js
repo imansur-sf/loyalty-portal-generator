@@ -27,7 +27,8 @@ test('normalization supplies defaults while preserving intentional blank and mul
     assert.equal(config.copy.arrivalTitle, 'Your world\nOpening up');
     assert.equal(config.copy.arrivalDescription, '');
     assert.equal(config.copy.progressTitle, 'A little closer. A little more yours.');
-    assert.equal(config.card.mode, 'loyalty'); assert.equal(config.card.markMode, 'orbit');
+    assert.equal(config.card.mode, 'loyalty'); assert.equal(config.card.markMode, 'brand');
+    assert.equal(f.api.normalize({card:{markMode:'orbit'}}).card.markMode,'orbit');
     assert.equal(config.card.showDetails, true); assert.equal(config.card.artworkImageUrl, '');
     assert.equal(f.api.normalize({ card: { artworkImageData: 'data:image/png;base64,YWJj' } }).card.artworkImageData, 'data:image/png;base64,YWJj');
   } finally { f.close(); }
@@ -52,6 +53,7 @@ test('card defaults to loyalty and can select an emblem or artwork while keeping
   try {
     const mode = f.w.document.getElementById('cinematic-card-mode'), mark = f.w.document.getElementById('cinematic-card-mark');
     assert.equal(mode.value, 'loyalty');
+    assert.equal(mark.value, 'brand');
     mark.value = 'brand'; mark.dispatchEvent(new f.w.Event('change'));
     assert.equal(f.w.state.cinematic.card.markMode, 'brand');
     mode.value = 'image'; mode.dispatchEvent(new f.w.Event('change'));

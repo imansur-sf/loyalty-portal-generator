@@ -405,6 +405,10 @@ test('cinematic benefit covers fill tiles while other templates keep their origi
 });
 
 test('card emblem and full artwork can be replaced without losing live tier data, with default fallbacks', () => {
+  const defaultLogo=new JSDOM(cinematicProductionFixture({brand:{name:'Northstar',programName:'Rewards',logoUrl:'https://brand.example/logo.png'}}),{runScripts:'dangerously'});
+  assert.equal(defaultLogo.window.document.querySelector('.cj-card-logo').src,'https://brand.example/logo.png');defaultLogo.window.close();
+  const orbit=new JSDOM(cinematicProductionFixture({brand:{name:'Northstar',programName:'Rewards',logoUrl:'https://brand.example/logo.png'},cinematic:{card:{markMode:'orbit'}}}),{runScripts:'dangerously'});
+  assert.equal(orbit.window.document.querySelector('.cj-card-logo'),null);orbit.window.close();
   const dom=new JSDOM(cinematicProductionFixture({brand:{name:'Northstar',programName:'Rewards',logoUrl:'https://brand.example/logo.png'},cinematic:{card:{markMode:'brand',mode:'image',artworkImageUrl:'https://brand.example/card.jpg',showDetails:false}}}),{runScripts:'dangerously'});const doc=dom.window.document;
   const card=doc.querySelector('.cj-membership');
   assert.equal(card.querySelector('.cj-card-logo').src,'https://brand.example/logo.png');

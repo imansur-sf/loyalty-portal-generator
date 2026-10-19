@@ -3734,6 +3734,39 @@ video {
     .program-authoring button {border:1px solid #8b9bb0;border-radius:7px;padding:10px 14px;font-size:13px;font-weight:600;min-height:44px}
     .program-actions {display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
     .program-edit-card {padding:12px;border:1px solid #cbd5e1;border-radius:10px;margin:12px 0}.program-edit-card legend {font-weight:600;font-size:13px;padding:0 6px}
+    #generation-review {padding:clamp(18px,3vw,28px);margin:20px 0;background:#fff;color:#182333;border:1px solid #ccd6e5;border-radius:20px;box-shadow:0 8px 28px -18px #112d61}
+    #generation-review h3 {font-size:22px;line-height:1.25;font-weight:700;margin-bottom:12px}
+    #generation-review h4 {font-size:16px;font-weight:700;margin:20px 0 10px}
+    #generation-review p {font-size:13px;line-height:1.65;color:#475569;margin:8px 0}
+    #generation-review fieldset {min-width:0;border:1px solid #d9e1ed;border-radius:12px;margin:16px 0;padding:12px}
+    #generation-review legend {font-size:14px;font-weight:700;padding:0 6px}
+    #generation-review label {display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:10px 4px;font-size:14px;line-height:1.5;cursor:pointer}
+    #generation-review input[type="checkbox"] {width:20px;height:20px;flex:0 0 20px;margin-top:1px;accent-color:#023fcc;cursor:pointer}
+    #generation-review ul {list-style:none;margin:8px 0;padding:0}
+    #generation-review li {font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+    #generation-review details {margin:10px 0;padding:10px 12px;border:1px solid #e1e7f0;border-radius:10px;background:#f8faff}
+    #generation-review summary {font-size:13px;line-height:1.5;font-weight:600;cursor:pointer;padding:4px 0}
+    #generation-review blockquote {border-left:3px solid #8ca7df;padding-left:12px;margin:10px 0;color:#475569}
+    #generation-review button {min-height:44px;border:1px solid #9aacc9;border-radius:10px;padding:10px 16px;font-size:14px;font-weight:600;background:#fff;color:#18386a;text-decoration:none;cursor:pointer}
+    #generation-review .generation-review-actions {position:sticky;bottom:12px;z-index:5;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:20px -8px 0;padding:14px;background:#fff;border:1px solid #d9e1ed;border-radius:14px;box-shadow:0 5px 24px -12px #163d7c}
+    #generation-review #generation-accept {background:#023fcc;border:1px solid #023fcc;color:#fff;padding:12px 22px;box-shadow:0 3px 8px #023fcc26}
+    #generation-review #generation-accept:hover:not(:disabled) {background:#002d99;border-color:#002d99}
+    #generation-review #generation-discard:hover {background:#f0f4fb}
+    #generation-review button:disabled {opacity:.5;cursor:not-allowed;box-shadow:none}
+    #generation-review :focus-visible {outline:3px solid #005fcc;outline-offset:3px}
+    #generation-review iframe {max-width:100%;background:#fff;border-radius:8px}
+    #generation-review #generation-review-error:not(:empty) {color:#b42318;background:#fff4ed;border:1px solid #fed7aa;border-radius:8px;padding:10px}
+    #generation-review .generation-review-change {padding:12px 0;border-top:1px solid #e1e7f0}
+    #generation-review .generation-review-selection-tools {display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:16px 0}
+    #generation-review #generation-selection-count {flex-basis:100%;font-weight:600;color:#18386a}
+    #generation-review .generation-review-comparison {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:10px 0}
+    #generation-review .generation-review-path {grid-column:1 / -1;display:block;font-size:11px;color:#53647b;overflow-wrap:anywhere}
+    #generation-review .generation-review-before,#generation-review .generation-review-after {min-width:0;border:1px solid #d9e1ed;border-radius:8px;padding:10px;background:#fff}
+    #generation-review .generation-review-after {background:#edf4ff;border-color:#c6d8f4}
+    #generation-review pre {max-height:24rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;font-size:12px;line-height:1.6;margin-top:6px}
+    @media(max-width:640px){#generation-review .generation-review-comparison {grid-template-columns:minmax(0,1fr)}}
+    #generation-review .generation-review-value {white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
+    @media(max-width:640px){#generation-review .generation-review-actions {bottom:8px;gap:10px}#generation-review .generation-review-actions button {flex:1 1 180px}}
     .program-coverage {display:grid;gap:10px;font-size:13px}.program-coverage li {padding:12px;background:#f1f5f9;border-radius:8px}.program-coverage small {display:block;color:#475569;margin-top:4px}
     .program-warning {color:#b42318!important;font-size:13px;line-height:1.6;background:#fff4ed;border-radius:6px;padding:8px}.program-warning:empty {display:none}
     .brief-inputs :focus-visible,.program-authoring :focus-visible {outline:3px solid #2b83f6;outline-offset:3px}
@@ -5088,7 +5121,7 @@ function debounce(fn, ms) {
       artworkFit: card.artworkFit === 'contain' ? 'contain' : 'cover',
       artworkPosition: /^\d{1,3}% \d{1,3}%$/.test(card.artworkPosition || '') ? card.artworkPosition : '50% 50%',
       mode: card.mode === 'image' ? 'image' : 'loyalty',
-      markMode: ['brand', 'custom'].includes(card.markMode) ? card.markMode : 'orbit',
+      markMode: ['orbit', 'brand', 'custom'].includes(card.markMode) ? card.markMode : 'brand',
       markImageUrl: safeImage(card.markImageUrl), markImageData: safeImage(card.markImageData),
       artworkImageUrl: safeImage(card.artworkImageUrl), artworkImageData: safeImage(card.artworkImageData),
       showDetails: card.showDetails !== false
@@ -6483,7 +6516,7 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
       cardFit: state.cinematic?.card?.artworkFit==='contain'?'contain':'cover',
       cardPosition: /^\d{1,3}% \d{1,3}%$/.test(state.cinematic?.card?.artworkPosition || '')?state.cinematic.card.artworkPosition:'50% 50%',
       copy: Object.fromEntries(Object.entries(state.cinematic?.copy || {}).filter(([,value]) => typeof value === 'string' && value.length <= 8000)),
-      card: { mode: state.cinematic?.card?.mode === 'image' ? 'image' : 'loyalty', markMode: state.cinematic?.card?.markMode || 'orbit', showDetails: state.cinematic?.card?.showDetails !== false },
+      card: { mode: state.cinematic?.card?.mode === 'image' ? 'image' : 'loyalty', markMode: ['orbit','brand','custom'].includes(state.cinematic?.card?.markMode) ? state.cinematic.card.markMode : 'brand', showDetails: state.cinematic?.card?.showDetails !== false },
       markImage: imageSource(state.cinematic?.card?.markImageData) || imageSource(state.cinematic?.card?.markImageUrl),
       cardImage: imageSource(state.cinematic?.card?.artworkImageData) || imageSource(state.cinematic?.card?.artworkImageUrl),
       brandLogo: imageSource(state.brand?.logoData) || imageSource(state.brand?.logoUrl),
@@ -7282,9 +7315,9 @@ complete every required section and exact reward/earning mapping before closing 
     if (deferImages) return data;
     return fillImages(data, { onStatus, outputTemplate, signal, maxImages, resumeUnknown });
   }
-  async function fillImages(data, { onStatus = () => {}, outputTemplate = 'classic', signal, maxImages, resumeUnknown } = {}) {
+  async function fillImages(data, { onStatus = () => {}, outputTemplate = 'classic', signal, maxImages, resumeUnknown, onlySlots } = {}) {
     if (signal?.aborted) { const error = new Error('Generation cancelled.'); error.name = 'AbortError'; throw error; }
-    const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus, outputTemplate, signal, maxImages, resumeUnknown });
+    const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus, outputTemplate, signal, maxImages, resumeUnknown, onlySlots });
     const remaining = imageResult.remaining ?? Math.max(0, (imageResult.total_empty || 0) - (imageResult.generated || 0));
     const imageWarning = imageResult.warning || (remaining ? `${remaining} images could not be filled. ${imageResult.error || 'You can add images in the builder or generate again.'}` : imageResult.error || '');
     data._meta = { ...(data._meta || {}), images_pending: false,
@@ -7379,17 +7412,17 @@ complete every required section and exact reward/earning mapping before closing 
     const jobs=root.LocalAI?.getPendingJobs?.() || [],checkpoint=readCheckpoint();
     box.hidden=!!pendingGeneration || (!jobs.length && !checkpoint);
     if(box.hidden){box.replaceChildren();return;}
-    const matches=checkpoint && checkpoint.before===fingerprint() && checkpoint.signature===signature();
-    box.innerHTML=`<h3>Unfinished generation</h3><p>${jobs.length ? `${jobs.length} saved generation request(s) may be recoverable.` : 'A saved text-generation checkpoint may be reconstructed from completed requests.'} Recovery checks the original request; it does not automatically replace your portal.</p><ul>${jobs.map(job=>`<li>${safe(job.kind)} · ${safe(job.status)}</li>`).join('')}</ul><button type="button" id="recover-generation" ${matches?'':'disabled'}>Recover unfinished generation</button><p id="generation-recovery-note" role="status">${matches?'Your inputs match the saved checkpoint.':!checkpoint?'No matching editor checkpoint is available. Your current portal is kept; use a new generation when ready.':'The editor or generation contract changed since this request. Recovery cannot replace these edits. Restore the original inputs or use a new generation.'}</p>`;
+    const matches=checkpoint && !checkpoint.recoveryEdited && checkpoint.before===fingerprint() && checkpoint.signature===signature();
+    box.innerHTML=`<h3>Unfinished generation</h3><p>${jobs.length ? `${jobs.length} saved generation request(s) may be recoverable.` : 'A saved text-generation checkpoint may be reconstructed from completed requests.'} Recovery checks the original request; it does not automatically replace your portal.</p><ul>${jobs.map(job=>`<li>${safe(job.kind)} · ${safe(job.status)}</li>`).join('')}</ul><button type="button" id="recover-generation" ${matches?'':'disabled'}>Recover unfinished generation</button><p id="generation-recovery-note" role="status">${matches?'Your inputs match the saved checkpoint.':checkpoint?.recoveryEdited?'You edited this portal while the earlier image request was running. Your edits are kept; use Fill missing images for a new image request.':!checkpoint?'No matching editor checkpoint is available. Your current portal is kept; use a new generation when ready.':'The editor or generation contract changed since this request. Recovery cannot replace these edits. Restore the original inputs or use a new generation.'}</p>`;
     el('recover-generation')?.addEventListener('click',recoverGeneration);
   }
   async function recoverGeneration() {
     const checkpoint=readCheckpoint();
-    if(!checkpoint || checkpoint.before!==fingerprint() || checkpoint.signature!==signature()) {renderRecovery();return;}
+    if(!checkpoint || checkpoint.recoveryEdited || checkpoint.before!==fingerprint() || checkpoint.signature!==signature()) {renderRecovery();return;}
     const button=el('recover-generation');if(button)button.disabled=true;
     let recoveryError='';
     try {
-      if(checkpoint.stage==='images') await retryImages({resumeUnknown:true,maxImages:checkpoint.remainingBudget,mode:checkpoint.variant || state.activeVariant});
+      if(checkpoint.stage==='images') await retryImages({resumeUnknown:true,maxImages:checkpoint.remainingBudget,mode:checkpoint.variant || state.activeVariant,imageMask:checkpoint.imageMask});
       else await analyze(generationClient || root.LocalAI,checkpoint.rawURL || '',{resumeUnknown:true});
     } catch(error) {recoveryError=error.message || 'This request could not be recovered. Your portal was kept.';}
     finally {renderRecovery();const note=el('generation-recovery-note');if(note && recoveryError)note.textContent=recoveryError;}
@@ -7425,19 +7458,44 @@ complete every required section and exact reward/earning mapping before closing 
     el('retry-missing-images').addEventListener('click',retryImages);
     el('cancel-image-generation').addEventListener('click',cancelGeneration);
   }
-  async function retryImages({resumeUnknown=false,maxImages,mode=state.activeVariant}={}) {
-    if (!state.program || !root.LPGContentContract) return;
+  async function retryImages({resumeUnknown=false,maxImages,mode=state.activeVariant,imageMask}={}) {
+    if (!root.LPGContentContract) return;
     generationAbort?.abort();pendingGeneration=null;renderGenerationReview();
     generationAbort=typeof AbortController==='function'?new AbortController():null;
     const draft=root.LPGVariants.get(mode);if(!draft)return;
-    const proposal={generated:{[mode]:root.LPGContentContract.ensure(draft)},
+    const proposal={generated:{[mode]:root.LPGContentContract.ensure(draft)},imageSelection:imageMask?{[mode]:imageMask}:undefined,
       project:projectEpoch,sequence:++generationSequence,signal:generationAbort?.signal,
       resumeUnknown,maxImages:maxImages ?? (el('ai-image-budget')?Number(el('ai-image-budget').value):16)};
     setQuickStartStatus('Filling missing images. Your text and existing images are kept.',false);
     await enrichGeneration(proposal);
   }
+  function declinedAsset(proposal,mode,section,id,role) {
+    return (proposal.imageSelection?.[mode]?.declinedRoles||[]).some(item=>item.section===section&&item.id===id&&item.role===role);
+  }
+  function selectedImageSlots(draft,mask) {
+    if(!mask)return undefined;
+    const slots=[],types={vouchers:'voucher',offers:'offer',clubs:'club',badges:'badge',benefits:'benefit'};
+    const allowed=(section,id,role)=>!(mask.declinedRoles||[]).some(item=>item.section===section&&item.id===id&&item.role===role);
+    for(const [key,type]of Object.entries(types))for(const [index,item]of (draft[key]||[]).entries()){
+      if(allowed(key,item.id,'image'))slots.push(`${type}-${index}`);
+      if(key==='benefits'&&allowed(key,item.id,'cover'))slots.push(`benefit-cover-${index}`);
+    }
+    if(draft.upsell&&allowed('upsell',null,'background'))slots.push('upsell-bg');
+    if(draft.cinematic?.card){if(allowed('cinematic',null,'mark'))slots.push('card-mark');if(allowed('cinematic',null,'artwork'))slots.push('card-artwork');}
+    return slots;
+  }
+  function detectImageEdits(proposal) {
+    const current=fingerprint();
+    if(proposal.recoveryFingerprint&&proposal.recoveryFingerprint!==current)proposal.recoveryEdited=true;
+    if(!proposal.recoveryFingerprint)proposal.recoveryFingerprint=current;
+  }
+  function imageCheckpoint(proposal,mode,mask,remainingBudget) {
+    detectImageEdits(proposal);
+    writeCheckpoint({stage:'images',variant:mode,imageMask:mask,before:proposal.recoveryFingerprint,recoveryEdited:!!proposal.recoveryEdited,remainingBudget});
+  }
   function mergeGeneratedImages(proposal,mode,draft,enriched) {
     if (proposal.signal?.aborted || proposal.project !== projectEpoch || proposal.sequence !== generationSequence) return;
+    detectImageEdits(proposal);
     const current = root.LPGVariants.get(mode); if (!current) return;
     let changed=false;
         // A generated asset may only fill its original, still empty owner slot.
@@ -7446,39 +7504,60 @@ complete every required section and exact reward/earning mapping before closing 
           if (!before || !after) continue;
           for (const prefix of ['', 'cover']) {
             const dataKey = prefix ? 'coverImageData' : 'imageData', urlKey = prefix ? 'coverImageUrl' : 'imageUrl';
+            if(declinedAsset(proposal,mode,key,item.id,prefix?'cover':'image'))continue;
             if (!before[dataKey] && !before[urlKey] && !item[dataKey] && !item[urlKey]) {
               if (after[dataKey]) { item[dataKey] = after[dataKey]; changed=true; } else if (after[urlKey]) { item[urlKey] = after[urlKey]; changed=true; }
             }
           }
         }
         for (const [key, fields] of [['brand',['logoData','logoUrl']],['upsell',['bgImageData','bgImageUrl']]]) {
-          if (current[key] && draft[key] && enriched[key] && fields.every(field => !current[key][field] && !draft[key][field])) {
+          if (!declinedAsset(proposal,mode,key,null,key==='upsell'?'background':'logo') && current[key] && draft[key] && enriched[key] && fields.every(field => !current[key][field] && !draft[key][field])) {
             for (const field of fields) if (enriched[key][field]) { current[key][field] = enriched[key][field]; changed=true; }
+          }
+        }
+        const originalCard=draft.cinematic?.card,currentCard=current.cinematic?.card,newCard=enriched.cinematic?.card;
+        if(originalCard&&currentCard&&newCard){
+          const config=card=>Object.fromEntries(Object.entries(card).filter(([key])=>!['markImageData','markImageUrl','artworkImageData','artworkImageUrl'].includes(key)));
+          if(same(config(originalCard),config(currentCard)))for(const [role,dataKey,urlKey]of [['mark','markImageData','markImageUrl'],['artwork','artworkImageData','artworkImageUrl']]) {
+            if(declinedAsset(proposal,mode,'cinematic',null,role))continue;
+            if(!originalCard[dataKey]&&!originalCard[urlKey]&&!currentCard[dataKey]&&!currentCard[urlKey]) {
+              if(newCard[dataKey]){currentCard[dataKey]=newCard[dataKey];changed=true;}else if(newCard[urlKey]){currentCard[urlKey]=newCard[urlKey];changed=true;}
+            }
           }
         }
         if (!changed) return;
         if (mode === state.activeVariant) {
-          for (const key of [...root.LPGContentContract.collections,'brand','upsell']) if (current[key]) state[key] = current[key];
+          for (const key of [...root.LPGContentContract.collections,'brand','upsell','cinematic']) if (current[key]) state[key] = current[key];
           if (!document.activeElement?.matches('input,textarea,select')) renderDynamicSections();
           schedulePreview();
         } else state.variants[mode] = current;
+        proposal.recoveryFingerprint=fingerprint();
         scheduleDraftRecovery();
   }
   async function enrichGeneration(proposal) {
     for (const [mode, draft] of Object.entries(proposal.generated)) {
       if (proposal.signal?.aborted || proposal.project !== projectEpoch || proposal.sequence !== generationSequence) return;
+      const mask=proposal.imageSelection?.[mode];
+      if(proposal.imageSelection&&!mask)continue;
+      if(mask&&!Object.keys(mask.collections).length&&!mask.single.length)continue;
       const enriched = clone(draft);
+      if(mask) {
+        for(const key of root.LPGContentContract.collections){const allowed=mask.collections[key];enriched[key]=allowed==='all'?(enriched[key]||[]):(enriched[key]||[]).filter(item=>Array.isArray(allowed)&&allowed.includes(item.id));}
+        if(!mask.single.includes('upsell'))delete enriched.upsell;
+        if(!mask.single.includes('cinematic')&&enriched.cinematic)delete enriched.cinematic.card;
+      }
       try {
-        writeCheckpoint({stage:'images',variant:mode,before:fingerprint(),remainingBudget:proposal.maxImages});
-        await root.LPGPortalContent.fillImages(enriched, {outputTemplate:draft.outputTemplate,signal:proposal.signal,maxImages:proposal.maxImages,resumeUnknown:proposal.resumeUnknown,
+        imageCheckpoint(proposal,mode,mask,proposal.maxImages);
+        await root.LPGPortalContent.fillImages(enriched, {outputTemplate:draft.outputTemplate,signal:proposal.signal,maxImages:proposal.maxImages,resumeUnknown:proposal.resumeUnknown,onlySlots:selectedImageSlots(enriched,mask),
           onStatus:(_phase,progress) => {
             if (proposal.signal?.aborted || proposal.project !== projectEpoch || proposal.sequence !== generationSequence) throw new Error('Image generation cancelled.');
             if (progress?.generated) mergeGeneratedImages(proposal,mode,draft,enriched);
-            if (progress) writeCheckpoint({stage:'images',variant:mode,before:fingerprint(),remainingBudget:Math.max(0,(proposal.maxImages || 16)-progress.attempted)});
+            if (progress) imageCheckpoint(proposal,mode,mask,Math.max(0,(proposal.maxImages || 16)-progress.attempted));
             if (progress && el('portal-edit-status')) el('portal-edit-status').textContent=`Images: ${progress.generated} generated; ${progress.remaining} remain. You can keep editing.`;
           }});
         if (proposal.signal?.aborted || proposal.project !== projectEpoch || proposal.sequence !== generationSequence) return;
         mergeGeneratedImages(proposal,mode,draft,enriched);
+        imageCheckpoint(proposal,mode,mask,readCheckpoint()?.remainingBudget ?? proposal.maxImages);
         if (!(root.LocalAI?.getPendingJobs?.() || []).some(job=>job.kind==='images')) clearCheckpoint();
         renderRecovery();
         if (enriched._meta?.image_warning && el('portal-edit-status')) el('portal-edit-status').textContent = enriched._meta.image_warning;
@@ -7488,33 +7567,154 @@ complete every required section and exact reward/earning mapping before closing 
     }
     if (proposal.sequence === generationSequence && proposal.project === projectEpoch && !proposal.signal?.aborted) setQuickStartStatus((root.LocalAI?.getPendingJobs?.() || []).some(job=>job.kind==='images') ? 'Your text draft is ready. Some image work is unfinished; use Recover unfinished generation to check its saved request.' : 'Your portal is ready. Edit any section, or save your project to return later.', false);
   }
-  function renderGenerationReview() {
-    let box = el('generation-review');
-    if (!box && el('program-review')) {
-      box = document.createElement('section'); box.id='generation-review'; box.className='program-edit-card'; box.setAttribute('aria-label','Review proposed AI update');
-      el('program-review').insertAdjacentElement('beforebegin',box);
+  const reviewNames={program:'Program rules and member details',brand:'Brand identity',colors:'Brand colors',menuColorCustom:'Navigation colors',tiers:'Membership tiers',member:'Member details',vouchers:'Rewards',offers:'Promotions',badges:'Badges',clubs:'Communities',earnMore:'Earning activities',benefits:'Benefits',profileTasks:'Profile tasks',upsell:'Membership feature',navLinks:'Navigation',footerLinks:'Footer',cinematic:'Cinematic wording and card',locale:'Number and date language',displayLabels:'Portal labels',outputTemplate:'Portal layout',tierProgress:'Tier progress',programEvidence:'Program source evidence',programEnabled:'Program behavior',programReview:'Program editor'};
+  const unsafeReviewKey=key=>['__proto__','prototype','constructor'].includes(String(key));
+  const reviewRootKeys=new Set(['brand','colors','menuColorCustom','tiers','tierProgress','member','sections','vouchers','offers','badges','clubs','earnMore','benefits','profileTasks','upsell','navLinks','footerLinks','programEvidence','locale','displayLabels','program','programReview','programEnabled','outputTemplate','cinematic']);
+  const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+  const optionalClone=value=>value===undefined?undefined:clone(value);
+  function reviewValue(value,key='') {
+    if(value===undefined)return '(not present)';
+    if(/(?:ImageData|imageData|logoData|avatarData)$/.test(key) && value)return 'Uploaded or generated image';
+    return (typeof value==='string'?value:JSON.stringify(value,(field,item)=>/(?:ImageData|imageData|logoData|avatarData)$/.test(field)&&item?'[Image]':item,2));
+  }
+  function reviewOperation(path,before,after) {return {path,before:optionalClone(before),after:optionalClone(after),remove:after===undefined};}
+  function presentationEdits(before,after,path,result=[]) {
+    if(same(before,after))return result;
+    if(Array.isArray(before)&&Array.isArray(after)&&before.length===after.length&&before.length&&before.every((item,i)=>item?.id&&item.id===after[i]?.id)) {
+      after.forEach((item,i)=>presentationEdits(before[i],item,[...path,i],result));
+    } else if(before&&after&&typeof before==='object'&&typeof after==='object'&&!Array.isArray(before)&&!Array.isArray(after)) {
+      for(const key of new Set([...Object.keys(before),...Object.keys(after)])) if(!unsafeReviewKey(key)&&!['id','assetId','coverAssetId','programRewardId','programRuleId'].includes(key))presentationEdits(before[key],after[key],[...path,key],result);
+    } else result.push(reviewOperation(path,before,after));
+    return result;
+  }
+  function policyProjection(portal) {
+    if(!portal)return null;
+    return {program:portal.program,enabled:portal.programEnabled,member:portal.member,tiers:portal.tiers,locale:portal.locale,
+      vouchers:(portal.vouchers||[]).map(item=>[item.programRewardId,item.title,item.actionType,item.actionValue]),
+      earnMore:(portal.earnMore||[]).map(item=>[item.programRuleId,item.title,item.hasCodeInput])};
+  }
+  function prepareSelection(proposal) {
+    if(proposal.groups)return;
+    proposal.baselines={};proposal.groups=[];proposal.selection=new Set();let id=0;
+    const add=(mode,key,label,operations,{atomic=false,note=''}={})=>{
+      if(!operations.length)return;
+      const group={id:`review-group-${++id}`,mode,key,label,atomic,note,units:operations.map(operation=>({id:`review-change-${++id}`,operations:Array.isArray(operation)?operation:[operation]}))};
+      group.units.forEach(unit=>proposal.selection.add(unit.id));proposal.groups.push(group);
+    };
+    for(const [mode,next]of Object.entries(proposal.generated)) {
+      const before=root.LPGVariants.get(mode);proposal.baselines[mode]=optionalClone(before);
+      if(!before) {add(mode,'new',`New ${mode.toUpperCase()} portal`,[[reviewOperation([],undefined,next)]],{atomic:true,note:'This creates a separate audience portal. Its rules, member details and content apply together.'});continue;}
+      const grouped=new Set(['programReview']);
+      if(!same(policyProjection(before),policyProjection(next))) {
+        const keys=['program','programEnabled','programReview','programEvidence','brand','member','tiers','tierProgress','locale','vouchers','earnMore'];
+        const operations=keys.filter(key=>!same(before[key],next[key])).map(key=>reviewOperation([key],before[key],next[key]));
+        for(const key of ['vouchers','earnMore'])if(!same(before.sections?.[key],next.sections?.[key]))operations.push(reviewOperation(['sections',key],before.sections?.[key],next.sections?.[key]));
+        add(mode,'program','Program rules, member details, brand identity, rewards and earning activities',[operations],{atomic:true,note:'Program rules, brand identity and rewards apply together so program names, tier names, balances, prices and earning activities stay consistent. You can keep this whole group or decline it.'});
+        keys.forEach(key=>grouped.add(key));
+      }
+      for(const key of new Set([...Object.keys(before),...Object.keys(next)])) {
+        if(!reviewRootKeys.has(key)||key==='sections'||grouped.has(key))continue;
+        const operations=key==='programEvidence'&&!same(before[key],next[key])?[reviewOperation([key],before[key],next[key])]:presentationEdits(before[key],next[key],[key]);
+        if(!same(before.sections?.[key],next.sections?.[key]))operations.push(reviewOperation(['sections',key],before.sections?.[key],next.sections?.[key]));
+        add(mode,key,reviewNames[key]||key,operations);
+      }
+      const otherFlags=new Set([...Object.keys(before.sections||{}),...Object.keys(next.sections||{})]);
+      for(const key of otherFlags)if(!unsafeReviewKey(key)&&!Object.hasOwn(before,key)&&!Object.hasOwn(next,key)&&!same(before.sections?.[key],next.sections?.[key]))add(mode,`visibility-${key}`,`${reviewNames[key]||key} visibility`,[reviewOperation(['sections',key],before.sections?.[key],next.sections?.[key])]);
     }
-    if (!box) return;
-    box.hidden = !pendingGeneration; if (!pendingGeneration) { box.replaceChildren(); return; }
-    const proposal = pendingGeneration;
-    box.setAttribute('aria-live','polite');
-    box.innerHTML = `<h3>Review your proposed portal</h3><p>Your current portal is unchanged. Source quotes are checked against supplied pages; policy meaning still needs your review. Unquoted values are illustrative, not confirmed company rules.</p>` + Object.entries(proposal.generated).map(([mode,portal]) => {
-      const evidence=portal.programEvidence;
-      const changes=proposal.diffs[mode] || [];
-      return `<h4>${safe(mode.toUpperCase())}</h4><p>${evidence ? `${evidence.summary.quoted} source-quoted · ${evidence.summary.illustrative} illustrative · ${evidence.summary.unresolved} unresolved facts` : 'Review the proposed content changes.'}</p><ul>${changes.map(change=>`<li>${safe(change.section)}${change.beforeCount!==null ? `: ${change.beforeCount} → ${change.afterCount}; ${change.added} added, ${change.removed} removed` : ': updated'}${change.edits?.length ? `<details><summary>See changed text and values</summary><ul>${change.edits.map(edit=>`<li><strong>${safe(edit.path)}</strong><br>Before: ${safe(edit.before)}<br>After: ${safe(edit.after)}</li>`).join('')}</ul></details>` : ''}</li>`).join('')}</ul>` + (evidence ? `<details><summary>Review policy values and source evidence</summary><ul>${evidence.records.map(record=>`<li><strong>${safe(record.path)}</strong>: ${safe(record.value === null ? 'Not specified' : record.value)} <strong>(${safe(record.status)})</strong>${record.quote ? `<blockquote>${safe(record.quote)}</blockquote><small>${safe(record.source)} · page ${record.page}</small>` : ''}<p>${safe(record.reason)}</p></li>`).join('')}</ul></details>` : '');
-    }).join('') + `<details><summary>Preview proposed portal</summary><iframe id="generation-review-preview" title="Proposed portal preview" sandbox="allow-scripts" style="width:100%;height:520px;border:1px solid #ccd4e0"></iframe></details><p><button type="button" id="generation-accept">Accept proposal and generate images</button> <button type="button" id="generation-discard">Discard proposal</button></p><p id="generation-review-error" role="status"></p>`;
-    const preview=el('generation-review-preview');
-    if (preview && typeof generatePortalHTML === 'function') preview.srcdoc = generatePortalHTML(proposal.generated[proposal.selected] || Object.values(proposal.generated)[0]);
-    el('generation-accept').addEventListener('click',acceptGeneration);
-    el('generation-discard').addEventListener('click',()=>cancelGeneration({discard:true}));
+  }
+  function applyOperation(portal,operation) {
+    if(operation.path.some(unsafeReviewKey)||operation.path.length&&!reviewRootKeys.has(operation.path[0]))return portal;
+    if(!operation.path.length)return optionalClone(operation.after);
+    let owner=portal;
+    for(const key of operation.path.slice(0,-1)) {if(!owner[key]||typeof owner[key]!=='object')owner[key]={};owner=owner[key];}
+    const key=operation.path.at(-1);if(operation.remove)delete owner[key];else owner[key]=optionalClone(operation.after);
+    return portal;
+  }
+  function selectedGeneration(proposal) {
+    const generated={},imageSelection={};
+    for(const [mode,next]of Object.entries(proposal.generated)) {
+      let portal=optionalClone(proposal.baselines[mode]),selected=false;
+      const mask={collections:{},single:[],declinedRoles:[]};
+      const allow=(key,operation)=>{
+        if(root.LPGContentContract.collections.includes(key)) {
+          const index=operation?.path?.[1],item=typeof index==='number'?next[key]?.[index]:null;
+          if(!item)mask.collections[key]='all';
+          else if(mask.collections[key]!=='all'){mask.collections[key]=mask.collections[key]||[];if(!mask.collections[key].includes(item.id))mask.collections[key].push(item.id);}
+        } else if(['brand','upsell'].includes(key)||key==='cinematic'&&(!operation||operation.path[1]==='card')) {if(!mask.single.includes(key))mask.single.push(key);}
+      };
+      for(const group of proposal.groups.filter(group=>group.mode===mode))for(const unit of group.units)if(proposal.selection.has(unit.id)) {
+        selected=true;
+        for(const operation of unit.operations)portal=applyOperation(portal||{},operation);
+        if(group.key==='new') {for(const key of root.LPGContentContract.collections)allow(key);['brand','upsell','cinematic'].forEach(key=>allow(key));}
+        else if(group.key==='program') {['vouchers','earnMore','brand'].forEach(key=>allow(key));}
+        else for(const operation of unit.operations)allow(operation.path[0],operation);
+      }
+      // Explicitly declining an image edit also declines automatic replacement
+      // of that image role, even when another field on its card is accepted.
+      for(const group of proposal.groups.filter(group=>group.mode===mode))for(const unit of group.units)if(!proposal.selection.has(unit.id))for(const operation of unit.operations){
+        const path=operation.path,field=path.at(-1);let role=null,id=null,section=path[0];
+        if(root.LPGContentContract.collections.includes(section)&&typeof path[1]==='number'){
+          id=next[section]?.[path[1]]?.id;
+          if(['imageData','imageUrl'].includes(field))role='image';else if(['coverImageData','coverImageUrl'].includes(field))role='cover';
+        }else if(section==='upsell'&&['bgImageData','bgImageUrl'].includes(field))role='background';
+        else if(section==='brand'&&['logoData','logoUrl'].includes(field))role='logo';
+        else if(section==='cinematic'&&path[1]==='card'){
+          if(['markImageData','markImageUrl'].includes(field))role='mark';else if(['artworkImageData','artworkImageUrl'].includes(field))role='artwork';
+        }
+        if(role&&!mask.declinedRoles.some(item=>item.section===section&&item.id===id&&item.role===role))mask.declinedRoles.push({section,id,role});
+      }
+      if(selected){generated[mode]=portal;imageSelection[mode]=mask;}
+    }
+    return {...proposal,generated,imageSelection};
+  }
+  function unitLabel(unit,group,proposal) {
+    if(group.atomic)return group.label;
+    const path=unit.operations[0].path, key=path.at(-1), names={title:'Heading',name:'Name',description:'Description',cta:'Action label',tagline:'Tagline',subtitle:'Intro line',imageUrl:'Image URL',imageData:'Image',bgImageUrl:'Background image URL',bgImageData:'Background image',logoUrl:'Logo URL',logoData:'Logo',price:'Price',period:'Period',links:'Links'};
+    const item=typeof path[1]==='number'?proposal.generated[group.mode][path[0]]?.[path[1]]:null;
+    return `${item?.title||item?.name||item?.description||''}${item?' · ':''}${names[key]||key}`;
+  }
+  function updateSelectionUI() {
+    const proposal=pendingGeneration;if(!proposal)return;
+    const total=proposal.groups.reduce((sum,group)=>sum+group.units.length,0),count=proposal.selection.size;
+    const status=el('generation-selection-count');if(status)status.textContent=`${count} of ${total} proposed changes selected`;
+    const apply=el('generation-accept');if(apply)apply.disabled=!count;
+    for(const group of proposal.groups) {
+      const input=el(group.id),selected=group.units.filter(unit=>proposal.selection.has(unit.id)).length;
+      if(input){input.checked=selected===group.units.length;input.indeterminate=selected>0&&selected<group.units.length;}
+      for(const unit of group.units){const field=el(unit.id);if(field)field.checked=proposal.selection.has(unit.id);}
+    }
+    const result=selectedGeneration(proposal),preview=el('generation-review-preview');
+    const portal=result.generated[proposal.selected]||proposal.baselines[proposal.selected]||Object.values(result.generated)[0];
+    if(preview&&portal&&typeof generatePortalHTML==='function')preview.srcdoc=generatePortalHTML(portal);
+  }
+  function renderGenerationReview() {
+    let box=el('generation-review');
+    if(!box&&el('program-review')) {box=document.createElement('section');box.id='generation-review';box.className='generation-review-panel program-edit-card';box.setAttribute('aria-label','Review proposed AI update');el('program-review').insertAdjacentElement('beforebegin',box);}
+    if(!box)return;box.hidden=!pendingGeneration;if(!pendingGeneration){box.replaceChildren();return;}
+    box.removeAttribute('aria-live');const proposal=pendingGeneration;prepareSelection(proposal);
+    box.innerHTML=`<h3>Choose the changes to apply</h3><p>Your current portal is unchanged. Keep the changes you want and uncheck the rest. You can also review individual text fields when the list of items stays the same.</p><div class="generation-review-selection-tools"><button type="button" id="generation-select-all">Select all</button><button type="button" id="generation-select-none">Select none</button><p id="generation-selection-count" role="status" aria-live="polite"></p></div>`+Object.keys(proposal.generated).map(mode=>{
+      const evidence=proposal.generated[mode].programEvidence;
+      return `<section class="generation-review-audience" aria-label="${safe(mode.toUpperCase())} proposed changes"><h4>${safe(mode.toUpperCase())}</h4>`+proposal.groups.filter(group=>group.mode===mode).map(group=>`<fieldset class="generation-review-group"><legend><label class="generation-review-section-label"><input type="checkbox" id="${group.id}" data-review-group="${group.id}" checked> ${safe(group.label)}</label></legend>${group.note?`<p class="generation-review-group-note">${safe(group.note)}</p>`:''}<details class="generation-review-details"><summary>${group.atomic?'Review changes in this group':'Choose individual changes'}</summary><ul class="generation-review-changes">${group.units.map(unit=>`<li class="generation-review-change">${group.atomic?`<strong>${safe(group.label)}</strong>`:`<label class="generation-review-field-label"><input type="checkbox" id="${unit.id}" data-review-unit="${unit.id}" checked> ${safe(unitLabel(unit,group,proposal))}</label>`}${unit.operations.map(operation=>`<div class="generation-review-comparison"><span class="generation-review-path">${safe(operation.path.join('.')||'New portal')}</span><div class="generation-review-before"><strong>Before</strong><pre tabindex="0" aria-label="Before value">${safe(reviewValue(operation.before,String(operation.path.at(-1))))}</pre></div><div class="generation-review-after"><strong>Proposed</strong><pre tabindex="0" aria-label="Proposed value">${safe(reviewValue(operation.after,String(operation.path.at(-1))))}</pre></div></div>`).join('')}</li>`).join('')}</ul></details></fieldset>`).join('')+(evidence?`<details class="generation-review-evidence"><summary>Review program facts and source evidence</summary><p>${evidence.summary.quoted} source-quoted · ${evidence.summary.illustrative} illustrative · ${evidence.summary.unresolved} unresolved facts. Quotes and values are checked against supplied pages; review whether they establish the intended policy.</p><ul>${evidence.records.map(record=>`<li><strong>${safe(record.path)}</strong>: ${safe(record.value===null?'Not specified':record.value)} <strong>(${safe(record.status)})</strong>${record.quote?`<blockquote>${safe(record.quote)}</blockquote><small>${safe(record.source)} · page ${record.page}</small>`:''}<p>${safe(record.reason)}</p></li>`).join('')}</ul></details>`:'')+'</section>';
+    }).join('')+`<details class="generation-review-preview"><summary>Preview selected changes</summary><iframe id="generation-review-preview" title="Portal preview with selected changes" sandbox="allow-scripts" style="width:100%;height:520px;border:1px solid #ccd4e0"></iframe></details><div class="generation-review-actions"><button type="button" id="generation-accept" class="btn-primary-sf">Apply selected changes</button><button type="button" id="generation-discard" class="btn-secondary-sf">Discard proposal</button></div><p id="generation-review-error" role="status"></p>`;
+    box.onchange=event=>{
+      const groupId=event.target.dataset.reviewGroup,unitId=event.target.dataset.reviewUnit;
+      if(groupId){const group=proposal.groups.find(item=>item.id===groupId);group?.units.forEach(unit=>event.target.checked?proposal.selection.add(unit.id):proposal.selection.delete(unit.id));}
+      else if(unitId&&proposal.groups.some(group=>group.units.some(unit=>unit.id===unitId)))event.target.checked?proposal.selection.add(unitId):proposal.selection.delete(unitId);
+      else return;
+      updateSelectionUI();
+    };
+    el('generation-select-all').addEventListener('click',()=>{proposal.groups.forEach(group=>group.units.forEach(unit=>proposal.selection.add(unit.id)));updateSelectionUI();});
+    el('generation-select-none').addEventListener('click',()=>{proposal.selection.clear();updateSelectionUI();});
+    el('generation-accept').addEventListener('click',acceptGeneration);el('generation-discard').addEventListener('click',()=>cancelGeneration({discard:true}));updateSelectionUI();
   }
   async function acceptGeneration() {
-    const proposal=pendingGeneration; if (!proposal) return;
-    if (proposal.sequence !== generationSequence || proposal.project !== projectEpoch || proposal.before !== fingerprint()) {
-      el('generation-review-error').textContent='The editor changed after this proposal. Your edits were kept. Generate again to review an up-to-date proposal.'; return;
-    }
-    pendingGeneration=null; renderGenerationReview(); commitGeneration(proposal);
-    await enrichGeneration(proposal);
+    const proposal=pendingGeneration;if(!proposal||!proposal.selection?.size)return;
+    if(proposal.sequence!==generationSequence||proposal.project!==projectEpoch||proposal.before!==fingerprint()){el('generation-review-error').textContent='The editor changed after this proposal. Your edits were kept. Generate again to review an up-to-date proposal.';return;}
+    const selected=selectedGeneration(proposal);
+    for(const [mode,portal]of Object.entries(selected.generated))if(portal.program){const validated=LPGProgram.validate(portal.program);if(!validated.valid||portal.program.mode!==mode){el('generation-review-error').textContent='These selections would create inconsistent program details. Keep the program group together or generate a new proposal.';return;}}
+    // Preserve the active audience when only the other audience was accepted.
+    if(!selected.generated[selected.selected]&&root.LPGVariants.get(state.activeVariant)){selected.generated[state.activeVariant]=root.LPGVariants.get(state.activeVariant);selected.selected=state.activeVariant;}
+    pendingGeneration=null;renderGenerationReview();commitGeneration(selected);await enrichGeneration(selected);
   }
   function fingerprint() {
     const copy = clone(state); delete copy.programReview;

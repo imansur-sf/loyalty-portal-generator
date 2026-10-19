@@ -685,7 +685,7 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
       cardFit: state.cinematic?.card?.artworkFit==='contain'?'contain':'cover',
       cardPosition: /^\d{1,3}% \d{1,3}%$/.test(state.cinematic?.card?.artworkPosition || '')?state.cinematic.card.artworkPosition:'50% 50%',
       copy: Object.fromEntries(Object.entries(state.cinematic?.copy || {}).filter(([,value]) => typeof value === 'string' && value.length <= 8000)),
-      card: { mode: state.cinematic?.card?.mode === 'image' ? 'image' : 'loyalty', markMode: state.cinematic?.card?.markMode || 'orbit', showDetails: state.cinematic?.card?.showDetails !== false },
+      card: { mode: state.cinematic?.card?.mode === 'image' ? 'image' : 'loyalty', markMode: ['orbit','brand','custom'].includes(state.cinematic?.card?.markMode) ? state.cinematic.card.markMode : 'brand', showDetails: state.cinematic?.card?.showDetails !== false },
       markImage: imageSource(state.cinematic?.card?.markImageData) || imageSource(state.cinematic?.card?.markImageUrl),
       cardImage: imageSource(state.cinematic?.card?.artworkImageData) || imageSource(state.cinematic?.card?.artworkImageUrl),
       brandLogo: imageSource(state.brand?.logoData) || imageSource(state.brand?.logoUrl),
