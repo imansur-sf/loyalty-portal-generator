@@ -2,6 +2,17 @@
 
 Last updated: 2026-10-18. **Read this first.** `git log` records shipped changes; PROGRESS.md records the current sign-in/save rollout. `CLAUDE.md` in this repo is stale (still describes a Page Host zip-bundle deployment that was abandoned); its two-build-outputs instructions still apply.
 
+## Audience selection cards (2026-10-18, deployment pending)
+
+Restyled generated-audience switcher to match UPG's white selected card on a
+blue gradient surface. Individual/B2C and Account/B2B cards include audience
+copy/checkmark, existing aria-pressed/native button behavior and focus outline.
+Moved from above both columns into the builder column, outside step panels so
+it stays available across authoring steps. Existing disabled/missing-audience
+and switch/save semantics unchanged.23existing editor tests pass; standalone17
+inline scripts parse. Work isolated in managed audience-switcher checkout to
+preserve unfinished Cinematic template edits in the primary workspace.
+
 ## Desktop-proportioned live preview (2026-10-18, deployment pending)
 
 Side preview uses a1440×900 iframe with transform scaling and top-left origin,

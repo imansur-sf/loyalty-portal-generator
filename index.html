@@ -91,8 +91,24 @@
     .btn-secondary-sf { background: #fff; color: var(--sf-blue); font-weight: 600; border: 1.5px solid var(--sf-blue); border-radius: 999px; padding: 10px 22px; transition: background 0.18s ease, color 0.18s ease; }
     .btn-secondary-sf:hover { background: var(--cloud-95); }
 
-    #portal-variants button[aria-pressed="true"] { background:#003e9e;color:white;border-color:#003e9e; }
-    #portal-variants button:disabled { opacity:.45;cursor:default; }
+    /* Audience cards share Quick Start's blue surface and clear selection. */
+    #portal-variants { padding:22px;margin-bottom:24px;border-radius:20px;background:linear-gradient(125deg,#061e62 0%,#193fc5 100%);color:#fff;box-shadow:0 6px 22px -14px #001e5b66; }
+    #portal-variants[hidden] { display:none; }
+    .audience-eyebrow { margin:0 0 6px;font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#56d5ff; }
+    .audience-heading { margin:0;font-size:18px;font-weight:600;line-height:1.4; }
+    .audience-options { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px; }
+    .audience-card { position:relative;min-width:0;padding:16px;text-align:left;border:1px solid #ffffff40;border-radius:13px;background:#ffffff12;color:#e0eaff;cursor:pointer;transition:background .18s,border-color .18s,box-shadow .18s; }
+    .audience-card-title { display:block;padding-right:20px;font-size:14px;font-weight:600;line-height:1.4; }
+    .audience-card-description { display:block;margin-top:5px;font-size:12px;line-height:1.5;color:#cfdbff; }
+    .audience-card-check { position:absolute;right:13px;top:17px;display:none;width:16px;height:16px;color:#1644c9; }
+    #portal-variants .audience-card[aria-pressed="true"] { background:#fff;color:#09266b;border-color:#fff;box-shadow:0 4px 14px #00164a26; }
+    .audience-card[aria-pressed="true"] .audience-card-description { color:#36518c; }
+    .audience-card[aria-pressed="true"] .audience-card-check { display:block; }
+    .audience-card:hover:not(:disabled):not([aria-pressed="true"]) { background:#ffffff24;border-color:#ffffff80; }
+    #portal-variants .audience-card:focus-visible { outline:3px solid #58dcff;outline-offset:3px; }
+    #portal-variants .audience-card:disabled { opacity:.5;cursor:default; }
+    #variant-note { margin:13px 0 0;font-size:11px;line-height:1.6;color:#d1deff; }
+    @media(prefers-reduced-motion:reduce) { .audience-card { transition:none; } }
     /* ── Preview frame ─────────────────────────────────────────── */
     .preview-shell { background: #fff; border-radius: var(--radius-xl); border: 1px solid rgba(0,30,91,0.08); box-shadow: var(--shadow-card); overflow: hidden; }
     .preview-chrome { background: linear-gradient(180deg, #FAFCFF 0%, #F3F7FD 100%); border-bottom: 1px solid rgba(0,30,91,0.08); }
@@ -287,15 +303,21 @@
 
   <!-- MAIN LAYOUT: Wizard + Preview -->
   <div class="builder-workspace mx-auto px-4 py-6">
-    <section id="portal-variants" class="wizard-card p-4 mb-4" hidden aria-label="Generated portal audiences">
-      <div class="program-actions"><button type="button" id="variant-b2c" aria-pressed="true">B2C · Member portal</button><button type="button" id="variant-b2b" aria-pressed="false">B2B · Business portal</button></div>
-      <p id="variant-note" class="program-help"></p>
-    </section>
     <p id="portal-edit-status" class="program-warning" role="status"></p>
     <div class="flex gap-6" id="main-layout">
 
       <!-- LEFT: WIZARD FORM -->
       <div class="w-full shrink-0" id="wizard-col">
+
+        <section id="portal-variants" hidden aria-labelledby="audience-switcher-title">
+          <p class="audience-eyebrow">Your portals</p>
+          <h2 id="audience-switcher-title" class="audience-heading">Choose the experience to edit</h2>
+          <div class="audience-options" role="group" aria-label="Portal audience">
+            <button type="button" class="audience-card" id="variant-b2c" aria-pressed="true"><span class="audience-card-title">Individual · B2C</span><span class="audience-card-description">Loyalty for individual members.</span><svg class="audience-card-check" aria-hidden="true" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg></button>
+            <button type="button" class="audience-card" id="variant-b2b" aria-pressed="false"><span class="audience-card-title">Account · B2B</span><span class="audience-card-description">Shared rewards for business accounts.</span><svg class="audience-card-check" aria-hidden="true" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg></button>
+          </div>
+          <p id="variant-note"></p>
+        </section>
 
         <!-- STEP 1: Brand & Identity -->
         <div class="step-panel active fade-in" data-step="0">
@@ -795,7 +817,7 @@
   <script src="./js/portal-templates.js?v=20261018j"></script>
   <script src="./js/requirements.js?v=20261018j"></script>
   <script src="./js/portal-content.js?v=20261018j"></script>
-  <script src="./js/variants.js?v=20261018j"></script>
+  <script src="./js/variants.js?v=20261018l"></script>
   <script src="./js/requirements-editor.js?v=20261018j"></script>
   <script src="./js/generator.js?v=20261018j"></script>
   <script src="./js/pagehost.js?v=20261018j"></script>

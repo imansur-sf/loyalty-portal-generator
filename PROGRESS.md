@@ -196,3 +196,10 @@ served generator/template hashes match tested source. No visual browser check.
 - [ ] Verify resizing/content retention, fix reward CTA wrapping, rebuild and deploy.
 
 157tests passed, both artifacts rebuilt, embeddedCSS96389bytes verified. Deployment pending.
+
+## Audience switcher cards
+- [x] Match UPG-style selected/unselected cards within LPG's blue styling.
+- [x] Verify audience switching/save behavior and rebuild standalone.
+- [ ] Deploy and confirm served assets.
+
+23editor tests pass. Separate managed checkout preserves existing cinematic work.
