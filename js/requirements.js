@@ -121,7 +121,7 @@ Return compact JSON without indentation or explanatory prose. Aim for 4500 outpu
     if (payload.schemaVersion !== undefined && ![1, 2].includes(payload.schemaVersion)) throw new Error('This project needs a newer version of LPG.');
     const copy = JSON.parse(JSON.stringify(payload));
     copy.schemaVersion = 2;
-    copy.outputTemplate = copy.outputTemplate === 'modern' ? 'dashboard' : ['dashboard', 'showcase', 'editorial'].includes(copy.outputTemplate) ? copy.outputTemplate : 'classic';
+    copy.outputTemplate = copy.outputTemplate === 'modern' ? 'dashboard' : ['dashboard', 'showcase', 'editorial', 'cinematic'].includes(copy.outputTemplate) ? copy.outputTemplate : 'classic';
     copy.programEnabled = copy.programEnabled === true;
     if (copy.program != null) { copy.program = model.normalize(copy.program); copy.programEnabled = true; }
     else { copy.program = null; copy.programEnabled = false; }

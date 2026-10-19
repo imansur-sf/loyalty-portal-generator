@@ -99,3 +99,10 @@ test('AI placeholder identities become fictional names and earning coverage stay
     assert.equal(named.member.organization, program.member.organization);
   }
 });
+
+test('Cinematic Journey survives project and variant migrations', () => {
+  const saved = { outputTemplate:'cinematic', variants:{b2b:{outputTemplate:'cinematic',brand:{name:'Orbit'},colors:{},member:{},sections:{},tiers:[],vouchers:[],offers:[],benefits:[],badges:[],clubs:[],earnMore:[],profileTasks:[],navLinks:[]}}  };
+  const migrated = requirements.migratePayload(saved, model);
+  assert.equal(migrated.outputTemplate, 'cinematic');
+  assert.equal(migrated.variants.b2b.outputTemplate, 'cinematic');
+});

@@ -10,7 +10,7 @@ function output(template = 'classic') {
   return vm.runInContext(`generatePortalHTML({...INDUSTRY_DEFAULTS.generic, brand:{name:'Test Brand',programName:'Member Rewards'},member:{name:'Alex',points:450},sections:{vouchers:true,offers:true,earnMore:true,badges:true,clubs:true,upsell:true},colors:{primary:'#123456',accent:'#abc',secondary:'#f7f7f7',dark:'#142332',menu:'#234567'},outputTemplate:${JSON.stringify(template)}})`,context);
 }
 test('all exported templates render with embedded ordinary CSS and no blocking head network dependency', () => {
-  for (const template of ['classic','dashboard','showcase','editorial']) {
+  for (const template of ['classic','dashboard','showcase','editorial','cinematic']) {
     const dom = new JSDOM(output(template), {runScripts:'dangerously'}); const doc = dom.window.document;
     assert.equal(doc.querySelector('head script[src],head link[rel="stylesheet"],head link[rel="preconnect"]'),null,template);
     assert.equal(doc.querySelector('style[type="text/tailwindcss"]'),null);
@@ -20,7 +20,7 @@ test('all exported templates render with embedded ordinary CSS and no blocking h
     assert.doesNotMatch(doc.querySelector('#lpg-portal-theme').textContent,/@theme/);
     assert.match(doc.querySelector('#lpg-portal-theme').textContent,/--portal-primary-rgb: 18 52 86;/);
     assert.match(doc.querySelector('#lpg-portal-theme').textContent,/--portal-accent-rgb: 170 187 204;/);
-    assert.equal(dom.window.getComputedStyle(doc.querySelector('main')).maxWidth,template==='classic'?'1280px':template==='dashboard'?'1440px':template==='showcase'?'1520px':'1560px');
+    assert.equal(dom.window.getComputedStyle(doc.querySelector('main')).maxWidth,template==='classic'?'1280px':template==='dashboard'?'1440px':template==='showcase'?'1520px':template==='cinematic'?'none':'1560px');
     assert.ok(doc.querySelector('.voucher-card'));
     dom.window.close();
   }

@@ -160,7 +160,7 @@ test('projection preserves original authoring state, uses stable mapping IDs and
 });
 
 test('all alternate layouts preserve actual runtime actions after repositioning rich sections', () => {
-  for (const outputTemplate of ['dashboard', 'showcase', 'editorial']) {
+  for (const outputTemplate of ['dashboard', 'showcase', 'editorial', 'cinematic']) {
     const dom=loaded(portal({outputTemplate})); const doc=dom.window.document;
     try {
       click(doc,'activity','purchase'); assert.equal(doc.querySelector('.lpg-activity-detail').hidden,false);
@@ -191,7 +191,7 @@ test('membership presentation never invents a price or billing period when they 
 
 
 test('customer-facing exports contain no presenter toolbar or presentation instructions in any layout', () => {
-  for (const outputTemplate of ['classic','dashboard','showcase','editorial']) {
+  for (const outputTemplate of ['classic','dashboard','showcase','editorial','cinematic']) {
     const output=portal({outputTemplate});
     assert.doesNotMatch(output,/Reset demo|Show welcome screen|Preview the signed-in experience with sample member data|authorized demo role/);
     const dom=loaded(output), doc=dom.window.document;
@@ -221,7 +221,7 @@ test('presenter bridge accepts only the embedding parent and standalone exports 
 
 
 test('earning cards promote activities without exposing calculators or changing points', () => {
-  for (const outputTemplate of ['classic','dashboard','showcase','editorial']) {
+  for (const outputTemplate of ['classic','dashboard','showcase','editorial','cinematic']) {
     const dom=loaded(portal({outputTemplate})), doc=dom.window.document;
     try {
       const section=doc.querySelector('[data-lpg-section="earn"]');
@@ -260,4 +260,23 @@ test('business portals lead with the participating company while individual port
       if (p.mode==='b2b') assert.equal(dom.window.document.querySelectorAll('#lpg-account-menu p')[1].textContent,'Alex Morgan');
     } finally {dom.window.close();}
   }
+});
+
+test('cinematic reward affordability, membership card and sticky balance follow the live program', async () => {
+  const dom=loaded(portal({outputTemplate:'cinematic',program:program({mode:'b2c',approvalRequired:false,member:{name:'Avery',role:'member'},opening:{qualifying:1000,redeemable:150},rewards:[{id:'credit',name:'Reward credit',cost:100}]})}));
+  try {
+    const doc=dom.window.document;
+    assert.equal(doc.querySelector('.cj-reward-status').textContent,'Within your points balance');
+    assert.equal(doc.querySelector('.cj-status-tier').textContent,doc.querySelector('[data-lpg-section="tiers"] [data-lpg-tier]').textContent);
+    click(doc,'request','credit');
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(doc.querySelector('.cj-reward-status').textContent,'50 more points to go');
+    for (const balance of doc.querySelectorAll('[data-lpg-balance="redeemable"]')) assert.equal(balance.textContent,'50');
+    assert.equal(doc.querySelector('.cj-nav-balance strong').textContent,'50');
+    assert.equal(doc.querySelector('[data-lpg-action="request"]').disabled,true);
+    const toggle=doc.querySelector('[aria-controls="benefits-content"]');
+    assert.equal(toggle.getAttribute('aria-expanded'),'true');
+    toggle.click(); await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(toggle.getAttribute('aria-expanded'),'false');
+  } finally { dom.window.close(); }
 });
