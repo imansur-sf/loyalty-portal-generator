@@ -125,17 +125,15 @@ test('rich exports retain all branded images, descriptions and sections while us
     assert.equal(doc.querySelector('script[src*="tailwindcss"]'),null,'No runtime CSS compiler required');
   } finally { dom.window.close(); }
 });
-test('rich export runs standalone and updates existing balances after earning, request, approval and reset', () => {
+test('rich export runs standalone and updates balances after reward request, approval and reset', () => {
   const dom=loaded(portal()); const doc=dom.window.document;
   try {
-    doc.getElementById('lpg-amount-purchase').value='100'; click(doc,'earn','purchase');
-    assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625');
-    assert.equal(doc.querySelector('[data-lpg-balance="qualifying"]').textContent,'1,100');
-    click(doc,'request','credit'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625');
+    click(doc,'request','credit'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'500');
+    assert.equal(doc.querySelector('[data-lpg-balance="qualifying"]').textContent,'1,000');
     presenter(dom.window,'role',{roleId:'approver'});
-    click(doc,'approve','request-1'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'525');
+    click(doc,'approve','request-1'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'400');
     assert.match(doc.querySelector('[data-lpg-section="team"]').textContent,/approved/);
-    assert.match(doc.querySelector('[data-lpg-section="activity"]').textContent,/Eligible business order/);
+    assert.ok(doc.querySelector('[data-lpg-section="activity"]').textContent.includes(model.normalize(program()).rewards[0].name));
     presenter(dom.window,'reset'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'500');
     assert.equal(doc.querySelector('img[src="https://brand.example/exam.jpg"]').getAttribute('alt'),model.normalize(program()).rewards[0].name);
   } finally { dom.window.close(); }
@@ -165,12 +163,12 @@ test('all alternate layouts preserve actual runtime actions after repositioning 
   for (const outputTemplate of ['dashboard', 'showcase', 'editorial']) {
     const dom=loaded(portal({outputTemplate})); const doc=dom.window.document;
     try {
-      doc.getElementById('lpg-amount-purchase').value='100'; click(doc,'earn','purchase');
-      assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625',outputTemplate);
-      assert.match(doc.getElementById('lpg-p-status').textContent,/Activity added/);
+      click(doc,'activity','purchase'); assert.equal(doc.querySelector('.lpg-activity-detail').hidden,false);
+      assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'500',outputTemplate);
+      click(doc,'close-activity');
       click(doc,'request','credit');
       presenter(dom.window,'role',{roleId:'approver'});
-      click(doc,'approve','request-1'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'525',outputTemplate);
+      click(doc,'approve','request-1'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'400',outputTemplate);
       assert.equal(doc.querySelectorAll('[data-lpg-section="vouchers"]').length,1);
       assert.ok(doc.querySelector('img[src="https://brand.example/exam.jpg"]'));
     } finally { dom.window.close(); }
@@ -208,15 +206,58 @@ test('customer-facing exports contain no presenter toolbar or presentation instr
 });
 
 test('presenter bridge accepts only the embedding parent and standalone exports ignore control messages', () => {
-  const dom=loaded(portal()), doc=dom.window.document, view=dom.window;
+  const dom=loaded(portal({program:program({approvalRequired:false})})), doc=dom.window.document, view=dom.window;
   try {
-    doc.getElementById('lpg-amount-purchase').value='100'; click(doc,'earn','purchase');
+    click(doc,'request','credit');
     const send = source => view.dispatchEvent(new view.MessageEvent('message',{source,data:{type:'lpg-preview-control',action:'reset'}}));
-    send(view); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625');
+    send(view); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'400');
     presenter(view,'role',{roleId:'approver'});
-    send({}); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625');
+    send({}); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'400');
     presenter(view,'welcome'); assert.equal(doc.querySelector('.lpg-welcome').hidden,false);
     click(doc,'signin'); presenter(view,'reset'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'500');
     assert.equal(doc.getElementById('lpg-p-status').textContent,'');
   } finally {dom.window.close();}
+});
+
+
+test('earning cards promote activities without exposing calculators or changing points', () => {
+  for (const outputTemplate of ['classic','dashboard','showcase','editorial']) {
+    const dom=loaded(portal({outputTemplate})), doc=dom.window.document;
+    try {
+      const section=doc.querySelector('[data-lpg-section="earn"]');
+      assert.equal(section.querySelector('input,form,[data-lpg-action="earn"]'),null);
+      assert.doesNotMatch(section.textContent,/Add purchase|Complete activity|base redeemable|per unit spent/);
+      assert.ok(section.querySelector('img[src="https://brand.example/learning.jpg"]'));
+      const before=doc.querySelector('[data-lpg-section="activity"]').textContent;
+      const balance=doc.querySelector('[data-lpg-balance="redeemable"]').textContent;
+      const trigger=section.querySelector('[data-lpg-action="activity"]'); trigger.click();
+      assert.equal(doc.querySelector('.lpg-activity-detail').hidden,false);
+      assert.equal(doc.getElementById('lpg-activity-title').textContent,model.normalize(program()).earnRules[0].name);
+      assert.equal(doc.getElementById('lpg-activity-description').textContent,'Grow your professional knowledge');
+      assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,balance);
+      assert.equal(doc.querySelector('[data-lpg-section="activity"]').textContent,before);
+      doc.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape'}));
+      assert.equal(doc.querySelector('.lpg-activity-detail').hidden,true);
+      assert.equal(doc.activeElement,trigger);
+      const oldControl=doc.createElement('button'); oldControl.dataset.lpgAction='earn'; oldControl.dataset.id='purchase'; doc.body.append(oldControl); oldControl.click();
+      assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,balance);
+      assert.equal(doc.querySelector('[data-lpg-section="activity"]').textContent,before);
+    } finally {dom.window.close();}
+  }
+});
+
+
+test('business portals lead with the participating company while individual portals lead with the member', () => {
+  const business=program({member:{organization:'Northstar Services',name:'Alex Morgan',role:'purchaser'}});
+  const individual=program({mode:'b2c',approvalRequired:false,member:{name:'Jordan Taylor',role:'member'}});
+  for (const [p,expected] of [[business,'Northstar Services'],[individual,'Jordan Taylor']]) {
+    const view=runtime.projectState({programEnabled:true,program:p,brand:{},member:{},vouchers:[],earnMore:[]},model);
+    assert.equal(view.member.name,expected);
+    const dom=loaded(portal({program:p}));
+    try {
+      assert.ok(dom.window.document.querySelector('[data-lpg-section="hero"]').textContent.includes(expected));
+      assert.equal(dom.window.document.querySelector('#lpg-account-menu p').textContent,expected);
+      if (p.mode==='b2b') assert.equal(dom.window.document.querySelectorAll('#lpg-account-menu p')[1].textContent,'Alex Morgan');
+    } finally {dom.window.close();}
+  }
 });

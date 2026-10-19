@@ -17,9 +17,20 @@ Use exactly one vouchers entry per validatedProgram.rewards item, adding program
 to its id and description (a concise, useful sentence). Keep title equal to its name and use
 actionType="points", actionValue equal to its exact cost plus the redeemable currency name.
 Never add invented redeemable rewards, prices, expiry dates or earning promises.
-Use exactly one earnMore entry per validatedProgram.earnRules item, adding programRuleId equal
-to its id, title equal to its name, hasCodeInput=false, and a contextual plain-language description.
-Do not invent extra earning activities. Empty rule/reward lists mean empty corresponding arrays.
+Enrich the supplied activityCards with customer-facing promotional descriptions and CTA labels.
+Keep each activity title exactly as supplied so its identity is unambiguous; programRuleId is
+a reference supplied by the builder. The builder, not your response, owns the set of activities.
+Describe the value of participating: learning, exploring services, completing a profile, joining
+events or discovering eligible products as appropriate to that activity. Use inviting CTA intent
+such as "Explore courses", "View events", "Explore eligible purchases" or "Learn more" in cta.
+Never describe entering amounts, adding transactions, simulating purchases, testing points or
+an internal rule engine. Do not invent numeric awards, eligibility, integrations or new activities.
+Make the member benefit clear: explain how doing this activity earns the points actually supplied
+by its rule. For a fixed activity you may state its exact supplied point award in natural language.
+For spending, say eligible purchases earn the applicable points without displaying rate formulas
+or transaction controls. Mention only currencies for which that rule awards a positive amount.
+Return these promotional cards in earnMore with hasCodeInput=false. Empty rule/reward lists
+mean empty corresponding arrays.
 Return the complete original presentation schema, including offers, badges, clubs, benefits,
 profileTasks, upsell, navLinks and all three footer columns. Supply useful brand-specific copy
 and imagery candidates across these sections, not generic loyalty filler. Related informational
@@ -57,6 +68,67 @@ complete every required section and exact reward/earning mapping before closing 
     return response?.text || response?.response || response?.output || response?.message || response?.content || response?.completion;
   }
 
+  function activitySkeleton(rule, program) {
+    const provider = program.providerName || program.name;
+    const qualifying = rule.kind === 'spend' ? rule.qualifyingRate : rule.qualifyingPoints;
+    const redeemable = rule.kind === 'spend' ? rule.redeemableRate : rule.redeemablePoints;
+    const currencies = [...new Set([
+      qualifying > 0 ? program.currencies.qualifyingName : '',
+      redeemable > 0 ? program.currencies.redeemableName : ''
+    ].filter(Boolean))].join(' and ');
+    const benefit = currencies ? ` and earn ${currencies}` : '';
+    return {
+      programRuleId: rule.id, title: rule.name, hasCodeInput: false,
+      description: rule.kind === 'spend'
+        ? `Explore eligible products and services from ${provider} through ${rule.name}${benefit}.`
+        : `Take part in ${rule.name} with ${provider}${benefit}.`,
+      cta: rule.kind === 'spend' ? 'Explore eligible purchases' : 'Explore activity'
+    };
+  }
+
+  // AI decorates these deterministic cards; it does not define their identity
+  // or cardinality. Never pair by array index or attach unrelated copy merely
+  // because it carries a valid ID. A unique matching title can recover missing
+  // or altered IDs, while ambiguous/missing copy uses an accepted card or the
+  // rule-derived promotional skeleton.
+  function reconcileActivities(input, program, { existingItems = [], preferExisting = false } = {}) {
+    const normalize = value => typeof value === 'string' ? value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase() : '';
+    const raw = Array.isArray(input) ? input : [];
+    const candidates = raw.filter(item => item && typeof item === 'object' && !Array.isArray(item) &&
+      typeof item.title === 'string' && item.title.trim() && typeof item.description === 'string' && item.description.trim());
+    const existing = Array.isArray(existingItems) ? existingItems : [];
+    const used = new Set();
+    let rebuilt = 0, retained = 0, correctedIds = 0;
+    const items = program.earnRules.map(rule => {
+      const label = normalize(rule.name);
+      const exact = candidates.filter(item => item.programRuleId === rule.id && normalize(item.title) === label);
+      let match = exact.length === 1 ? exact[0] : null;
+      if (!exact.length && program.earnRules.filter(other => normalize(other.name) === label).length === 1) {
+        const titled = candidates.filter(item => normalize(item.title) === label);
+        if (titled.length === 1) match = titled[0];
+      }
+      const previous = existing.filter(item => item?.programRuleId === rule.id);
+      const accepted = previous.length === 1 ? previous[0] : null;
+      const selected = (preferExisting && accepted) || match || accepted;
+      if (match) { used.add(match); if (match.programRuleId !== rule.id) correctedIds++; }
+      else if (accepted) retained++;
+      else rebuilt++;
+      const card = { ...activitySkeleton(rule, program), ...(selected ? clone(selected) : {}),
+        programRuleId: rule.id, title: rule.name, hasCodeInput: false };
+      if (typeof card.description !== 'string' || !card.description.trim()) card.description = activitySkeleton(rule, program).description;
+      if (typeof card.cta !== 'string' || !card.cta.trim()) card.cta = activitySkeleton(rule, program).cta;
+      if (accepted?.imageData) { card.imageData = accepted.imageData; card.imageUrl = ''; }
+      else if (accepted?.imageUrl) { card.imageUrl = accepted.imageUrl; card.imageData = ''; }
+      return card;
+    });
+    const omitted = raw.length - used.size;
+    const notes = [];
+    if (rebuilt) notes.push(`${rebuilt} activity card${rebuilt === 1 ? ' was' : 's were'} built from the program rules because AI copy could not be matched safely.`);
+    if (retained) notes.push(`Existing copy was kept for ${retained} activity card${retained === 1 ? '' : 's'} that AI did not identify clearly.`);
+    if (omitted) notes.push(`${omitted} unlinked or ambiguous AI activity card${omitted === 1 ? ' was' : 's were'} omitted.`);
+    return { items, rebuilt, retained, correctedIds, omitted, warning: notes.join(' ') };
+  }
+
   function validateContent(data, program) {
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('AI did not return portal presentation content. Your portal was kept.');
     for (const key of collections) {
@@ -66,7 +138,7 @@ complete every required section and exact reward/earning mapping before closing 
       if (['vouchers', 'offers', 'clubs', 'earnMore'].includes(key) && data[key].some(item => typeof item.description !== 'string' || !item.description.trim())) throw new Error(`AI omitted ${key} descriptions. Your portal was kept; generate again.`);
     }
     for (const key of ['offers', 'benefits']) if (!data[key].length) throw new Error(`AI omitted ${key} presentation content. Your portal was kept; generate again.`);
-    for (const [key, idKey, expected] of [['vouchers', 'programRewardId', program.rewards], ['earnMore', 'programRuleId', program.earnRules]]) {
+    for (const [key, idKey, expected] of [['vouchers', 'programRewardId', program.rewards]]) {
       const ids = data[key].map(item => item[idKey]);
       if (new Set(ids).size !== ids.length || ids.length !== expected.length || expected.some(item => !ids.includes(item.id))) {
         throw new Error(`AI ${key} do not match the validated program. Your portal was kept; generate again.`);
@@ -81,8 +153,8 @@ complete every required section and exact reward/earning mapping before closing 
     }
   }
 
-  // Also used for live rule edits. allowMissing supplies a safe card for a newly
-  // added rule/reward; a full AI generation always requires complete mapped copy.
+  // Also used for live rule edits. Rewards require mapped copy unless explicitly
+  // added by the author; activity cards always follow the deterministic skeleton.
   function reconcile(content, program, { existing, allowMissing = false, refreshCopy = false } = {}) {
     const data = clone(content || {});
     const refining = isRefinement(existing);
@@ -126,12 +198,12 @@ complete every required section and exact reward/earning mapping before closing 
       description: item.description || `Redeem your ${program.currencies.redeemableName} for ${reward.name}.`,
       actionType: 'points', actionValue: `${reward.cost} ${program.currencies.redeemableName}`, expiry: '', emoji: item.emoji || '🎁'
     }));
-    data.earnMore = mapped('earnMore', 'programRuleId', program.earnRules, (item, rule) => ({ ...item,
-      programRuleId: rule.id, title: rule.name, description: item.description || `Explore ${rule.name}.`, hasCodeInput: false
-    }));
+    data.earnMore = reconcileActivities(data.earnMore, program, {
+      existingItems: refining ? existing.earnMore : [], preferExisting: refining && !refreshCopy
+    }).items;
     data.brandName = program.providerName; data.programName = program.name;
     data.tiers = program.tiers.map(tier => ({ name: tier.name, points: tier.threshold }));
-    data.member = { ...(data.member || {}), name: program.member.name };
+    data.member = { ...(data.member || {}), name: program.mode === 'b2b' ? program.member.organization : program.member.name };
     return data;
   }
 
@@ -151,6 +223,7 @@ complete every required section and exact reward/earning mapping before closing 
     const payload = {
       author: { mode: validated.mode, objective: text(brief.objective, 2000), request: text(brief.text, 16000), roles: text(brief.roles, 1000) },
       validatedProgram: facts, sourceCoverage,
+      activityCards: validated.earnRules.map(rule => activitySkeleton(rule, validated)),
       websiteContext: scraped,
       websitePresentationContext: shared.buildUserPrompt({ ...scraped, title: scraped.title || validated.providerName || validated.name }),
       existingPresentation: isRefinement(existing) ? {
@@ -163,7 +236,7 @@ complete every required section and exact reward/earning mapping before closing 
       } : null
     };
     onStatus('analyzing_content');
-    let parsed, repairFeedback;
+    let parsed, repairFeedback, activityRecovery;
     for (let attempt = 0; attempt < 2; attempt++) {
       // Network and provider errors remain outside the repair catch: a failed or
       // uncertain paid request must not be silently resubmitted.
@@ -181,6 +254,12 @@ complete every required section and exact reward/earning mapping before closing 
         const json = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
         try { JSON.parse(json); } catch (_) { throw new Error('AI returned incomplete or malformed portal presentation content. Your portal was kept.'); }
         parsed = shared.parseAIResponseText(json);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          activityRecovery = reconcileActivities(parsed.earnMore, validated, {
+            existingItems: isRefinement(existing) ? existing.earnMore : []
+          });
+          parsed.earnMore = activityRecovery.items;
+        }
         validateContent(parsed, validated);
         break;
       } catch (error) {
@@ -210,8 +289,9 @@ complete every required section and exact reward/earning mapping before closing 
     data._meta = { source_url: scraped.url, favicon: scraped.favicon, apple_icon: scraped.appleIcon,
       mode: 'program-rich-content', images_generated: imageResult.generated || 0, images_empty: imageResult.total_empty || 0,
       images_remaining: remaining, images_failed: imageResult.failed || 0, images_skipped: imageResult.skipped || 0,
-      ...(imageResult.error ? { image_error: imageResult.error } : {}), ...(imageWarning ? { image_warning: imageWarning } : {}) };
+      ...(imageResult.error ? { image_error: imageResult.error } : {}), ...(imageWarning ? { image_warning: imageWarning } : {}),
+      ...(activityRecovery?.warning ? { content_warning: activityRecovery.warning } : {}) };
     return data;
   }
-  root.LPGPortalContent = { generate, reconcile };
+  root.LPGPortalContent = { generate, reconcile, reconcileActivities };
 })(typeof window === 'object' ? window : globalThis);

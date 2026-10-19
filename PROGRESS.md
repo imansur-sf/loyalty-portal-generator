@@ -153,9 +153,23 @@ text-validation check; browser rendering/OTP flow were nottested inthisrun.
 ## Customer-facing portal and expanded-preview repair
 - [x] Inspect presenter toolbar and hidden iframe/network-dependent rendering.
 - [x] Move presenter controls to builder and embed portal styling.
-- [ ] Verify all four templates and preview lifecycle, then deploy.
+- [x] Verify all four templates and preview lifecycle, then deploy.
 
 141tests passed; standalone17scripts parse; embedded96319-byteCSS checkpassed.
 Presenter controls removedfromexports and movedtobuilder; allfourtemplates
 render without externalheadresources inDOMtests. Browseroriginblockedbyadmin
 policy; no visualverification. Deployment pending.
+
+Deployed4e72d3e / Heroku v32 succeeded; web-6cff6fb989-pl4wj is up.
+Production server-side generation confirmed allfourtemplates embedstyles,
+contain no Tailwind/fontCDNdependency and no Resetdemo/Showwelcome buttons.
+HTML servesno-cache/version20261018g and grid-dialogCSS; health200. Browser
+visualverification remainsblocked byadminoriginpolicy.
+
+## Promotional earning and fictional member identity
+- [x] Restore earning cards as conceptual activity links without transaction entry.
+- [x] Make AI card mapping resilient and use fictional people/company identities.
+- [ ] Verify generation, audience editing and all templates; deploy.
+
+154tests passed, embeddedCSS96354bytes checked and standalone rebuilt.
+Deployment/approved-PDF replay pending.

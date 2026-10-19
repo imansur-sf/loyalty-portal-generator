@@ -83,3 +83,19 @@ test('scanned PDFs and unsupported files produce actionable errors', async () =>
   assert.equal(destroyed, true);
   await assert.rejects(requirements.extractFile({ name: 'notes.docx', size: 1 }), /text PDF/);
 });
+
+
+test('AI placeholder identities become fictional names and earning coverage stays informational', () => {
+  for (const mode of ['b2c', 'b2b']) {
+    const program = model.normalize({ mode, member: { name: 'Demo Member', organization: mode === 'b2b' ? 'Example Business' : '' }, requirements: [{ text: 'Earn on renewal', module: 'earn', status: 'interactive' }] });
+    const parsed = requirements.parseResponse(JSON.stringify({ program }), model, mode).program;
+    assert.equal(parsed.member.name, 'Avery Morgan');
+    assert.equal(parsed.member.organization, mode === 'b2b' ? 'Northstar Services' : '');
+    assert.equal(parsed.requirements[0].status, 'displayed');
+    program.member.name = 'John Sharp';
+    if (mode === 'b2b') program.member.organization = 'Cedar Ridge Partners';
+    const named = requirements.parseResponse(JSON.stringify({ program }), model, mode).program;
+    assert.equal(named.member.name, 'John Sharp');
+    assert.equal(named.member.organization, program.member.organization);
+  }
+});

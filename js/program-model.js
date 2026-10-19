@@ -60,7 +60,7 @@
       version: 1, mode,
       name: text(input.name, 'Loyalty Program', 'name', 160),
       providerName: text(input.providerName, '', 'providerName', 160),
-      member: { name: text(member.name, 'Demo Member', 'member.name', 160), organization: text(member.organization, b2b ? 'Example Business' : '', 'member.organization', 160), role: text(member.role, b2b ? 'purchaser' : 'member', 'member.role', 80) },
+      member: { name: text(member.name, 'Avery Morgan', 'member.name', 160), organization: text(member.organization, b2b ? 'Northstar Services' : '', 'member.organization', 160), role: text(member.role, b2b ? 'purchaser' : 'member', 'member.role', 80) },
       currencies: { qualifyingName: text(currencies.qualifyingName, 'Tier Points', 'currencies.qualifyingName', 80), redeemableName: text(currencies.redeemableName, 'Reward Points', 'currencies.redeemableName', 80), pointsPerUnit: number(currencies.pointsPerUnit, 100, 'currencies.pointsPerUnit', MAX, 0.000001) },
       tiers: list(input.tiers, [{ name: 'Member', threshold: 0, multiplier: 1 }, { name: 'Plus', threshold: 1000, multiplier: 1.25 }, { name: 'Premier', threshold: 2500, multiplier: 1.5 }], 'tiers', 12, (entry, path) => {
         const tier = record(entry, path);
@@ -123,11 +123,11 @@
     if (input.earnRules === undefined) assumed.push('Purchase earning rules are illustrative defaults.');
     if (input.rewards === undefined) assumed.push('Reward credit and its cost are illustrative defaults.');
     if (!own(currencies, 'pointsPerUnit')) assumed.push('The illustrative conversion is 100 redeemable points per currency unit.');
-    if (member.name === undefined) assumed.push('Demo Member is a synthetic participant name.');
+    if (member.name === undefined) assumed.push('Avery Morgan is a fictional participant name.');
     if (opening.qualifying === undefined) assumed.push('The opening qualifying balance defaults to a synthetic zero.');
     if (opening.redeemable === undefined) assumed.push('The opening redeemable balance defaults to a synthetic zero.');
     if (input.roles === undefined) assumed.push('Participant roles are demo defaults; review their permissions.');
-    if (b2b && member.organization === undefined) assumed.push('Example Business is a fictional participating organization.');
+    if (b2b && member.organization === undefined) assumed.push('Northstar Services is a fictional participating organization.');
     if (input.approvalRequired === undefined && b2b) assumed.push('Direct redemption is the default; approval must be explicitly enabled.');
     assumed.push('Spend earning uses the tier before each transaction and rounds redeemable points to the nearest whole point; fixed awards use their stated points without a tier multiplier.');
     if (model.freeContentMonthlyCap !== null) assumed.push('The shared monthly cap applies to qualifying points from all fixed activities, using UTC calendar months.');

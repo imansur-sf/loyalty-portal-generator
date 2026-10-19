@@ -112,13 +112,14 @@
         website, rawURL, existing: current ? existing : null,
         onStatus: phase => { checkCurrent(); setQuickStartStatus(phase === 'generating_images' ? `Creating ${mode.toUpperCase()} portal imagery…` : `Personalizing ${mode.toUpperCase()} portal content…`, true); } });
       checkCurrent();
+      if (content._meta?.content_warning) warnings.push(`${mode.toUpperCase()}: ${content._meta.content_warning}`);
       if (content._meta?.image_warning || content._meta?.image_error) warnings.push(`${mode.toUpperCase()}: ${content._meta.image_warning || 'Some images could not be generated. You can add images or generate again.'}`);
       const portal = existing || root.LPGVariants.snapshot();
       applyAnalysis(content, portal, { render: false });
       portal.program = proposal.program; portal.programEnabled = true; portal.programReview = null;
       portal.brand.name = proposal.program.providerName || content.brandName;
       portal.brand.programName = proposal.program.name;
-      portal.member.name = proposal.program.member.name;
+      portal.member.name = mode === 'b2b' ? proposal.program.member.organization : proposal.program.member.name;
       portal.member.points = proposal.program.opening.redeemable;
       portal.tiers = proposal.program.tiers.map(tier => ({ name: tier.name, points: tier.threshold }));
       portal.outputTemplate = mode === state.activeVariant ? state.outputTemplate : existing?.outputTemplate || state.outputTemplate || 'classic';
@@ -161,21 +162,21 @@
     const p = review.program;
     el('program-review-fields').innerHTML = `${Object.keys(review.brand).some(key => ['primary', 'accent'].includes(key)) ? `<h4>Brand colors</h4><p class="program-help">Changes update the preview immediately. You can also refine them in Colors & Theme.</p><div class="program-grid">${['primary', 'accent'].filter(key => review.brand[key]).map(key => `<label class="program-field">${key === 'primary' ? 'Primary' : 'Accent'}<input type="color" data-review-brand="${key}" value="${safe(review.brand[key])}"></label>`).join('')}</div>` : ''}<div class="program-grid">
       ${input('Program name', 'name', p.name)}${input('Program provider', 'providerName', p.providerName)}
-      ${input('Demo person', 'member.name', p.member.name)}${p.mode === 'b2b' ? input('Participating business', 'member.organization', p.member.organization) : ''}
+      ${p.mode === 'b2b' ? input('Member company', 'member.organization', p.member.organization) + input('Account contact', 'member.name', p.member.name) : input('Member name', 'member.name', p.member.name)}
       ${input('Qualifying points name', 'currencies.qualifyingName', p.currencies.qualifyingName)}${input('Redeemable points name', 'currencies.redeemableName', p.currencies.redeemableName)}
       ${input('Opening qualifying points', 'opening.qualifying', p.opening.qualifying, 'number')}${input('Opening redeemable points', 'opening.redeemable', p.opening.redeemable, 'number')}
       ${input('Redeemable points per currency unit', 'currencies.pointsPerUnit', p.currencies.pointsPerUnit, 'number')}${input('Monthly qualifying cap for fixed activities (blank = none)', 'freeContentMonthlyCap', p.freeContentMonthlyCap ?? '', 'number')}
     </div>
     <h4>Tiers</h4>${p.tiers.map((t, i) => `<div class="program-row">${input('Name', `tiers.${i}.name`, t.name)}${input('Qualifying threshold', `tiers.${i}.threshold`, t.threshold, 'number')}${input('Spend RP multiplier', `tiers.${i}.multiplier`, t.multiplier, 'number')}<button type="button" data-remove-program="tiers:${i}" aria-label="Remove tier ${safe(t.name)}">Remove</button></div>`).join('')}
     <button type="button" data-add-program="tiers">Add tier</button>
-    <h4>Earning activities</h4>${p.earnRules.map((r, i) => `<fieldset class="program-edit-card"><legend>${safe(r.kind === 'spend' ? 'Eligible spend' : 'Fixed activity')}</legend><div class="program-grid">${input('Activity name', `earnRules.${i}.name`, r.name)}${input(r.kind === 'spend' ? 'Demo spend amount' : 'Occurrences per click', `earnRules.${i}.amount`, r.amount, 'number', r.kind === 'fixed' ? 'readonly' : '')}${r.kind === 'spend' ? input('TP per unit spent', `earnRules.${i}.qualifyingRate`, r.qualifyingRate, 'number') + input('Base RP per unit spent', `earnRules.${i}.redeemableRate`, r.redeemableRate, 'number') : input('TP award', `earnRules.${i}.qualifyingPoints`, r.qualifyingPoints, 'number') + input('RP award', `earnRules.${i}.redeemablePoints`, r.redeemablePoints, 'number')}${input('Monthly TP cap (blank = none)', `earnRules.${i}.monthlyCap`, r.monthlyCap ?? '', 'number')}</div><button type="button" data-remove-program="earnRules:${i}">Remove activity</button></fieldset>`).join('')}
+    <h4>Earning activities</h4>${p.earnRules.map((r, i) => `<fieldset class="program-edit-card"><legend>${safe(r.kind === 'spend' ? 'Eligible spend' : 'Fixed activity')}</legend><div class="program-grid">${input('Activity name', `earnRules.${i}.name`, r.name)}${r.kind === 'spend' ? input('TP per unit spent', `earnRules.${i}.qualifyingRate`, r.qualifyingRate, 'number') + input('Base RP per unit spent', `earnRules.${i}.redeemableRate`, r.redeemableRate, 'number') : input('TP award', `earnRules.${i}.qualifyingPoints`, r.qualifyingPoints, 'number') + input('RP award', `earnRules.${i}.redeemablePoints`, r.redeemablePoints, 'number')}${input('Monthly TP cap (blank = none)', `earnRules.${i}.monthlyCap`, r.monthlyCap ?? '', 'number')}</div><button type="button" data-remove-program="earnRules:${i}">Remove activity</button></fieldset>`).join('')}
     <button type="button" data-add-program="spend">Add spend activity</button> <button type="button" data-add-program="fixed">Add fixed activity</button>
     <h4>Rewards</h4>${p.rewards.map((r, i) => `<div class="program-row">${input('Reward name', `rewards.${i}.name`, r.name)}${input('Redeemable points cost', `rewards.${i}.cost`, r.cost, 'number')}<button type="button" data-remove-program="rewards:${i}">Remove reward</button></div>`).join('')}<button type="button" data-add-program="rewards">Add reward</button>
     <h4>People and roles</h4>${p.mode === 'b2b' ? check('Redemptions require approval', 'approvalRequired', p.approvalRequired) : ''}
     ${p.roles.map((r, i) => `<div class="program-row">${input('Role name', `roles.${i}.name`, r.name)}${check('Can request / redeem', `roles.${i}.canRequest`, r.canRequest)}${p.mode === 'b2b' ? check('Can approve', `roles.${i}.canApprove`, r.canApprove) : ''}<button type="button" data-remove-program="roles:${i}">Remove role</button></div>`).join('')}<button type="button" data-add-program="roles">Add custom role</button>
     <label class="program-field">Starting demo role<select data-program-path="member.role">${p.roles.map(r => `<option value="${safe(r.id)}" ${r.id === p.member.role ? 'selected' : ''}>${safe(r.name)}</option>`).join('')}</select></label>
     <h4>Assumptions and open decisions</h4><p class="program-help">These remain author notes and are excluded from the exported portal. Edit the rules above to resolve them.</p><label class="program-field">Notes (one per line)<textarea data-program-path="assumptions" rows="5" maxlength="30000">${safe(p.assumptions.join('\n'))}</textarea></label>
-    <h4>Requirement coverage proposed by AI</h4><p class="program-help">Interactive means a simulated portal action. Source references and coverage still need your review.</p>
+    <h4>Requirement coverage proposed by AI</h4><p class="program-help">Earning activities are promotional links and do not change points. Other interactive actions are simulated. Source references and coverage still need your review.</p>
     <ul class="program-coverage">${p.requirements.map(r => `<li><strong>${safe(r.status)}</strong> · ${safe(r.text)}<small>${safe(r.source)}${r.module ? ' · ' + safe(r.module) : ''}</small></li>`).join('') || '<li>No document-derived requirements in this sample.</li>'}</ul>
     ${p.futureFeatures.length ? `<h4>Future scope</h4><ul>${p.futureFeatures.map(t => `<li>${safe(t)}</li>`).join('')}</ul>` : ''}`;
     el('program-review-error').textContent = '';
@@ -241,7 +242,7 @@
     }
     state.program = result.model; state.programEnabled = true; state.schemaVersion = 2;
     state.activeVariant = result.model.mode;
-    state.member.name = result.model.member.name; state.member.points = result.model.opening.redeemable;
+    state.member.name = result.model.mode === 'b2b' ? result.model.member.organization : result.model.member.name; state.member.points = result.model.opening.redeemable;
     state.tiers = result.model.tiers.map(tier => ({ name: tier.name, points: tier.threshold }));
     setVal('brand-name', state.brand.name); setVal('program-name', state.brand.programName);
     setVal('member-name', state.member.name); setVal('member-points', state.member.points);

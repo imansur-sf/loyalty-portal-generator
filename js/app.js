@@ -17,7 +17,7 @@ const state = {
     { name: 'Premium', points: 5000 }
   ],
   tierProgress: 30,
-  member: { name: 'Imran Mansur', number: '234567', points: 1200, email: '', phone: '', joinDate: '', avatarUrl: '', avatarData: '' },
+  member: { name: 'Avery Morgan', number: '234567', points: 1200, email: '', phone: '', joinDate: '', avatarUrl: '', avatarData: '' },
   sections: { vouchers: true, offers: true, badges: true, clubs: true, earnMore: true, profileTasks: true, upsell: true },
   vouchers: [],
   offers: [],
@@ -419,7 +419,11 @@ function cleanEarnMore(e) {
     programRuleId: str(e.programRuleId, 100),
     title: str(e.title, 80),
     description: str(e.description, 200),
-    hasCodeInput: Boolean(e.hasCodeInput)
+    hasCodeInput: Boolean(e.hasCodeInput),
+    cta: str(e.cta, 50),
+    emoji: str(e.emoji, 4),
+    imageUrl: isSafeUrl(e.imageUrl) ? e.imageUrl : '',
+    imageData: e.imageData || ''
   };
 }
 function cleanProfileTask(t) {
@@ -593,7 +597,7 @@ function onFieldChange(event) {
   if (state.program && id) commitProgramEdit(program => {
     if (id === 'brand-name') program.providerName = state.brand.name;
     if (id === 'program-name') program.name = state.brand.programName;
-    if (id === 'member-name') program.member.name = state.member.name;
+    if (id === 'member-name') program.member[program.mode === 'b2b' ? 'organization' : 'name'] = state.member.name;
     if (id === 'member-points') program.opening.redeemable = Number(getVal(id));
     const tier = /^tier([1-3])-(name|points)$/.exec(id);
     if (tier && program.tiers[Number(tier[1]) - 1]) {
@@ -1276,7 +1280,7 @@ function startOver() {
   setVal('quickstart-url', '');
   window.LPGRequirementsEditor?.reset();
   state.brand = { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' };
-  state.member = { name: 'Imran Mansur', number: '234567', points: 1200, email: '', phone: '', joinDate: '', avatarUrl: '', avatarData: '' };
+  state.member = { name: 'Avery Morgan', number: '234567', points: 1200, email: '', phone: '', joinDate: '', avatarUrl: '', avatarData: '' };
   state.tierProgress = 30;
   state.sections = { vouchers: true, offers: true, badges: true, clubs: true, earnMore: true, profileTasks: true, upsell: true };
   state.menuColorCustom = false;

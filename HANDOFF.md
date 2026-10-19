@@ -2,7 +2,29 @@
 
 Last updated: 2026-10-18. **Read this first.** `git log` records shipped changes; PROGRESS.md records the current sign-in/save rollout. `CLAUDE.md` in this repo is stale (still describes a Page Host zip-bundle deployment that was abandoned); its two-build-outputs instructions still apply.
 
-## Customer-facing controls and full-size preview (2026-10-18)
+## Promotional earning and fictional identity (2026-10-18, deployment pending)
+
+Earn More is now customer-facing promotional activity cards: icon/image, title,
+copy and a chevron. Clicking opens informational activity details and never
+changes points. Amount/rate/calculation controls and delegated earning execution
+are removed. Redemption/approval flows remain. Builder earning coverage is
+informational, and obsolete sample-amount input is removed.
+
+AI earning-card identity/count now comes from validated rules. Unique matching
+titles recover missing/wrong IDs; ambiguous/unrelated copy is not assigned by
+position. Accepted copy/assets or contextual skeletons fill gaps, with a builder
+content warning. Reward IDs remain strict. Rich section/image pipeline remains.
+
+AI requests fictional people for B2C and companies plus contacts for B2B, with
+fictional fallback names for generic AI placeholders. B2B hero/shared Name field
+uses member.organization; member.name remains account contact. Editor/save/
+audience switching preserve both independently. Empty builder uses Avery Morgan.
+
+154tests pass including promotional click balance invariance, all four templates,
+AI mapping recovery and B2B company editing. EmbeddedCSS96354bytes; standalone
+rebuilt. Browser visual verification remains admin-policy blocked.
+
+## Customer-facing controls and full-size preview (2026-10-18, deployed4e72d3e / v32)
 
 Removed Reset demo, Show welcome screen, View as and sample-data instructions
 from the generated portal. Customer account menu supports Sign out / Sign in.
@@ -23,7 +45,9 @@ render failures/timeouts expose a reload action rather than silent blank output.
 141tests pass including generated CSS without external resources, all layouts,
 preview lifecycle, stale messages, role synchronization and older projects.
 17standalone scripts parse. Browser access to production is admin-policy blocked;
-no visual browser confirmation. Production verification follows deployment.
+no visual browser confirmation. Production server-side checks passed allfour
+templates: embeddedCSS, noCDNdependency, no presenterbuttons. Health200,
+version20261018g assets and expandedgrid served.
 
 ## Incomplete AI response repair (2026-10-18, deployed0f9d590 / v31)
 

@@ -74,7 +74,7 @@
     if (!state || !state.programEnabled || !state.program) return state;
     const p = model.normalize(state.program), summary = model.summarize(p);
     const result = { ...state, brand: { ...state.brand, programName: p.name },
-      member: { ...state.member, name: p.member.name, points: summary.redeemable },
+      member: { ...state.member, name: p.mode === 'b2b' ? p.member.organization : p.member.name, points: summary.redeemable },
       tiers: p.tiers.map(t => ({ name: t.name, points: t.threshold })),
       _program: p, _summary: summary };
     result.vouchers = p.rewards.map(reward => {
@@ -89,13 +89,12 @@
   }
 
   const styles = `
-    .lpg-activity-panel button,.lpg-earn-action button{border:1px solid #cbd5e1;border-radius:9px;padding:8px 13px;background:white;color:#172033;font:inherit;cursor:pointer}
+    .lpg-activity-panel button{border:1px solid #cbd5e1;border-radius:9px;padding:8px 13px;background:white;color:#172033;font:inherit;cursor:pointer}
     .lpg-activity-panel button:focus-visible,[data-lpg-action]:focus-visible{outline:3px solid #2563eb;outline-offset:3px}
     [data-lpg-action]:disabled{opacity:.5;cursor:not-allowed}
     .lpg-activity-panel{margin-top:24px;padding:24px}.lpg-activity-panel h2{font-size:1.2rem;font-weight:750;margin-bottom:12px}
     .lpg-activity-panel ul{list-style:none;padding:0}.lpg-activity-panel li{padding:14px 0;border-bottom:1px solid #e2e8f0;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .lpg-activity-panel li strong{flex:1;min-width:160px}.lpg-activity-panel li span{font-size:.85rem;color:#475569}
-    .lpg-earn-action{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}.lpg-earn-action input{width:100px;border:1px solid #cbd5e1;border-radius:8px;padding:7px}
     #lpg-p-status{position:fixed;bottom:24px;left:24px;right:24px;max-width:620px;margin:auto;padding:14px 20px;border-radius:12px;background:white;box-shadow:0 8px 32px #17203330;z-index:1100;font-size:.9rem;color:#166534}#lpg-p-status:empty{display:none}#lpg-p-status[data-error="true"]{color:#b91c1c}
     [data-lpg-current-tier="true"]{outline:2px solid var(--brand-primary,#2563eb);outline-offset:8px;border-radius:10px}
     .lpg-account-menu{position:absolute;right:0;top:calc(100% + 12px);min-width:220px;padding:18px;background:white;color:#172033;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 10px 30px #17203326;z-index:100}.lpg-account-menu[hidden]{display:none}.lpg-account-menu p{font-size:.85rem;margin:0 0 8px}.lpg-account-menu button{margin-top:8px;width:100%;text-align:left;border-top:1px solid #e2e8f0;padding-top:12px;font:inherit}
@@ -130,8 +129,8 @@
       while (accountIcon.firstChild) accountButton.append(accountIcon.firstChild);
       accountIcon.replaceWith(accountButton);
       accountMenu = el('div', null, 'lpg-account-menu'); accountMenu.id = 'lpg-account-menu'; accountMenu.hidden = true;
-      accountMenu.append(el('p', p.member.name));
-      if (p.mode === 'b2b') accountMenu.append(el('p', p.member.organization));
+      accountMenu.append(el('p', p.mode === 'b2b' ? p.member.organization : p.member.name));
+      if (p.mode === 'b2b') accountMenu.append(el('p', p.member.name));
       const accountRole = el('p', session.role().name); accountRole.dataset.lpgAccountRole = '';
       accountMenu.append(accountRole, button('Sign out', 'signout'));
       accountButton.parentElement.style.position = 'relative'; accountButton.parentElement.append(accountMenu);
@@ -148,6 +147,27 @@
     const welcome = el('div', null, 'lpg-welcome'); welcome.hidden = true; welcome.setAttribute('role', 'dialog'); welcome.setAttribute('aria-modal', 'true'); welcome.setAttribute('aria-label', 'Welcome to ' + p.name);
     const welcomeCard = el('article'); welcomeCard.append(el('h2', p.name), el('p', 'Your rewards. Your benefits. All in one place.'));
     const signin = button('Sign in', 'signin'); signin.className = 'btn-primary'; welcomeCard.append(signin); welcome.append(welcomeCard); document.body.append(welcome);
+    const activityDetail = el('div', null, 'lpg-welcome lpg-activity-detail'); activityDetail.hidden = true;
+    activityDetail.setAttribute('role', 'dialog'); activityDetail.setAttribute('aria-modal', 'true');
+    activityDetail.setAttribute('aria-labelledby', 'lpg-activity-title'); activityDetail.setAttribute('aria-describedby', 'lpg-activity-description');
+    const detailCard = el('article'), detailTitle = el('h2'), detailCopy = el('p');
+    detailTitle.id = 'lpg-activity-title'; detailCopy.id = 'lpg-activity-description';
+    const closeDetail = button('Close', 'close-activity'); closeDetail.className = 'btn-primary';
+    detailCard.append(detailTitle, detailCopy, closeDetail); activityDetail.append(detailCard); document.body.append(activityDetail);
+    let activityTrigger;
+    function closeActivity(restoreFocus = true) {
+      activityDetail.hidden = true; root.inert = !welcome.hidden;
+      if (restoreFocus && activityTrigger?.isConnected) activityTrigger.focus();
+    }
+    function showActivity(id, trigger) {
+      const rule = p.earnRules.find(item => item.id === id);
+      if (!rule) throw new Error('This activity is unavailable.');
+      const card = trigger.closest('[data-program-rule-id]');
+      const description = card?.querySelector('[data-lpg-activity-description], p');
+      detailTitle.textContent = rule.name;
+      detailCopy.textContent = description?.textContent || 'Explore ' + rule.name + '.';
+      activityTrigger = trigger; live.textContent = ''; activityDetail.hidden = false; root.inert = true; closeDetail.focus();
+    }
     function refresh() {
       document.querySelectorAll('[data-lpg-account-role]').forEach(node => { node.textContent = session.role().name; });
       const summary = session.summary();
@@ -157,7 +177,6 @@
       document.querySelectorAll('[data-lpg-progress-text]').forEach(node => { node.textContent = summary.nextTier ? number(summary.gap) + ' ' + p.currencies.qualifyingName + ' to ' + summary.nextTier.name : 'Highest tier achieved'; });
       const progress = summary.nextTier ? Math.max(0, Math.min(100, (summary.qualifying-summary.tier.threshold)/(summary.nextTier.threshold-summary.tier.threshold)*100)) : 100;
       document.querySelectorAll('[data-lpg-progress]').forEach(node => { node.style.width = progress + '%'; });
-      document.querySelectorAll('[data-lpg-action="earn"]').forEach(node => { node.disabled = !session.can('earn'); });
       document.querySelectorAll('[data-lpg-action="request"]').forEach(node => {
         const reward = p.rewards.find(item => item.id === node.dataset.id);
         const pending = session.requests.some(item => item.rewardId === node.dataset.id && item.requestedBy === session.role().id && item.status === 'pending');
@@ -183,6 +202,7 @@
       refresh();
     }
     function showWelcome() {
+      closeActivity(false);
       if (accountMenu) { accountMenu.hidden = true; accountButton.setAttribute('aria-expanded', 'false'); }
       live.textContent = ''; welcome.hidden = false; root.inert = true; signin.focus();
     }
@@ -200,7 +220,8 @@
       const control = event.target.closest('[data-lpg-action]'); if (!control || control.disabled) return;
       report(() => {
         const action = control.dataset.lpgAction, id = control.dataset.id;
-        if (action === 'earn') { const amount = document.getElementById('lpg-amount-' + id); session.earn(id, amount ? Number(amount.value) : undefined); live.textContent = 'Activity added. Your points and status are up to date.'; }
+        if (action === 'activity') { event.preventDefault(); showActivity(id, control); }
+        if (action === 'close-activity') closeActivity();
         if (action === 'request') { const result = session.request(id); live.textContent = result.status === 'pending' ? 'Reward requested. Awaiting approval.' : 'Reward redeemed. Enjoy your benefit!'; }
         if (action === 'approve' || action === 'decline') { session.decide(id, action === 'approve'); live.textContent = action === 'approve' ? 'Request approved.' : 'Request declined.'; }
         if (action === 'account' && accountMenu) { accountMenu.hidden = !accountMenu.hidden; accountButton.setAttribute('aria-expanded', String(!accountMenu.hidden)); }
@@ -209,6 +230,11 @@
       });
     });
     document.addEventListener('keydown', event => {
+      if (!activityDetail.hidden) {
+        if (event.key === 'Escape') { event.preventDefault(); closeActivity(); }
+        if (event.key === 'Tab') { event.preventDefault(); closeDetail.focus(); }
+        return;
+      }
       if (welcome.hidden) {
         if (event.key === 'Escape' && accountMenu && !accountMenu.hidden) { accountMenu.hidden = true; accountButton.setAttribute('aria-expanded', 'false'); accountButton.focus(); }
         return;

@@ -209,8 +209,8 @@ test('starting a sample for another audience retains the original audience and s
     e.field('brief-text','A member portal');await e.w.LPGRequirementsEditor.analyze(e.client(),'');
     e.run("state.offers[0].title='Keep B2C offer'");e.field('brief-mode','b2b');e.w.LPGRequirementsEditor.sample();
     assert.equal(e.run('state.activeVariant'),'b2b');assert.equal(e.run('state.variants.b2c.offers[0].title'),'Keep B2C offer');
-    e.edit('member.name','Alex Partner');e.edit('opening.redeemable','800');e.edit('tiers.1.threshold','1900');
-    assert.equal(e.w.document.getElementById('member-name').value,'Alex Partner');assert.equal(e.w.document.getElementById('member-points').value,'800');assert.equal(e.w.document.getElementById('tier2-points').value,'1900');
+    e.edit('member.organization','Northstar Partners');e.edit('member.name','Alex Partner');e.edit('opening.redeemable','800');e.edit('tiers.1.threshold','1900');
+    assert.equal(e.w.document.getElementById('member-name').value,'Northstar Partners');assert.equal(e.w.document.getElementById('member-points').value,'800');assert.equal(e.w.document.getElementById('tier2-points').value,'1900');
     e.w.LPGVariants.show('b2c');assert.equal(e.run('state.offers[0].title'),'Keep B2C offer');
   }finally{e.close();}
 });
@@ -281,4 +281,25 @@ test('expanding a portal preserves the selected presenter role and applies it af
     assert.equal(delivered.at(-1).action,'role');assert.equal(delivered.at(-1).roleId,role);
     e.w.controlPortalPreview('reset');assert.ok([...e.w.document.querySelectorAll('[data-presenter-role]')].every(select=>select.value===role));
   }finally{e.close();}
+});
+
+
+test('fictional member and company identities generate, edit, and save independently', async () => {
+  const e = await editor(); try {
+    e.field('brief-mode', 'both'); e.field('brief-text', 'Member and partner programs');
+    await e.w.LPGRequirementsEditor.analyze(e.client(p => e.w.LPGProgram.normalize({ mode: p.author.mode, member: { name: 'John Sharp', organization: p.author.mode === 'b2b' ? 'Cedar Ridge Partners' : '' } })), '');
+    assert.equal(e.run('state.member.name'), 'John Sharp');
+    e.w.LPGVariants.show('b2b');
+    assert.equal(e.run('state.member.name'), 'Cedar Ridge Partners');
+    e.field('member-name', 'Harbor Consulting'); e.run("onFieldChange({target:document.getElementById('member-name')})");
+    assert.equal(e.run('state.program.member.organization'), 'Harbor Consulting');
+    assert.equal(e.run('state.program.member.name'), 'John Sharp');
+    e.run('hydratePortal(buildProjectPayload())');
+    assert.equal(e.run('state.member.name'), 'Harbor Consulting');
+    e.w.LPGVariants.show('b2c');
+    assert.equal(e.run('state.member.name'), 'John Sharp');
+    e.field('member-name', 'Morgan Reed'); e.run("onFieldChange({target:document.getElementById('member-name')})");
+    assert.equal(e.run('state.program.member.name'), 'Morgan Reed');
+    assert.equal(e.run('state.variants.b2b.program.member.organization'), 'Harbor Consulting');
+  } finally { e.close(); }
 });

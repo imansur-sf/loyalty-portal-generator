@@ -68,7 +68,7 @@ test('twelve authored tiers and exact boundary values are supported', () => {
 });
 test('B2B defaults distinguish member organization and provider and state assumptions', () => {
   const model = program.normalize({ providerName: 'Supplier' }, { mode: 'b2b' });
-  assert.equal(model.mode, 'b2b'); assert.equal(model.member.organization, 'Example Business');
+  assert.equal(model.mode, 'b2b'); assert.equal(model.member.organization, 'Northstar Services');
   assert.equal(model.providerName, 'Supplier'); assert.equal(model.approvalRequired, false);
   assert.ok(model.roles.some(role => role.canApprove));
   assert.ok(model.assumptions.some(text => /fictional/.test(text)));
@@ -132,7 +132,7 @@ test('fixed redeemable awards keep their exact value independent of tier multipl
 });
 test('missing participant and opening balances are labeled synthetic assumptions', () => {
   const model = program.normalize({});
-  assert.ok(model.assumptions.some(text => /synthetic participant name/.test(text)));
+  assert.ok(model.assumptions.some(text => /fictional participant name/.test(text)));
   assert.ok(model.assumptions.some(text => /opening qualifying balance.*synthetic zero/.test(text)));
   assert.ok(model.assumptions.some(text => /opening redeemable balance.*synthetic zero/.test(text)));
   const explicit = fixture({ member: { name: 'Example Person' } });

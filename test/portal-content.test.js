@@ -75,7 +75,7 @@ test('requirements-only generation accepts no URL or source documents and uses v
   assert.equal(prompt.author.mode, 'b2b');
   assert.equal(prompt.websiteContext.url, '');
   assert.equal(output.vouchers.length, 0); assert.equal(output.earnMore.length, 0);
-  assert.equal(output.brandName, 'ISACA'); assert.equal(output.member.name, program.member.name);
+  assert.equal(output.brandName, 'ISACA'); assert.equal(output.member.name, program.member.organization);
   assert.equal(output._meta.source_url, '');
 });
 
@@ -131,6 +131,122 @@ test('generation rejects extra, omitted, duplicate, or unlinked redeemable rewar
     const data = content(program); alter(data);
     await assert.rejects(context.LPGPortalContent.generate({ program, client: { callLLM: async () => JSON.stringify(data) } }), /match the validated program/);
   }
+});
+
+function activityProgram() {
+  return makeProgram({ earnRules: [
+    { id: 'complete_course', name: 'Complete a learning course', kind: 'fixed', qualifyingPoints: 10, redeemablePoints: 25 },
+    { id: 'attend_event', name: 'Attend a chapter event', kind: 'fixed', qualifyingPoints: 20, redeemablePoints: 40 }
+  ] });
+}
+
+test('activity skeleton recovers omitted, altered and duplicate IDs by unique title without another AI request', async () => {
+  const program = activityProgram();
+  for (const ids of [[undefined, undefined], ['invented', 'another-invented'], ['complete_course', 'complete_course']]) {
+    const generated = content(program);
+    generated.earnMore = program.earnRules.map((rule, index) => ({ programRuleId: ids[index], title: rule.name,
+      description: index ? 'Meet your local professional community.' : 'Discover learning paths for your next career step.',
+      cta: index ? 'View chapter events' : 'Explore courses', imageUrl: `https://brand.test/activity-${index}.png` })).reverse();
+    let calls = 0, request;
+    const context = harness();
+    const output = await context.LPGPortalContent.generate({ program,
+      website: { images: program.earnRules.map((_, index) => ({ url: `https://brand.test/activity-${index}.png` })) },
+      client: { callLLM: async args => { calls++; request = args; return JSON.stringify(generated); } } });
+    assert.equal(calls, 1);
+    assert.deepEqual(Array.from(output.earnMore, item => item.programRuleId), ['complete_course', 'attend_event']);
+    assert.equal(output.earnMore[0].description, 'Discover learning paths for your next career step.');
+    assert.equal(output.earnMore[1].description, 'Meet your local professional community.');
+    assert.equal(output.earnMore[0].cta, 'Explore courses');
+    assert.equal(output.earnMore[1].imageUrl, 'https://brand.test/activity-1.png');
+    assert.ok(output.earnMore.every(item => item.hasCodeInput === false));
+    const input = JSON.parse(request.prompt);
+    assert.equal(input.activityCards[0].programRuleId, 'complete_course');
+    assert.equal(input.activityCards[0].title, program.earnRules[0].name);
+    assert.match(request.system, /customer-facing promotional descriptions/);
+    assert.match(request.system, /Never describe entering amounts/);
+  }
+});
+
+test('unrelated activity copy is never attached by a valid ID or position and missing cards derive from rules', async () => {
+  const program = activityProgram();
+  const generated = content(program);
+  generated.earnMore = [{ programRuleId: 'complete_course', title: 'Win a vacation', description: 'Enter a $5000 sweepstakes unrelated to this program.', imageUrl: 'https://brand.test/unrelated.png' }];
+  let calls = 0;
+  const context = harness();
+  const output = await context.LPGPortalContent.generate({ program,
+    client: { callLLM: async () => { calls++; return JSON.stringify(generated); } } });
+  assert.equal(calls, 1); assert.equal(output.earnMore.length, 2);
+  assert.equal(output.earnMore[0].title, program.earnRules[0].name);
+  assert.match(output.earnMore[0].description, /Complete a learning course/);
+  assert.doesNotMatch(JSON.stringify(output.earnMore), /vacation|sweepstakes|unrelated\.png/);
+  assert.match(output._meta.content_warning, /2 activity cards were built/);
+  assert.match(output._meta.content_warning, /1 unlinked or ambiguous/);
+  assert.equal(output.offers[0].title, generated.offers[0].title);
+  assert.equal(output.vouchers[0].description, generated.vouchers[0].description);
+});
+
+test('ambiguous duplicate activity cards do not choose arbitrary copy, while exact IDs disambiguate equal rule names', () => {
+  const program = activityProgram();
+  const context = harness();
+  const duplicates = [
+    { programRuleId: 'complete_course', title: program.earnRules[0].name, description: 'First unverified interpretation' },
+    { programRuleId: 'complete_course', title: program.earnRules[0].name, description: 'Conflicting interpretation' }
+  ];
+  const before = JSON.stringify(duplicates);
+  const recovered = context.LPGPortalContent.reconcileActivities(duplicates, program);
+  assert.doesNotMatch(recovered.items[0].description, /interpretation/);
+  assert.equal(recovered.rebuilt, 2); assert.equal(recovered.omitted, 2);
+  assert.equal(JSON.stringify(duplicates), before);
+  const named = makeProgram({ earnRules: program.earnRules.map(rule => ({ ...rule, name: 'Attend a learning event' })) });
+  const ambiguous = context.LPGPortalContent.reconcileActivities(named.earnRules.map(() => ({ title: 'Attend a learning event', description: 'Ambiguous offer' })), named);
+  assert.equal(ambiguous.rebuilt, 2);
+  const exact = context.LPGPortalContent.reconcileActivities(named.earnRules.map(rule => ({ title: rule.name, programRuleId: rule.id, description: `Copy for ${rule.id}` })), named);
+  assert.equal(exact.items[0].description, 'Copy for complete_course');
+  assert.equal(exact.items[1].description, 'Copy for attend_event');
+  assert.equal(exact.rebuilt, 0);
+});
+
+test('missing AI activities preserve accepted promotional copy and uploads on refinement', async () => {
+  const program = activityProgram();
+  const existing = { ...content(program), programEnabled: true, program, brand: { name: 'ISACA' } };
+  existing.earnMore[0].description = 'Your personally curated learning journey.';
+  existing.earnMore[0].cta = 'Find your next course';
+  existing.earnMore[0].imageData = 'data:image/png;base64,author-course';
+  const before = JSON.stringify(existing);
+  const generated = content(program); delete generated.earnMore;
+  generated.offers[0].description = 'Updated professional-development offer.';
+  const context = harness();
+  const output = await context.LPGPortalContent.generate({ program, existing,
+    client: { callLLM: async () => JSON.stringify(generated) } });
+  assert.equal(output.earnMore[0].description, existing.earnMore[0].description);
+  assert.equal(output.earnMore[0].cta, existing.earnMore[0].cta);
+  assert.equal(output.earnMore[0].imageData, existing.earnMore[0].imageData);
+  assert.equal(output.offers[0].description, generated.offers[0].description);
+  assert.match(output._meta.content_warning, /Existing copy was kept for 2 activity cards/);
+  assert.equal(JSON.stringify(existing), before);
+});
+
+test('an explicit program without earning rules cannot acquire AI-invented activities', async () => {
+  const program = makeProgram({ earnRules: [] });
+  const generated = content(program);
+  generated.earnMore = [{ title: 'Refer friends', description: 'Earn 10000 points for every friend.' }];
+  const context = harness();
+  const output = await context.LPGPortalContent.generate({ program, client: { callLLM: async () => JSON.stringify(generated) } });
+  assert.equal(output.earnMore.length, 0);
+  assert.match(output._meta.content_warning, /1 unlinked or ambiguous/);
+  assert.equal(output.vouchers.length, program.rewards.length);
+});
+
+test('fallback activities explain earning benefits only for currencies awarded by that rule', () => {
+  const program = makeProgram({ currencies: { qualifyingName: 'Status Credits', redeemableName: 'Reward Credits', pointsPerUnit: 100 }, earnRules: [
+    { id: 'learn', name: 'Read the professional journal', kind: 'fixed', qualifyingPoints: 10, redeemablePoints: 0 },
+    { id: 'shop', name: 'Eligible learning purchases', kind: 'spend', qualifyingRate: 0, redeemableRate: 2, amount: 100 }
+  ] });
+  const context = harness();
+  const { items } = context.LPGPortalContent.reconcileActivities([], program);
+  assert.match(items[0].description, /earn Status Credits/); assert.doesNotMatch(items[0].description, /Reward Credits/);
+  assert.match(items[1].description, /earn Reward Credits/); assert.doesNotMatch(items[1].description, /Status Credits/);
+  assert.doesNotMatch(items.map(item => item.description).join(' '), /simulate|transaction|\b10\b|\b100\b/);
 });
 
 test('refinement supplies existing author copy to AI and preserves palette and uploaded assets', async () => {
