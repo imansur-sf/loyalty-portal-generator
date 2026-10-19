@@ -397,7 +397,7 @@
 
           <section class="wizard-card p-7 program-authoring" aria-labelledby="program-controls-title">
             <h2 id="program-controls-title" class="wizard-title">Portal experience</h2>
-            <label class="program-field" for="output-template">Output template<select id="output-template"><option value="classic">Classic · Original portal</option><option value="dashboard">Member Dashboard · Overview and activity</option><option value="showcase">Rewards Showcase · Image-led catalogue</option><option value="editorial">Brand Experience · Immersive brand stories</option><option value="cinematic">Cinematic Journey · Scroll-driven storytelling</option></select></label>
+            <label class="program-field" for="output-template">Output template<select id="output-template"><option value="cinematic" selected>Cinematic Journey · Scroll-driven storytelling</option><option value="classic">Classic · Original portal</option><option value="dashboard">Member Dashboard · Overview and activity</option><option value="showcase">Rewards Showcase · Image-led catalogue</option><option value="editorial">Brand Experience · Immersive brand stories</option></select></label>
 
             <div id="cinematic-settings" hidden></div>
             <p id="program-mode-note" class="program-help"></p>
@@ -3641,7 +3641,7 @@ complete every required section and exact reward/earning mapping before closing 
   function reset() {
     root.LPGImages?.invalidate();
     importSequence++; generationSequence++; importing = false;
-    state.schemaVersion = 2; state.brief = defaults(); state.program = null; state.programReview = null; state.programEnabled = false; state.outputTemplate = 'classic'; state.activeVariant = 'b2c'; state.variants = {};
+    state.schemaVersion = 2; state.brief = defaults(); state.program = null; state.programReview = null; state.programEnabled = false; state.outputTemplate = 'cinematic'; state.activeVariant = 'b2c'; state.variants = {};
     if (el('brief-import-status')) el('brief-import-status').textContent = '';
     sync();
   }
@@ -5879,7 +5879,7 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
 const state = {
   schemaVersion: 2,
   brief: { mode: 'b2c', objective: '', text: '', roles: '', sources: [] },
-  program: null, programReview: null, programEnabled: false, outputTemplate: 'classic',
+  program: null, programReview: null, programEnabled: false, outputTemplate: 'cinematic',
   cinematic: window.LPGCinematic?.normalize(),
   activeVariant: 'b2c', variants: {},
   brand: { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' },

@@ -6,7 +6,7 @@
 const state = {
   schemaVersion: 2,
   brief: { mode: 'b2c', objective: '', text: '', roles: '', sources: [] },
-  program: null, programReview: null, programEnabled: false, outputTemplate: 'classic',
+  program: null, programReview: null, programEnabled: false, outputTemplate: 'cinematic',
   cinematic: window.LPGCinematic?.normalize(),
   activeVariant: 'b2c', variants: {},
   brand: { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' },

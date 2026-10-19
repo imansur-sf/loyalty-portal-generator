@@ -269,7 +269,7 @@
   function reset() {
     root.LPGImages?.invalidate();
     importSequence++; generationSequence++; importing = false;
-    state.schemaVersion = 2; state.brief = defaults(); state.program = null; state.programReview = null; state.programEnabled = false; state.outputTemplate = 'classic'; state.activeVariant = 'b2c'; state.variants = {};
+    state.schemaVersion = 2; state.brief = defaults(); state.program = null; state.programReview = null; state.programEnabled = false; state.outputTemplate = 'cinematic'; state.activeVariant = 'b2c'; state.variants = {};
     if (el('brief-import-status')) el('brief-import-status').textContent = '';
     sync();
   }

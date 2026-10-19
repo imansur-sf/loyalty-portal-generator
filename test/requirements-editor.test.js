@@ -56,7 +56,7 @@ test('Both audiences generate once per audience, switch independently, persist a
     assert.equal(e.imageCalls(),2);assert.equal(e.run('state.activeVariant'),'b2c');
     e.run("state.outputTemplate='showcase'; state.offers[0].title='Edited B2C offer'");
     e.w.LPGVariants.show('b2b');
-    assert.equal(e.run('state.program.mode'),'b2b');assert.equal(e.run('state.outputTemplate'),'classic');
+    assert.equal(e.run('state.program.mode'),'b2b');assert.equal(e.run('state.outputTemplate'),'cinematic');
     e.run("state.outputTemplate='editorial';state.offers[0].title='Edited B2B offer'");
     assert.match(e.run('generatePortalHTML(state)'),/Edited B2B offer/);
     e.run('hydratePortal(buildProjectPayload())');
@@ -349,7 +349,7 @@ test('both-audience AI requests carry each selected template before rule and ima
 test('a template change while AI is working discards the pending result', async () => {
   const e = await editor(); try {
     const client = e.client(prompt => {
-      e.run(`state.outputTemplate='cinematic'`);
+      e.run(`state.outputTemplate='showcase'`);
       return e.w.LPGProgram.normalize({ mode: prompt.author.mode });
     });
     await assert.rejects(e.w.LPGRequirementsEditor.analyze(client, ''), /editor changed while AI was working/);
