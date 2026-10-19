@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "buildId": "2709752e4c1fea43035f94313988b494a6868d5f1639b37710f37e8f5fbbd6ca",
+  "buildId": "701cc9b11798cb0773d803ea0348993b818790e2dc4a0ae0f2b63e1301a1740e",
   "assets": {
     "js/accounts-loader.js": "d7eb6095c4cdd76b10fc4f183e7a4645243fd84f3cd475f90ca89b946a4369b4",
     "js/app.js": "afedc321e7add667802df40f23c08e5387e45df8e1503bcf37f1bf83a04f3816",
@@ -12,7 +12,7 @@
     "js/images.js": "0ccf092540c8c0db87649e3763bfc0a15b72b6f0a170a7671e3ebd86c09dbbeb",
     "js/localai.js": "9c2d00fedd30ceb367fcf7dbcad076aed7ed81365cd6f78a554b0be24de288d6",
     "js/pagehost.js": "f65fb1ea48d218199ca9f94b64e28c3b19309911216e5f91f25b80cffd08504e",
-    "js/portal-content.js": "2a8a3a9f82ac570e6b4053e11eff88a283f4b5a78e4b8cb3412e3ec74586fb52",
+    "js/portal-content.js": "db8dea9f2b466d4f3ba4fde1e68546b99b5853f4a87f25c0b6a218ed3629a888",
     "js/portal-templates.js": "6ac4d102e7446f94479aa8584371fab65a0c2ba398fdc12d9a8ae0534f62dc13",
     "js/program-model.js": "853c3637cc3460d7f72d2c4f6a475daef619938f5160919367a09e70a82d87b4",
     "js/program-provenance.js": "736da9474de08050603bc6b5740cd1b7dbf5ed6527597f12edf0d98ef6c57787",

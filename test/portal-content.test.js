@@ -89,9 +89,9 @@ test('generation rejects truncated or incomplete rich content before images or s
   }
   assert.equal(imageCalls, 0);
 });
-test('content truncation and mapping errors each receive one complete-context repair before images', async () => {
+test('content truncation and incomplete presentation each receive one complete-context repair before images', async () => {
   const program = makeProgram();
-  for (const failure of ['{\"vouchers\":', JSON.stringify({ ...content(program), vouchers: [] }),
+  for (const failure of ['{\"vouchers\":', JSON.stringify({ ...content(program), offers: [] }),
     { text: JSON.stringify(content(program)), finish_reason: 'MAX_TOKENS' }]) {
     let calls = 0, imageCalls = 0;
     const requests = [], phases = [];
@@ -120,17 +120,74 @@ test('content retry is bounded and never retries uncertain provider requests', a
   assert.equal(calls, 1); assert.equal(imageCalls, 0);
 });
 
-test('generation rejects extra, omitted, duplicate, or unlinked redeemable rewards', async () => {
-  const program = makeProgram();
-  const context = harness();
+test('mapping-only reward noise is recovered without another paid request or policy changes', async () => {
+  const program = makeProgram({ rewards: Array.from({length:5},(_,i)=>({id:`reward_${i}`,name:`Reward ${i}`,cost:100+i})) });
   for (const alter of [
-    data => data.vouchers.push({ ...data.vouchers[0], programRewardId: 'invented' }),
+    data => data.vouchers.push({ ...data.vouchers[0], programRewardId: 'invented', title:'Invented reward' }),
     data => { data.vouchers = []; },
-    data => data.vouchers.push(data.vouchers[0]),
-    data => { delete data.vouchers[0].programRewardId; }
+    data => data.vouchers.push({...data.vouchers[0]}),
+    data => { data.vouchers.forEach(item=>delete item.programRewardId); },
+    data => { data.vouchers = data.vouchers.slice(0,4); },
+    data => { delete data.vouchers; },
+    data => { data.vouchers = null; }
   ]) {
-    const data = content(program); alter(data);
-    await assert.rejects(context.LPGPortalContent.generate({ program, client: { callLLM: async () => JSON.stringify(data) } }), /match the validated program/);
+    const data = content(program); alter(data);let calls=0;
+    const output=await harness().LPGPortalContent.generate({program,client:{callLLM:async()=>{calls++;return JSON.stringify(data);}}});
+    assert.equal(calls,1);
+    assert.deepEqual(Array.from(output.vouchers,item=>item.programRewardId),program.rewards.map(item=>item.id));
+    assert.deepEqual(Array.from(output.vouchers,item=>item.title),program.rewards.map(item=>item.name));
+    assert.deepEqual(Array.from(output.vouchers,item=>item.actionValue),program.rewards.map(item=>`${item.cost} ${program.currencies.redeemableName}`));
+    assert.equal(output.vouchers.length,5);assert.ok(output.vouchers.every(item=>item.expiry===''));
+  }
+});
+
+test('reward decoration follows unique normalized titles through missing IDs and reordering, never array positions', async()=>{
+  const program=makeProgram({rewards:[{id:'learning',name:'Learning credit',cost:250},{id:'event',name:'Chapter event',cost:500}]});
+  const data=content(program);
+  data.vouchers=[{title:'  CHAPTER   EVENT ',description:'Meet your professional community.',imageUrl:'https://brand.test/event.png'},
+    {programRewardId:'wrong',title:'Learning credit',description:'Choose a professional learning resource.',imageUrl:'https://brand.test/learning.png'}];
+  let request,calls=0;
+  const output=await harness().LPGPortalContent.generate({program,website:{images:[{url:'https://brand.test/event.png'},{url:'https://brand.test/learning.png'}]},
+    client:{callLLM:async args=>{request=args;calls++;return JSON.stringify(data);}}});
+  assert.equal(calls,1);assert.equal(output.vouchers[0].description,'Choose a professional learning resource.');
+  assert.equal(output.vouchers[0].imageUrl,'https://brand.test/learning.png');assert.equal(output.vouchers[1].imageUrl,'https://brand.test/event.png');
+  const payload=JSON.parse(request.prompt);assert.equal(payload.rewardCards.length,2);assert.equal(payload.rewardCards[0].programRewardId,'learning');
+  const voucherSchema=request.system.slice(request.system.indexOf('"vouchers"'),request.system.indexOf('"offers"'));
+  assert.match(voucherSchema,/programRewardId/);assert.match(voucherSchema,/description/);assert.doesNotMatch(voucherSchema,/4 items/);
+  assert.match(voucherSchema,/rewardCards/);assert.doesNotMatch(request.system,/last should have hasCodeInput: true/);
+});
+
+test('ambiguous duplicate reward names and unrelated valid IDs fall back to canonical copy',async()=>{
+  const program=makeProgram({rewards:[{id:'a',name:'Member credit',cost:100},{id:'b',name:'Member credit',cost:200},{id:'c',name:'Learning',cost:300}]});
+  const data=content(program);data.vouchers=[{title:'Member credit',description:'Wrong ambiguous promise'},
+    {programRewardId:'c',title:'Unrelated offer',description:'Unrelated eligibility'}];
+  const output=await harness().LPGPortalContent.generate({program,client:{callLLM:async()=>JSON.stringify(data)}});
+  assert.equal(output.vouchers.length,3);assert.ok(output.vouchers.every(item=>!item.description.includes('Wrong')&&!item.description.includes('Unrelated')));
+  assert.match(output._meta.content_warning,/3 reward cards were built/);assert.match(output._meta.content_warning,/2 unlinked or ambiguous AI reward cards/);
+  assert.equal(output.vouchers[0].actionValue,`100 ${program.currencies.redeemableName}`);
+  assert.equal(output.vouchers[1].actionValue,`200 ${program.currencies.redeemableName}`);
+});
+
+test('canonical reward fallback preserves accepted descriptions, uploaded assets and content IDs by program ID',async()=>{
+  const program=makeProgram({rewards:[{id:'a',name:'First reward',cost:100},{id:'b',name:'Second reward',cost:200}]});
+  const existing={...content(program),programEnabled:true,program};
+  existing.vouchers[0]={...existing.vouchers[0],id:'authored-a',description:'My authored first reward',imageData:'data:image/png;base64,first'};
+  existing.vouchers[1]={...existing.vouchers[1],id:'authored-b',description:'My authored second reward',imageData:'data:image/png;base64,second'};
+  const next=makeProgram({rewards:[{...program.rewards[1],name:'Renamed second reward',cost:350},program.rewards[0]]});
+  const data=content(next);data.vouchers=[{programRewardId:'a',id:'authored-b',title:'First reward',description:'Fresh first copy',actionValue:'1 Wrong Currency'}];
+  const output=await harness().LPGPortalContent.generate({program:next,existing,client:{callLLM:async()=>JSON.stringify(data)}});
+  assert.equal(output.vouchers[0].description,'My authored second reward');assert.equal(output.vouchers[0].id,'authored-b');
+  assert.equal(output.vouchers[0].imageData,'data:image/png;base64,second');assert.equal(output.vouchers[0].actionValue,`350 ${next.currencies.redeemableName}`);
+  assert.equal(output.vouchers[1].description,'Fresh first copy');assert.equal(output.vouchers[1].id,'authored-a');assert.equal(output.vouchers[1].imageData,'data:image/png;base64,first');
+});
+
+test('descriptive and empty reward programs never acquire invented costs or extra rewards',async()=>{
+  for(const rewards of [[{id:'opportunity',name:'Member opportunity',cost:null}],[]]){
+    const program=makeProgram({version:2,capabilities:{presentationOnly:true,tiers:false},rewards,tiers:[],earnRules:[]});
+    const data=content(program);data.vouchers=[{title:'Invented points reward',programRewardId:'fake',description:'Only 10 points'}];let request;
+    const output=await harness().LPGPortalContent.generate({program,client:{callLLM:async args=>{request=args;return JSON.stringify(data);}}});
+    assert.equal(output.vouchers.length,rewards.length);const payload=JSON.parse(request.prompt);assert.equal(payload.rewardCards.length,rewards.length);
+    if(rewards.length){assert.equal(output.vouchers[0].description,'Explore Member opportunity.');assert.equal(output.vouchers[0].actionType,'none');assert.equal(output.vouchers[0].actionValue,'');assert.equal(payload.rewardCards[0].actionValue,'');}
   }
 });
 
