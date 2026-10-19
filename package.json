@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js",
+    "test": "node scripts/test.cjs",
     "build:portal-css": "node scripts/build-portal-css.cjs",
     "check:portal-css": "node scripts/build-portal-css.cjs --check",
     "build:editor": "node scripts/build-editor.cjs",
