@@ -24,7 +24,7 @@ Separate provider from participating business and person. B2B balances belong to
 Only implemented modules: overview (balances/tiers), earn (spend/fixed earn), rewards (fixed points redemption), activity (ledger), team (demo people/roles), approvals (request/approve). These are simulated, not integrated to Salesforce. Mark integrations, real invitations, referral tracking, annual rollover, expiry processing, advanced account hierarchy and other unsupported behavior as unsupported/future/question. Do not claim interactive coverage for them. Referrals are future when the document says later phase. Internal financial/governance plans do not become public portal content.
 Source each requirement to the supplied document name and PAGE number, or Author brief. Distinguish actual requirements from assumptions and contradictions. Identify missing policy, conflicting figures, and unresolved decisions. Opening balances, sample people and rewards absent from source are DEMO assumptions. Preserve all supplied rules exactly or flag them as unsupported. Do not invent approval of unspecified policy. If refining an accepted program, preserve unrelated fields and explicit author choices.
 Program name, role names, earning and rewards should reflect the customer's brief; do not force generic retail offers. For B2C approvalRequired must be false. No HTML, JS, CSS, URLs, or scripts in program fields. Brand colors are six-digit hex only. Do not produce actual customer personal data from source documents as demo people.
-Keep the complete JSON under 6000 output tokens. Group related source requirements into at most 25 concise coverage entries; preserve actual rule values in program fields. If the requested scope cannot fit the supported model, identify the excess as unsupported instead of silently claiming it is implemented.`;
+Return compact JSON without indentation or explanatory prose. Aim for 4500 output tokens or fewer by keeping descriptions and assumptions concise, not by dropping policy. Group related source requirements into at most 25 concise coverage entries; each entry should identify the policy briefly and cite its document/page(s). Preserve all actual rule values, distinct unsupported rules, contradictions and unresolved decisions. Do not repeat entire source passages or restate the same rule in several assumptions. If the requested scope cannot fit the supported model, identify the excess as unsupported instead of silently claiming it is implemented. Complete all fields and close the entire JSON object.`;
 
   function sourcesText(sources) {
     if (!Array.isArray(sources) || sources.length > MAX_FILES) throw new Error('Attach up to three documents.');
@@ -46,13 +46,38 @@ Keep the complete JSON under 6000 output tokens. Group related source requiremen
       sourceDocuments: sourcesText(brief.sources || []), websiteContext: website || null });
   }
   function parseResponse(response, model, mode) {
-    let text = typeof response === 'string' ? response : response.text || response.response || response.output;
-    if (typeof text !== 'string') throw new Error('AI returned no program. Please try again.');
+    const finishReason = typeof response === 'object' && response ? (response.finish_reason || response.finishReason || '') : '';
+    const failure = (message, code, details) => {
+      const error = new Error(message); error.code = code; error.details = details;
+      if (finishReason) error.finishReason = String(finishReason).slice(0, 80);
+      return error;
+    };
+    if (/^(MAX_TOKENS|LENGTH)$/i.test(finishReason)) throw failure('AI returned an incomplete program because its response reached the output limit. Your current portal was kept.', 'incomplete_program', ['The response reached the output limit; regenerate complete compact JSON.']);
+    let text = typeof response === 'string' ? response : response?.text || response?.response || response?.output;
+    if (typeof text !== 'string' || !text.trim()) throw failure('AI returned no complete program. Your current portal was kept.', 'incomplete_program', ['No complete JSON object was returned.']);
     text = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     let data;
-    try { data = JSON.parse(text); } catch (_) { throw new Error('AI returned an incomplete program. Your current portal was kept. Try a narrower demo objective or a shorter requirements excerpt.'); }
-    if (!data || !data.program || typeof data.program !== 'object') throw new Error('AI did not return a program for review.');
-    if (data.program.mode !== mode) throw new Error('AI returned the wrong portal audience. Please try again.');
+    try { data = JSON.parse(text); } catch (_) { throw failure('AI returned an incomplete or malformed program. Your current portal was kept.', 'incomplete_program', ['Return exactly one complete valid JSON object; do not continue or patch the previous response.']); }
+    if (!data || !data.program || typeof data.program !== 'object' || Array.isArray(data.program)) throw failure('AI did not return a complete program. Your current portal was kept.', 'invalid_program', ['Return the complete program object inside {"program":...,"brand":...}.']);
+    if (data.program.mode !== mode) throw failure('AI returned the wrong portal audience. Your current portal was kept.', 'invalid_program', [`program.mode must equal ${mode}.`]);
+    // Model normalization supports defaults for older saved projects and the
+    // editable sample. AI output must explicitly supply its complete decisions;
+    // accepting {mode:...} and inventing the rest would lose source requirements.
+    const missing = [];
+    const required = (value, keys, path) => {
+      for (const key of keys) if (!value || !Object.hasOwn(value, key)) missing.push(`${path}.${key} is required`);
+    };
+    required(data.program, ['version', 'name', 'providerName', 'member', 'currencies', 'tiers', 'opening', 'earnRules', 'freeContentMonthlyCap', 'rewards', 'roles', 'approvalRequired', 'assumptions', 'requirements', 'futureFeatures'], 'program');
+    required(data.program.member, ['name', 'organization', 'role'], 'program.member');
+    required(data.program.currencies, ['qualifyingName', 'redeemableName', 'pointsPerUnit'], 'program.currencies');
+    required(data.program.opening, ['qualifying', 'redeemable'], 'program.opening');
+    for (const [key, fields] of [
+      ['tiers', ['name', 'threshold', 'multiplier']],
+      ['earnRules', ['id', 'name', 'kind', 'qualifyingRate', 'redeemableRate', 'qualifyingPoints', 'redeemablePoints', 'amount', 'monthlyCap']],
+      ['rewards', ['id', 'name', 'cost']], ['roles', ['id', 'name', 'canRequest', 'canApprove']],
+      ['requirements', ['id', 'text', 'source', 'status', 'module']]
+    ]) if (Array.isArray(data.program[key])) data.program[key].forEach((item, index) => required(item, fields, `program.${key}[${index}]`));
+    if (missing.length) throw failure('AI returned an incomplete program schema. Your current portal was kept.', 'invalid_program', missing.slice(0, 30));
     const result = model.validate(data.program);
     if (!result.valid) {
       const error = new Error('The proposed rules need correction: ' + result.errors.slice(0, 3).join('; '));
@@ -71,6 +96,14 @@ Keep the complete JSON under 6000 output tokens. Group related source requiremen
       for (const key of ['primary', 'accent']) if (/^#[0-9a-f]{6}$/i.test(data.brand[key] || '')) brand[key] = data.brand[key];
     }
     return { program: result.model, brand };
+  }
+
+  function repairPrompt(prompt, error) {
+    return prompt + '\nValidation feedback (return a complete corrected program):\n' + JSON.stringify({
+      problem: error.code, finishReason: error.finishReason || '',
+      details: (Array.isArray(error.details) ? error.details : [error.message]).slice(0, 30).map(value => String(value).slice(0, 500)),
+      instruction: 'Regenerate the entire JSON object from the unchanged author request and all supplied source pages. Use concise labels and grouped, page-cited coverage; preserve every supplied numeric rule, unsupported requirement and unresolved decision. Do not drop documents, fabricate omitted policy, append a continuation, or return only changed fields. Keep assumptions short, avoid duplicate explanations, and close every array and object.'
+    });
   }
 
   function migratePayload(payload, model, nested = false) {
@@ -166,7 +199,7 @@ Keep the complete JSON under 6000 output tokens. Group related source requiremen
       return { name: file.name, pages, pageCount: doc.numPages, warning: empty.length ? `No text found on pages ${empty.join(', ')}. Check those pages for scanned requirements.` : '' };
     } finally { await task.destroy(); }
   }
-  const api = { SYSTEM, MAX_TEXT, MAX_FILES, buildPrompt, sourcesText, parseResponse, extractFile, migratePayload };
+  const api = { SYSTEM, MAX_TEXT, MAX_FILES, buildPrompt, sourcesText, parseResponse, repairPrompt, extractFile, migratePayload };
   root.LPGRequirements = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -11,6 +11,15 @@ test('real routes submit and retrieve LLM/image work without holding the submit 
     if (body.generationConfig.responseModalities) {
       return new Response(JSON.stringify({ candidates: [{content:{parts:[{inlineData:{mimeType:'image/png',data:'synthetic'}}]}}] }));
     }
+    if (body.contents[0].parts[0].text === 'bounded JSON') {
+      assert.equal(body.generationConfig.maxOutputTokens,16000);
+      assert.equal(body.generationConfig.responseMimeType,'application/json');
+      assert.equal(body.generationConfig.thinkingConfig.thinkingLevel,'low');
+      return new Response(JSON.stringify({candidates:[{finishReason:'MAX_TOKENS',content:{parts:[{text:'hidden reasoning',thought:true},{text:'{"program":{}}'}]}}]}));
+    }
+    if (body.contents[0].parts[0].text === 'empty cutoff') {
+      return new Response(JSON.stringify({candidates:[{finishReason:'MAX_TOKENS',content:{parts:[]}}]}));
+    }
     await new Promise(resolve => { finish = resolve; });
     return new Response(JSON.stringify({ candidates: [{content:{parts:[{text:'{"program":"demo"}'}]}}] }));
   };
@@ -25,6 +34,11 @@ test('real routes submit and retrieve LLM/image work without holding the submit 
   const llm=await submit({kind:'llm',prompt:'Fictional portal'});
   assert.deepEqual(await poll(llm),{status:'pending'});finish();
   assert.equal((await poll(llm)).result.body.text,'{"program":"demo"}');
+  const bounded=await submit({kind:'llm',prompt:'bounded JSON',maxTokens:99999,responseFormat:'json'});
+  const boundedResult=(await poll(bounded)).result.body;
+  assert.equal(boundedResult.text,'{"program":{}}'); assert.equal(boundedResult.finish_reason,'MAX_TOKENS');
+  const empty=await submit({kind:'llm',prompt:'empty cutoff',responseFormat:'json'});
+  assert.equal((await poll(empty)).result.body.finish_reason,'MAX_TOKENS');
   const image=await submit({kind:'images',prompts:[{slot:'benefit0',prompt:'Fictional benefit'}]});
   const result=await poll(image);
   assert.equal(result.result.body.results[0].imageData,'data:image/png;base64,synthetic');

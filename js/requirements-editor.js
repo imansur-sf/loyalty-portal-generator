@@ -91,17 +91,21 @@
       const current = existing?.program ? clone(existing.program) : null;
       setQuickStartStatus(`Designing the ${mode.toUpperCase()} loyalty experience…`, true);
       const prompt = LPGRequirements.buildPrompt(audienceBrief, website, current);
-      let result = await client.callLLM({ system: LPGRequirements.SYSTEM, prompt, maxTokens: 8000, tier: 'balanced' });
+      let result = await client.callLLM({ system: LPGRequirements.SYSTEM, prompt, maxTokens: 12000, tier: 'balanced', responseFormat: 'json' });
       checkCurrent();
       let proposal;
       try { proposal = LPGRequirements.parseResponse(result, LPGProgram, mode); }
       catch (error) {
-        if (error.code !== 'invalid_program') throw error;
-        setQuickStartStatus('AI is correcting a program detail…', true);
+        if (!['invalid_program', 'incomplete_program'].includes(error.code)) throw error;
+        setQuickStartStatus(error.code === 'incomplete_program' ? 'AI is completing the program response. Your requirements are retained…' : 'AI is correcting a program detail…', true);
         result = await client.callLLM({ system: LPGRequirements.SYSTEM,
-          prompt: prompt + '\nValidation feedback (return a complete corrected program):\n' + JSON.stringify(error.details),
-          maxTokens: 8000, tier: 'balanced' });
-        checkCurrent(); proposal = LPGRequirements.parseResponse(result, LPGProgram, mode);
+          prompt: LPGRequirements.repairPrompt(prompt, error), maxTokens: 16000, tier: 'balanced', responseFormat: 'json' });
+        checkCurrent();
+        try { proposal = LPGRequirements.parseResponse(result, LPGProgram, mode); }
+        catch (retryError) {
+          if (['invalid_program', 'incomplete_program'].includes(retryError.code)) retryError.message = 'AI could not finish a valid program after an automatic retry. Your portal and requirements documents were kept. Please try generating again.';
+          throw retryError;
+        }
       }
       setQuickStartStatus(`Creating ${mode.toUpperCase()} offers, rewards and branded imagery…`, true);
       const content = await root.LPGPortalContent.generate({ client, brief: audienceBrief, program: proposal.program,

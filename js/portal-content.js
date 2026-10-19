@@ -37,6 +37,8 @@ Keep brandName/programName/member/tiers consistent with validatedProgram. Keep J
 For a refinement, use existingPresentation as the starting copy. Change the sections relevant
 to the author's latest request and changed program rules; preserve unrelated author-edited text.
 Include all sections in the result. Do not freeze old offers when the author asks to change them.
+Return compact JSON without indentation or prose. Keep descriptions to one concise sentence;
+complete every required section and exact reward/earning mapping before closing the JSON object.
 `;
 
   function compactWebsite(website, rawURL) {
@@ -161,15 +163,37 @@ Include all sections in the result. Do not freeze old offers when the author ask
       } : null
     };
     onStatus('analyzing_content');
-    const response = await client.callLLM({ system: shared.SYSTEM_PROMPT + instruction, prompt: JSON.stringify(payload), maxTokens: 8000, tier: 'balanced' });
-    const raw = responseText(response);
-    if (typeof raw !== 'string') throw new Error('AI returned no portal presentation content. Your portal was kept.');
-    // The shared parser repairs truncated responses for legacy callers. Require
-    // complete JSON here so a partial presentation cannot erase current content.
-    const json = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-    try { JSON.parse(json); } catch (_) { throw new Error('AI returned incomplete portal presentation content. Your portal was kept; generate again.'); }
-    const parsed = shared.parseAIResponseText(json);
-    validateContent(parsed, validated);
+    let parsed, repairFeedback;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      // Network and provider errors remain outside the repair catch: a failed or
+      // uncertain paid request must not be silently resubmitted.
+      const response = await client.callLLM({ system: shared.SYSTEM_PROMPT + instruction,
+        prompt: JSON.stringify(repairFeedback ? { ...payload, repairFeedback } : payload),
+        maxTokens: attempt ? 16000 : 12000, tier: 'balanced', responseFormat: 'json' });
+      try {
+        const finishReason = response?.finish_reason || response?.finishReason || '';
+        if (/^(MAX_TOKENS|LENGTH)$/i.test(finishReason)) throw new Error('AI reached the output limit before completing portal presentation content. Your portal was kept.');
+        const raw = responseText(response);
+        if (typeof raw !== 'string' || !raw.trim()) throw new Error('AI returned no portal presentation content. Your portal was kept.');
+        // The shared parser repairs truncated responses for legacy callers.
+        // Require complete JSON here; never close/truncate it locally to accept
+        // partial output that could erase sections or disconnect reward IDs.
+        const json = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+        try { JSON.parse(json); } catch (_) { throw new Error('AI returned incomplete or malformed portal presentation content. Your portal was kept.'); }
+        parsed = shared.parseAIResponseText(json);
+        validateContent(parsed, validated);
+        break;
+      } catch (error) {
+        if (attempt) {
+          error.code = 'invalid_portal_content';
+          error.message += ' The automatic retry also failed; your requirements and existing portal are unchanged.';
+          throw error;
+        }
+        repairFeedback = { problem: text(error.message, 800),
+          instruction: 'Regenerate the complete presentation object from all unchanged context and the exact validatedProgram. Keep every section, reward ID/cost and earning ID. Use concise descriptions and compact JSON, not a continuation or partial patch. Do not invent replacement policy or remove requirements to fit the response.' };
+        onStatus('repairing_content');
+      }
+    }
     const candidates = new Set(scraped.images.map(image => image.url).filter(url => /^https?:\/\//i.test(url)));
     for (const key of collections) for (const item of parsed[key]) {
       item.imageUrl = candidates.has(item.imageUrl) ? item.imageUrl : ''; delete item.imageData;

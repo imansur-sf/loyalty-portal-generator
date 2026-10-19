@@ -94,6 +94,61 @@ test('invalid rules get one repair and incomplete presentation never replaces cu
     assert.equal(e.run('JSON.stringify(state)'),before);
   }finally{e.close();}
 });
+test('truncated rules retry once with all 22 source pages and only then generate rich content',async()=>{
+  const e=await editor();try {
+    e.field('brief-text','Use the supplied membership policy');
+    e.run(`state.brief.sources=[{name:'Synthetic22Pages.pdf',pages:Array.from({length:22},(_,i)=>({text:'Synthetic page '+(i+1)+' with '+(10+i)+' points'}))}]`);
+    const original=e.run('JSON.stringify(state.brief.sources)'),ruleCalls=[];
+    const normal=e.client();
+    const client={callLLM:async args=>{
+      const prompt=JSON.parse(args.prompt.split('\nValidation feedback')[0]);
+      if(!prompt.validatedProgram){ruleCalls.push(args);if(ruleCalls.length===1)return {text:'{"program":{"mode":"b2c","name":"unfinished',finish_reason:'MAX_TOKENS'};}
+      return normal.callLLM(args);
+    }};
+    await e.w.LPGRequirementsEditor.analyze(client,'');
+    assert.equal(ruleCalls.length,2);assert.equal(ruleCalls[0].maxTokens,12000);assert.equal(ruleCalls[1].maxTokens,16000);
+    assert.ok(ruleCalls.every(call=>call.responseFormat==='json'));
+    assert.equal(ruleCalls[1].prompt.split('\nValidation feedback')[0],ruleCalls[0].prompt);
+    assert.equal(JSON.parse(ruleCalls[0].prompt).sourceDocuments[0].pages.length,22);
+    assert.equal(e.run('JSON.stringify(state.brief.sources)'),original);
+    assert.equal(e.imageCalls(),1);assert.equal(e.run('state.programEnabled'),true);
+  }finally{e.close();}
+});
+test('two malformed rule responses fail atomically without another retry or image generation',async()=>{
+  const e=await editor();try {
+    e.field('brief-text','Keep current portal on failure');await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+    const before=e.run('JSON.stringify(state)'),images=e.imageCalls();let calls=0;
+    await assert.rejects(e.w.LPGRequirementsEditor.analyze({callLLM:async()=>{calls++;return '{"program":';}},''),/automatic retry/);
+    assert.equal(calls,2);assert.equal(e.imageCalls(),images);assert.equal(e.run('JSON.stringify(state)'),before);
+  }finally{e.close();}
+});
+test('changes made during an automatic rule repair are kept and prevent content generation',async()=>{
+  const e=await editor();try {
+    e.field('brief-text','Original request');let count=0,resume,started;
+    const pending=new Promise(r=>resume=r),ready=new Promise(r=>started=r);
+    const normal=e.client();
+    const request=e.w.LPGRequirementsEditor.analyze({callLLM:async args=>{
+      if(++count===1)return '{"program":';
+      started();await pending;return normal.callLLM(args);
+    }},'');
+    await ready;e.field('brief-text','Changed while repairing');resume();
+    await assert.rejects(request,/editor changed/);assert.equal(count,2);assert.equal(e.imageCalls(),0);
+    assert.equal(e.run('state.brief.text'),'Changed while repairing');assert.equal(e.run('state.program'),null);
+  }finally{e.close();}
+});
+test('malformed second-audience rules keep both prior audience variants unchanged',async()=>{
+  const e=await editor();try {
+    e.field('brief-mode','both');e.field('brief-text','Both member and business portals');
+    await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+    const before=e.run('JSON.stringify(state)'),normal=e.client();let failures=0;
+    await assert.rejects(e.w.LPGRequirementsEditor.analyze({callLLM:async args=>{
+      const prompt=JSON.parse(args.prompt.split('\nValidation feedback')[0]);
+      if(!prompt.validatedProgram&&prompt.author.mode==='b2b'){failures++;return '{"program":';}
+      return normal.callLLM(args);
+    }},''),/automatic retry/);
+    assert.equal(failures,2);assert.equal(e.run('JSON.stringify(state)'),before);
+  }finally{e.close();}
+});
 test('program details edit live while keeping focus and last valid rules for incomplete drafts',async()=>{
   const e=await editor();try {
     e.field('brief-text','Member rewards');await e.w.LPGRequirementsEditor.analyze(e.client(),'');e.w.LPGRequirementsEditor.editProgram();

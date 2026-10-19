@@ -136,3 +136,13 @@ test('request timeout remains active while downloading the JSON body after heade
   await assert.rejects(c.api.callDefaultBackend({ prompt: 'Brief' }), error => error.code === 'generation_submission_unknown');
   assert.equal(c.calls.length, 1); assert.equal(c.timers.size, 0);
 });
+
+test('structured output and finish metadata reach the program parser, including an empty token cutoff', async () => {
+  const c = client(async (_url,options) => {
+    if(options.method==='POST') { const body=JSON.parse(options.body); assert.equal(body.responseFormat,'json');assert.equal(body.maxTokens,16000);return response(202,ticket); }
+    if(options.method==='DELETE') return response(204);
+    return complete(200,{text:'',finish_reason:'MAX_TOKENS'});
+  });
+  const result=await c.api.callLLM({prompt:'Brief',responseFormat:'json',maxTokens:16000});
+  assert.equal(result.finish_reason,'MAX_TOKENS');assert.equal(result.text,'');
+});

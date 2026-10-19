@@ -88,6 +88,36 @@ test('generation rejects truncated or incomplete rich content before images or s
   }
   assert.equal(imageCalls, 0);
 });
+test('content truncation and mapping errors each receive one complete-context repair before images', async () => {
+  const program = makeProgram();
+  for (const failure of ['{\"vouchers\":', JSON.stringify({ ...content(program), vouchers: [] }),
+    { text: JSON.stringify(content(program)), finish_reason: 'MAX_TOKENS' }]) {
+    let calls = 0, imageCalls = 0;
+    const requests = [], phases = [];
+    const context = harness(async () => { imageCalls++; return { generated: 0 }; });
+    const output = await context.LPGPortalContent.generate({ program, brief: { text: 'Keep exact rules' },
+      onStatus: phase => phases.push(phase), client: { callLLM: async args => { requests.push(args); return ++calls === 1 ? failure : JSON.stringify(content(program)); } } });
+    assert.equal(calls, 2); assert.equal(imageCalls, 1);
+    assert.deepEqual(requests.map(request => request.maxTokens), [12000, 16000]);
+    assert.ok(requests.every(request => request.responseFormat === 'json'));
+    const original = JSON.parse(requests[0].prompt), repaired = JSON.parse(requests[1].prompt);
+    assert.deepEqual(repaired.validatedProgram, original.validatedProgram);
+    assert.deepEqual(repaired.author, original.author);
+    assert.match(repaired.repairFeedback.instruction, /every section, reward ID\/cost and earning ID/);
+    assert.ok(phases.includes('repairing_content'));
+    assert.equal(output.vouchers[0].programRewardId, program.rewards[0].id);
+  }
+});
+test('content retry is bounded and never retries uncertain provider requests', async () => {
+  const program = makeProgram();
+  let imageCalls = 0, calls = 0;
+  const context = harness(async () => { imageCalls++; return {}; });
+  await assert.rejects(context.LPGPortalContent.generate({ program, client: { callLLM: async () => { calls++; return '{'; } } }), /automatic retry also failed/);
+  assert.equal(calls, 2); assert.equal(imageCalls, 0);
+  calls = 0;
+  await assert.rejects(context.LPGPortalContent.generate({ program, client: { callLLM: async () => { calls++; throw new Error('Uncertain provider request'); } } }), /Uncertain provider request/);
+  assert.equal(calls, 1); assert.equal(imageCalls, 0);
+});
 
 test('generation rejects extra, omitted, duplicate, or unlinked redeemable rewards', async () => {
   const program = makeProgram();

@@ -26,6 +26,33 @@ test('AI response is strict, mode-specific and downgrades unknown interactive mo
   program.tiers[1].threshold = -1;
   assert.throws(() => requirements.parseResponse(JSON.stringify({ program }), model, 'b2b'), /need correction/);
 });
+test('malformed, truncated, empty and token-limited output is retryable without accepting repaired JSON', () => {
+  const program = model.normalize({ mode: 'b2c' });
+  for (const response of [null, '', { text: '' }, '{"program":{"mode":"b2c"',
+    JSON.stringify({ program }) + ' trailing prose', { text: JSON.stringify({ program }), finish_reason: 'MAX_TOKENS' },
+    { text: JSON.stringify({ program }), finishReason: 'length' }]) {
+    assert.throws(() => requirements.parseResponse(response, model, 'b2c'), error => error.code === 'incomplete_program');
+  }
+  const accepted = requirements.parseResponse({ text: '```json\n' + JSON.stringify({ program }) + '\n```', finish_reason: 'STOP' }, model, 'b2c');
+  assert.equal(accepted.program.name, program.name);
+});
+test('AI schema omissions cannot be silently completed by saved-project defaults', () => {
+  for (const program of [{ mode: 'b2c' }, { ...model.normalize({ mode: 'b2c' }), earnRules: [{ id: 'purchase', name: 'Purchase', kind: 'spend' }] }]) {
+    assert.throws(() => requirements.parseResponse(JSON.stringify({ program }), model, 'b2c'), error => error.code === 'invalid_program' && error.details.some(detail => /required/.test(detail)));
+  }
+});
+test('repair guidance preserves all 22 source pages and numeric rules without including truncated output', () => {
+  const pages = Array.from({ length: 22 }, (_, index) => ({ text: `Synthetic policy page ${index + 1}: award ${index + 10} points.` }));
+  const prompt = requirements.buildPrompt({ mode: 'b2c', text: 'Use these rules', sources: [{ name: 'synthetic.pdf', pages }] }, null, null);
+  const error = Object.assign(new Error('Incomplete'), { code: 'incomplete_program', finishReason: 'MAX_TOKENS', details: ['Complete JSON required'] });
+  const repaired = requirements.repairPrompt(prompt, error);
+  assert.equal(repaired.split('\nValidation feedback')[0], prompt);
+  const context = JSON.parse(repaired.split('\nValidation feedback')[0]);
+  assert.equal(context.sourceDocuments[0].pages.length, 22);
+  assert.equal(context.sourceDocuments[0].pages[21].text, pages[21].text);
+  assert.match(repaired, /preserve every supplied numeric rule/);
+  assert.match(repaired, /MAX_TOKENS/);
+});
 test('legacy saves migrate to Classic and new program briefs round trip without rewriting sources', () => {
   assert.equal(requirements.migratePayload({ brand: {} }, model).outputTemplate, 'classic');
   const sources = [{ name: 'customer.txt', pageCount: 1, pages: [{ text: 'Rules' }] }];

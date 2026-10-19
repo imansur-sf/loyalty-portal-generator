@@ -122,8 +122,23 @@ unavailable (no CUA browsers/apps). Unrelated worker/tool state preserved.
 ## Generation backend timeout repair
 - [x] Inspect deployed dyno and long-running generation request flow.
 - [x] Replace long HTTP waits with bounded background jobs and short authenticated polls.
-- [ ] Verify delayed completion, failure handling and regression suite; deploy and check hosted generation.
+- [x] Verify delayed completion, failure handling and regression suite; deploy and check hosted generation.
 
 Validation:123 regression tests passed; standalone17 scripts parse.32s delayed
 AI test completed with20ms submission and <=7ms progress calls. Preflight rejects
 invalid/rate-limited work before storing jobs. Deployment pending.
+
+Deployed commit5a02418 / Heroku v30 succeeded; web-c65ffc984-6vn4p is up.
+Production health reports generation_jobs:true. Deployed LocalAI client tested
+inside new dyno against real AI: text24.1s/12,683chars, image10.6s/1,299,971bytes.
+Both POSTs202 (52ms and3ms),23polls, maxHTTPheaders52ms, bothDELETEs204.
+These checks bypass the external SSO gateway; user browser retest still needed.
+
+## Incomplete program JSON repair
+- [x] Identify malformed JSON bypassing automatic correction and8000-token cap.
+- [x] Add structured output, larger bounded budget and bounded recovery in both AI stages.
+- [ ] Verify approved22-pagePDF reproduction, regressions and hosted release.
+
+133tests passed, including response metadata, boundedretries, complete22page
+source preservation and both-audience atomicity. PDF replay authorized byuser.
+Revisedconfig producedvalidprogram11.3s; fullwebsite+PDF validation pending.

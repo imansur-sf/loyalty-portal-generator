@@ -2,7 +2,26 @@
 
 Last updated: 2026-10-18. **Read this first.** `git log` records shipped changes; PROGRESS.md records the current sign-in/save rollout. `CLAUDE.md` in this repo is stale (still describes a Page Host zip-bundle deployment that was abandoned); its two-build-outputs instructions still apply.
 
-## Generation timeout repair (2026-10-18)
+## Incomplete AI response repair (2026-10-18)
+
+The program JSON parser threw an unclassified error for malformed/truncated
+output, bypassing the editor's automatic correction branch. Both rules and
+presentation now request JSON mode with12000 tokens and retry once with16000
+when output is malformed, truncated, missing schema or semantically invalid.
+Source pages remain intact; no local truncation repair or silent model defaults.
+Network/provider failures remain outside content-repair retries. Current portal
+and both-audience atomicity/stale-edit protection remain covered by tests.
+Server caps16000, uses Gemini low thinking for JSON mode, excludes thought parts,
+and returns finish_reason. MAX_TOKENS is rejected even for parseable JSON.
+Logging includes finish/token counts only, never source content.
+
+133 tests passed. Full22-pagePDF extraction succeeded (26756characters).
+User explicitly approved replay through existing Gemini backend. Baseline
+replay happened to succeed; original malformed response is not available.
+Revised JSON/low-thinking config passed with complete valid program in11.3s.
+Fullwebsite+PDF, both-stage production verification follows deployment.
+
+## Generation timeout repair (2026-10-18, deployed5a02418 / v30)
 
 User reported HTTP503 then generic network error during URL/PDF generation.
 Production v29 was up/configured; an in-dyno synthetic LLM call succeeded in23.3s.
@@ -25,7 +44,8 @@ confirmed. The synchronous AI route could run60s behind Heroku's30s router limit
   jobs. Legacy synchronous endpoints remain for older/custom clients.
 -123 tests passed, standalone17inline scripts parsed. A32s simulated generation
   completed with20ms submission and progress requests <=7ms. Hosted verification
-  follows deployment; browser end-to-end verification remains unavailable.
+  passed on v30 through the deployed LocalAI client (real text24.1s/image10.6s,
+  two202submissions,23polls,two204deletions). Browser verification remains unavailable.
 
 ## Rich portal restoration (current implementation)
 

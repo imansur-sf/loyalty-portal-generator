@@ -168,15 +168,18 @@ function validateLLM(req, res) {
   if (system && typeof system === 'string' && system.length > 20_000) {
     return res.status(413).json({ error: 'system_too_long' });
   }
+  if (req.body.responseFormat !== undefined && req.body.responseFormat !== 'json') {
+    return res.status(400).json({ error: 'invalid_response_format' });
+  }
 
 }
 
 async function handleLLM(req, res) {
-  const { prompt, system, tier, maxTokens } = req.body || {};
+  const { prompt, system, tier, maxTokens, responseFormat } = req.body || {};
 
   const chosenTier = ['fast', 'balanced', 'powerful'].includes(tier) ? tier : 'balanced';
   const model = TIER_MODELS[chosenTier] || DEFAULT_MODEL;
-  const tokens = Math.min(Math.max(parseInt(maxTokens, 10) || 8000, 100), 8000);
+  const tokens = Math.min(Math.max(parseInt(maxTokens, 10) || 8000, 100), 16000);
 
   // Build Gemini API request
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
@@ -185,6 +188,12 @@ async function handleLLM(req, res) {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: { maxOutputTokens: tokens }
   };
+  if (responseFormat === 'json') {
+    geminiBody.generationConfig.responseMimeType = 'application/json';
+    // The output limit also includes internal reasoning. Reserve capacity for
+    // complete portal JSON instead of spending most of it on hidden thinking.
+    geminiBody.generationConfig.thinkingConfig = { thinkingLevel: 'low' };
+  }
 
   // Add system instruction if provided
   if (system && typeof system === 'string' && system.trim()) {
@@ -223,16 +232,19 @@ async function handleLLM(req, res) {
 
     // Extract text from Gemini response
     const text = data?.candidates?.[0]?.content?.parts
-      ?.filter(p => p.text)
+      ?.filter(p => p.text && !p.thought)
       .map(p => p.text)
       .join('') || '';
 
-    if (!text) {
+    const finishReason = data?.candidates?.[0]?.finishReason || null;
+    console.info(`[LLM] finish=${finishReason || 'unknown'} output_tokens=${data.usageMetadata?.candidatesTokenCount || 0} thought_tokens=${data.usageMetadata?.thoughtsTokenCount || 0}`);
+    if (!text && finishReason !== 'MAX_TOKENS') {
       return res.status(502).json({ error: 'gemini_empty_response' });
     }
 
     res.json({
       text,
+      finish_reason: finishReason,
       model_used: model,
       tier: chosenTier,
       usage: data.usageMetadata || null

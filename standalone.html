@@ -2004,7 +2004,7 @@ Separate provider from participating business and person. B2B balances belong to
 Only implemented modules: overview (balances/tiers), earn (spend/fixed earn), rewards (fixed points redemption), activity (ledger), team (demo people/roles), approvals (request/approve). These are simulated, not integrated to Salesforce. Mark integrations, real invitations, referral tracking, annual rollover, expiry processing, advanced account hierarchy and other unsupported behavior as unsupported/future/question. Do not claim interactive coverage for them. Referrals are future when the document says later phase. Internal financial/governance plans do not become public portal content.
 Source each requirement to the supplied document name and PAGE number, or Author brief. Distinguish actual requirements from assumptions and contradictions. Identify missing policy, conflicting figures, and unresolved decisions. Opening balances, sample people and rewards absent from source are DEMO assumptions. Preserve all supplied rules exactly or flag them as unsupported. Do not invent approval of unspecified policy. If refining an accepted program, preserve unrelated fields and explicit author choices.
 Program name, role names, earning and rewards should reflect the customer's brief; do not force generic retail offers. For B2C approvalRequired must be false. No HTML, JS, CSS, URLs, or scripts in program fields. Brand colors are six-digit hex only. Do not produce actual customer personal data from source documents as demo people.
-Keep the complete JSON under 6000 output tokens. Group related source requirements into at most 25 concise coverage entries; preserve actual rule values in program fields. If the requested scope cannot fit the supported model, identify the excess as unsupported instead of silently claiming it is implemented.`;
+Return compact JSON without indentation or explanatory prose. Aim for 4500 output tokens or fewer by keeping descriptions and assumptions concise, not by dropping policy. Group related source requirements into at most 25 concise coverage entries; each entry should identify the policy briefly and cite its document/page(s). Preserve all actual rule values, distinct unsupported rules, contradictions and unresolved decisions. Do not repeat entire source passages or restate the same rule in several assumptions. If the requested scope cannot fit the supported model, identify the excess as unsupported instead of silently claiming it is implemented. Complete all fields and close the entire JSON object.`;
 
   function sourcesText(sources) {
     if (!Array.isArray(sources) || sources.length > MAX_FILES) throw new Error('Attach up to three documents.');
@@ -2026,13 +2026,38 @@ Keep the complete JSON under 6000 output tokens. Group related source requiremen
       sourceDocuments: sourcesText(brief.sources || []), websiteContext: website || null });
   }
   function parseResponse(response, model, mode) {
-    let text = typeof response === 'string' ? response : response.text || response.response || response.output;
-    if (typeof text !== 'string') throw new Error('AI returned no program. Please try again.');
+    const finishReason = typeof response === 'object' && response ? (response.finish_reason || response.finishReason || '') : '';
+    const failure = (message, code, details) => {
+      const error = new Error(message); error.code = code; error.details = details;
+      if (finishReason) error.finishReason = String(finishReason).slice(0, 80);
+      return error;
+    };
+    if (/^(MAX_TOKENS|LENGTH)$/i.test(finishReason)) throw failure('AI returned an incomplete program because its response reached the output limit. Your current portal was kept.', 'incomplete_program', ['The response reached the output limit; regenerate complete compact JSON.']);
+    let text = typeof response === 'string' ? response : response?.text || response?.response || response?.output;
+    if (typeof text !== 'string' || !text.trim()) throw failure('AI returned no complete program. Your current portal was kept.', 'incomplete_program', ['No complete JSON object was returned.']);
     text = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
     let data;
-    try { data = JSON.parse(text); } catch (_) { throw new Error('AI returned an incomplete program. Your current portal was kept. Try a narrower demo objective or a shorter requirements excerpt.'); }
-    if (!data || !data.program || typeof data.program !== 'object') throw new Error('AI did not return a program for review.');
-    if (data.program.mode !== mode) throw new Error('AI returned the wrong portal audience. Please try again.');
+    try { data = JSON.parse(text); } catch (_) { throw failure('AI returned an incomplete or malformed program. Your current portal was kept.', 'incomplete_program', ['Return exactly one complete valid JSON object; do not continue or patch the previous response.']); }
+    if (!data || !data.program || typeof data.program !== 'object' || Array.isArray(data.program)) throw failure('AI did not return a complete program. Your current portal was kept.', 'invalid_program', ['Return the complete program object inside {"program":...,"brand":...}.']);
+    if (data.program.mode !== mode) throw failure('AI returned the wrong portal audience. Your current portal was kept.', 'invalid_program', [`program.mode must equal ${mode}.`]);
+    // Model normalization supports defaults for older saved projects and the
+    // editable sample. AI output must explicitly supply its complete decisions;
+    // accepting {mode:...} and inventing the rest would lose source requirements.
+    const missing = [];
+    const required = (value, keys, path) => {
+      for (const key of keys) if (!value || !Object.hasOwn(value, key)) missing.push(`${path}.${key} is required`);
+    };
+    required(data.program, ['version', 'name', 'providerName', 'member', 'currencies', 'tiers', 'opening', 'earnRules', 'freeContentMonthlyCap', 'rewards', 'roles', 'approvalRequired', 'assumptions', 'requirements', 'futureFeatures'], 'program');
+    required(data.program.member, ['name', 'organization', 'role'], 'program.member');
+    required(data.program.currencies, ['qualifyingName', 'redeemableName', 'pointsPerUnit'], 'program.currencies');
+    required(data.program.opening, ['qualifying', 'redeemable'], 'program.opening');
+    for (const [key, fields] of [
+      ['tiers', ['name', 'threshold', 'multiplier']],
+      ['earnRules', ['id', 'name', 'kind', 'qualifyingRate', 'redeemableRate', 'qualifyingPoints', 'redeemablePoints', 'amount', 'monthlyCap']],
+      ['rewards', ['id', 'name', 'cost']], ['roles', ['id', 'name', 'canRequest', 'canApprove']],
+      ['requirements', ['id', 'text', 'source', 'status', 'module']]
+    ]) if (Array.isArray(data.program[key])) data.program[key].forEach((item, index) => required(item, fields, `program.${key}[${index}]`));
+    if (missing.length) throw failure('AI returned an incomplete program schema. Your current portal was kept.', 'invalid_program', missing.slice(0, 30));
     const result = model.validate(data.program);
     if (!result.valid) {
       const error = new Error('The proposed rules need correction: ' + result.errors.slice(0, 3).join('; '));
@@ -2051,6 +2076,14 @@ Keep the complete JSON under 6000 output tokens. Group related source requiremen
       for (const key of ['primary', 'accent']) if (/^#[0-9a-f]{6}$/i.test(data.brand[key] || '')) brand[key] = data.brand[key];
     }
     return { program: result.model, brand };
+  }
+
+  function repairPrompt(prompt, error) {
+    return prompt + '\nValidation feedback (return a complete corrected program):\n' + JSON.stringify({
+      problem: error.code, finishReason: error.finishReason || '',
+      details: (Array.isArray(error.details) ? error.details : [error.message]).slice(0, 30).map(value => String(value).slice(0, 500)),
+      instruction: 'Regenerate the entire JSON object from the unchanged author request and all supplied source pages. Use concise labels and grouped, page-cited coverage; preserve every supplied numeric rule, unsupported requirement and unresolved decision. Do not drop documents, fabricate omitted policy, append a continuation, or return only changed fields. Keep assumptions short, avoid duplicate explanations, and close every array and object.'
+    });
   }
 
   function migratePayload(payload, model, nested = false) {
@@ -2146,7 +2179,7 @@ Keep the complete JSON under 6000 output tokens. Group related source requiremen
       return { name: file.name, pages, pageCount: doc.numPages, warning: empty.length ? `No text found on pages ${empty.join(', ')}. Check those pages for scanned requirements.` : '' };
     } finally { await task.destroy(); }
   }
-  const api = { SYSTEM, MAX_TEXT, MAX_FILES, buildPrompt, sourcesText, parseResponse, extractFile, migratePayload };
+  const api = { SYSTEM, MAX_TEXT, MAX_FILES, buildPrompt, sourcesText, parseResponse, repairPrompt, extractFile, migratePayload };
   root.LPGRequirements = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -2193,6 +2226,8 @@ Keep brandName/programName/member/tiers consistent with validatedProgram. Keep J
 For a refinement, use existingPresentation as the starting copy. Change the sections relevant
 to the author's latest request and changed program rules; preserve unrelated author-edited text.
 Include all sections in the result. Do not freeze old offers when the author asks to change them.
+Return compact JSON without indentation or prose. Keep descriptions to one concise sentence;
+complete every required section and exact reward/earning mapping before closing the JSON object.
 `;
 
   function compactWebsite(website, rawURL) {
@@ -2317,15 +2352,37 @@ Include all sections in the result. Do not freeze old offers when the author ask
       } : null
     };
     onStatus('analyzing_content');
-    const response = await client.callLLM({ system: shared.SYSTEM_PROMPT + instruction, prompt: JSON.stringify(payload), maxTokens: 8000, tier: 'balanced' });
-    const raw = responseText(response);
-    if (typeof raw !== 'string') throw new Error('AI returned no portal presentation content. Your portal was kept.');
-    // The shared parser repairs truncated responses for legacy callers. Require
-    // complete JSON here so a partial presentation cannot erase current content.
-    const json = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-    try { JSON.parse(json); } catch (_) { throw new Error('AI returned incomplete portal presentation content. Your portal was kept; generate again.'); }
-    const parsed = shared.parseAIResponseText(json);
-    validateContent(parsed, validated);
+    let parsed, repairFeedback;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      // Network and provider errors remain outside the repair catch: a failed or
+      // uncertain paid request must not be silently resubmitted.
+      const response = await client.callLLM({ system: shared.SYSTEM_PROMPT + instruction,
+        prompt: JSON.stringify(repairFeedback ? { ...payload, repairFeedback } : payload),
+        maxTokens: attempt ? 16000 : 12000, tier: 'balanced', responseFormat: 'json' });
+      try {
+        const finishReason = response?.finish_reason || response?.finishReason || '';
+        if (/^(MAX_TOKENS|LENGTH)$/i.test(finishReason)) throw new Error('AI reached the output limit before completing portal presentation content. Your portal was kept.');
+        const raw = responseText(response);
+        if (typeof raw !== 'string' || !raw.trim()) throw new Error('AI returned no portal presentation content. Your portal was kept.');
+        // The shared parser repairs truncated responses for legacy callers.
+        // Require complete JSON here; never close/truncate it locally to accept
+        // partial output that could erase sections or disconnect reward IDs.
+        const json = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+        try { JSON.parse(json); } catch (_) { throw new Error('AI returned incomplete or malformed portal presentation content. Your portal was kept.'); }
+        parsed = shared.parseAIResponseText(json);
+        validateContent(parsed, validated);
+        break;
+      } catch (error) {
+        if (attempt) {
+          error.code = 'invalid_portal_content';
+          error.message += ' The automatic retry also failed; your requirements and existing portal are unchanged.';
+          throw error;
+        }
+        repairFeedback = { problem: text(error.message, 800),
+          instruction: 'Regenerate the complete presentation object from all unchanged context and the exact validatedProgram. Keep every section, reward ID/cost and earning ID. Use concise descriptions and compact JSON, not a continuation or partial patch. Do not invent replacement policy or remove requirements to fit the response.' };
+        onStatus('repairing_content');
+      }
+    }
     const candidates = new Set(scraped.images.map(image => image.url).filter(url => /^https?:\/\//i.test(url)));
     for (const key of collections) for (const item of parsed[key]) {
       item.imageUrl = candidates.has(item.imageUrl) ? item.imageUrl : ''; delete item.imageData;
@@ -2500,17 +2557,21 @@ Include all sections in the result. Do not freeze old offers when the author ask
       const current = existing?.program ? clone(existing.program) : null;
       setQuickStartStatus(`Designing the ${mode.toUpperCase()} loyalty experience…`, true);
       const prompt = LPGRequirements.buildPrompt(audienceBrief, website, current);
-      let result = await client.callLLM({ system: LPGRequirements.SYSTEM, prompt, maxTokens: 8000, tier: 'balanced' });
+      let result = await client.callLLM({ system: LPGRequirements.SYSTEM, prompt, maxTokens: 12000, tier: 'balanced', responseFormat: 'json' });
       checkCurrent();
       let proposal;
       try { proposal = LPGRequirements.parseResponse(result, LPGProgram, mode); }
       catch (error) {
-        if (error.code !== 'invalid_program') throw error;
-        setQuickStartStatus('AI is correcting a program detail…', true);
+        if (!['invalid_program', 'incomplete_program'].includes(error.code)) throw error;
+        setQuickStartStatus(error.code === 'incomplete_program' ? 'AI is completing the program response. Your requirements are retained…' : 'AI is correcting a program detail…', true);
         result = await client.callLLM({ system: LPGRequirements.SYSTEM,
-          prompt: prompt + '\nValidation feedback (return a complete corrected program):\n' + JSON.stringify(error.details),
-          maxTokens: 8000, tier: 'balanced' });
-        checkCurrent(); proposal = LPGRequirements.parseResponse(result, LPGProgram, mode);
+          prompt: LPGRequirements.repairPrompt(prompt, error), maxTokens: 16000, tier: 'balanced', responseFormat: 'json' });
+        checkCurrent();
+        try { proposal = LPGRequirements.parseResponse(result, LPGProgram, mode); }
+        catch (retryError) {
+          if (['invalid_program', 'incomplete_program'].includes(retryError.code)) retryError.message = 'AI could not finish a valid program after an automatic retry. Your portal and requirements documents were kept. Please try generating again.';
+          throw retryError;
+        }
       }
       setQuickStartStatus(`Creating ${mode.toUpperCase()} offers, rewards and branded imagery…`, true);
       const content = await root.LPGPortalContent.generate({ client, brief: audienceBrief, program: proposal.program,
@@ -4184,7 +4245,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
   //   sk-ant-* key     → api.anthropic.com direct
   //   any other sk-*   → SF LLM Gateway direct
   // Same return shape from every path so callers don't care which was used.
-  async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
+  async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat }) {
     const provider = currentProvider();
     if (provider === 'anthropic') {
       return callAnthropicDirect({ prompt, system, tier, model, maxTokens });
@@ -4192,7 +4253,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     if (provider === 'sfgateway') {
       return callSFGateway({ prompt, system, tier, model, maxTokens });
     }
-    return callDefaultBackend({ prompt, system, tier, model, maxTokens });
+    return callDefaultBackend({ prompt, system, tier, model, maxTokens, responseFormat });
   }
 
   // ---- DEFAULT BACKEND (Worker's /llm endpoint) ----
@@ -4314,11 +4375,11 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     throw localError('generation_deadline');
   }
 
-  async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
+  async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat }) {
     const base = getScraperEndpoint(); // empty = same origin; both /api/scrape and /api/llm live here
-    const data = await runBackendJob('llm', { prompt, system, tier, model, maxTokens }, base);
-    if (!data || !data.text) throw localError('default_empty_response');
-    return { text: data.text, model_used: data.model_used, usage: data.usage };
+    const data = await runBackendJob('llm', { prompt, system, tier, model, maxTokens, ...(responseFormat ? { responseFormat } : {}) }, base);
+    if (!data || (!data.text && data.finish_reason !== 'MAX_TOKENS')) throw localError('default_empty_response');
+    return { text: data.text, model_used: data.model_used, usage: data.usage, finish_reason: data.finish_reason };
   }
 
   // ---- ANTHROPIC DIRECT ----
@@ -4366,7 +4427,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
       : '';
     if (!text) throw localError('anthropic_empty_response');
 
-    return { text, model_used: data.model, usage: data.usage };
+    return { text, model_used: data.model, usage: data.usage, finish_reason: data.stop_reason === 'max_tokens' ? 'MAX_TOKENS' : data.stop_reason };
   }
 
   // ---- SALESFORCE LLM GATEWAY EXPRESS ----
@@ -4415,7 +4476,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
       : '';
     if (!text) throw localError('sfgateway_empty_response');
 
-    return { text, model_used: data.model || chosenModel, usage: data.usage };
+    return { text, model_used: data.model || chosenModel, usage: data.usage, finish_reason: data.choices?.[0]?.finish_reason === 'length' ? 'MAX_TOKENS' : data.choices?.[0]?.finish_reason };
   }
 
   // Backward compat: some callers may still reference callAnthropic

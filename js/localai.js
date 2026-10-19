@@ -188,7 +188,7 @@
   //   sk-ant-* key     → api.anthropic.com direct
   //   any other sk-*   → SF LLM Gateway direct
   // Same return shape from every path so callers don't care which was used.
-  async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
+  async function callLLM({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat }) {
     const provider = currentProvider();
     if (provider === 'anthropic') {
       return callAnthropicDirect({ prompt, system, tier, model, maxTokens });
@@ -196,7 +196,7 @@
     if (provider === 'sfgateway') {
       return callSFGateway({ prompt, system, tier, model, maxTokens });
     }
-    return callDefaultBackend({ prompt, system, tier, model, maxTokens });
+    return callDefaultBackend({ prompt, system, tier, model, maxTokens, responseFormat });
   }
 
   // ---- DEFAULT BACKEND (Worker's /llm endpoint) ----
@@ -318,11 +318,11 @@
     throw localError('generation_deadline');
   }
 
-  async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000 }) {
+  async function callDefaultBackend({ prompt, system, tier = 'balanced', model, maxTokens = 8000, responseFormat }) {
     const base = getScraperEndpoint(); // empty = same origin; both /api/scrape and /api/llm live here
-    const data = await runBackendJob('llm', { prompt, system, tier, model, maxTokens }, base);
-    if (!data || !data.text) throw localError('default_empty_response');
-    return { text: data.text, model_used: data.model_used, usage: data.usage };
+    const data = await runBackendJob('llm', { prompt, system, tier, model, maxTokens, ...(responseFormat ? { responseFormat } : {}) }, base);
+    if (!data || (!data.text && data.finish_reason !== 'MAX_TOKENS')) throw localError('default_empty_response');
+    return { text: data.text, model_used: data.model_used, usage: data.usage, finish_reason: data.finish_reason };
   }
 
   // ---- ANTHROPIC DIRECT ----
@@ -370,7 +370,7 @@
       : '';
     if (!text) throw localError('anthropic_empty_response');
 
-    return { text, model_used: data.model, usage: data.usage };
+    return { text, model_used: data.model, usage: data.usage, finish_reason: data.stop_reason === 'max_tokens' ? 'MAX_TOKENS' : data.stop_reason };
   }
 
   // ---- SALESFORCE LLM GATEWAY EXPRESS ----
@@ -419,7 +419,7 @@
       : '';
     if (!text) throw localError('sfgateway_empty_response');
 
-    return { text, model_used: data.model || chosenModel, usage: data.usage };
+    return { text, model_used: data.model || chosenModel, usage: data.usage, finish_reason: data.choices?.[0]?.finish_reason === 'length' ? 'MAX_TOKENS' : data.choices?.[0]?.finish_reason };
   }
 
   // Backward compat: some callers may still reference callAnthropic
