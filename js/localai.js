@@ -133,6 +133,39 @@
     } catch (_) { /* ignore */ }
   }
 
+  // Generation capabilities are short-lived and scoped to one backend. Never
+  // persist them in project data, localStorage, URLs, or another backend's request.
+  const backendCapabilities = new Map();
+  async function backendAccessHeaders(base = '') {
+    const key = String(base).replace(/\/+$/, '');
+    let cached = backendCapabilities.get(key);
+    if (cached?.expiresAt > Date.now() + 30000) return { 'X-LPG-Capability': cached.token };
+    if (!cached?.pending) {
+      const pending = (async () => {
+        const response = await timedFetch(`${key}/api/capability`, { method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        // Explicit absence supports old custom backends. Modern LPG endpoints
+        // still enforce their own capability check; this cannot bypass it.
+        if (response.status === 404) return null;
+        const data = await transportJSON(response);
+        if (!response.ok) throw backendFailure(response.status, data);
+        if (typeof data.token !== 'string' || data.token.length < 24 || data.token.length > 4096 || !Number.isFinite(data.expiresAt) || data.expiresAt <= Date.now()) throw localError('generation_protocol');
+        return { token: data.token, expiresAt: data.expiresAt };
+      })();
+      cached = { pending }; backendCapabilities.set(key, cached);
+    }
+    try {
+      const result = await cached.pending;
+      if (backendCapabilities.get(key) === cached) {
+        if (result) backendCapabilities.set(key, result); else backendCapabilities.delete(key);
+      }
+      return result ? { 'X-LPG-Capability': result.token } : {};
+    } catch (error) {
+      if (backendCapabilities.get(key) === cached) backendCapabilities.delete(key);
+      throw error;
+    }
+  }
+
   async function scrapeViaCorsProxy(url) {
     let lastError = null;
 
@@ -141,22 +174,29 @@
     const scrapeBase = own || '';  // empty = same origin
     {
       try {
-        const res = await fetch(`${scrapeBase}/api/scrape?url=${encodeURIComponent(url)}`, { method: 'GET' });
+        const headers = await backendAccessHeaders(scrapeBase);
+        const res = await fetch(`${scrapeBase}/api/scrape?url=${encodeURIComponent(url)}`, { method: 'GET', credentials: 'same-origin', headers });
         if (res.ok) {
           const ct = res.headers.get('content-type') || '';
-          const html = await res.text();
+          const raw = await res.text();
+          let html = raw;
+          if (/application\/json/i.test(ct)) {
+            try { const envelope = JSON.parse(raw); html = typeof envelope.html === 'string' ? envelope.html : ''; } catch (_) { html = ''; }
+          }
           if (html && html.length >= 40) {
             // Worker returns text/html or json errors — a json response starting
             // with { and no `<` means it's likely a structured error, not HTML.
-            const looksJson = /application\/json/i.test(ct) || (html.trim().startsWith('{') && !html.trim().startsWith('{"contents"'));
+            const looksJson = html.trim().startsWith('{');
             if (!looksJson) return html;
           }
           lastError = localError('own_scraper_empty', { endpoint: scrapeBase || window.location.origin });
         } else {
           const body = await res.text().catch(() => '');
           lastError = localError('own_scraper_status', { status: res.status, endpoint: scrapeBase || window.location.origin, body: body.slice(0, 160) });
+          if ([401,403,429].includes(res.status)) { lastError.noProxy = true; throw lastError; }
         }
       } catch (err) {
+        if (err.noProxy || ['generation_session','default_rate_limited','generation_budget'].includes(err.code)) throw err;
         lastError = localError('own_scraper_network', { endpoint: scrapeBase || window.location.origin, cause: err.message });
       }
     }
@@ -231,6 +271,7 @@
   function backendFailure(status, body = {}, transport = false) {
     const code = body?.error;
     if (status === 401 || status === 403) return localError('generation_session');
+    if (['generation_budget_exceeded', 'capability_limit'].includes(code)) return localError('generation_budget');
     if (code === 'generation_busy') return localError('generation_busy');
     if (code === 'generation_result_too_large') return localError('generation_result_too_large');
     if (code === 'llm_not_configured') return localError('default_not_configured');
@@ -256,10 +297,11 @@
     const paths = { llm: '/api/llm', images: '/api/generate-images', image: '/api/generate-image' };
     if (!paths[kind]) throw localError('generation_protocol');
     const deadline = Date.now() + JOB_DEADLINE_MS;
+    const access = await backendAccessHeaders(base);
     let submitted;
     try {
       submitted = await timedFetch(`${base}/api/jobs`, { method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, kind }) });
+        headers: { 'Content-Type': 'application/json', ...access }, body: JSON.stringify({ ...body, kind }) });
     } catch (_) {
       // The server may already have accepted the paid job. Never resubmit it or
       // fall back to another POST when the submission outcome is uncertain.
@@ -270,7 +312,7 @@
       // permitted synchronous fallback, not a recovery for a failed AI call.
       try {
         const legacy = await timedFetch(`${base}${paths[kind]}`, { method: 'POST', credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          headers: { 'Content-Type': 'application/json', ...access }, body: JSON.stringify(body) });
         const payload = await transportJSON(legacy);
         if (!legacy.ok) throw backendFailure(legacy.status, payload);
         return payload;
@@ -778,9 +820,11 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
       case 'generation_job_missing':
         return 'This generation result expired or the server restarted. Your current portal was kept. Please generate again.';
       case 'generation_session':
-        return 'The app access session needs attention. Sign in to the app again, then retry generation. Your current portal was kept.';
+        return 'Refresh the generator to renew generation access. Complete app sign-in if prompted, then try again. Your current portal was kept.';
       case 'generation_gateway':
         return 'The hosting gateway is temporarily unavailable while checking generation. Your current portal was kept. Please try again shortly.';
+      case 'generation_budget':
+        return 'The shared generation usage limit for this connection has been reached. Your current portal was kept. Try again after the usage window resets.';
       case 'generation_busy':
         return 'The generator is handling several requests. Your current portal was kept; wait a few seconds and try again.';
       case 'generation_protocol':
@@ -883,6 +927,7 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
     callSFGateway,
     callDefaultBackend,
     runBackendJob,
+    backendAccessHeaders,
     scrapeViaCorsProxy,
     optimizeGeneratedImage,
     fillMissingImages,

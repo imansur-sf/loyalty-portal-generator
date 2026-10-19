@@ -377,3 +377,28 @@ test('cinematic builder copy, benefit assets and card customization survive audi
     assert.match(preview,/Your world/);assert.match(preview,/lpg-benefit-cover/);assert.match(preview,/crest.png/);
   }finally{e.close();}
 });
+
+
+test('voucher description editor preserves multiline copy through save and reload', async () => {
+  const e=await editor();try {
+    e.run("state.vouchers=[{title:'Reward',description:'Original'}];renderVouchers()");
+    const input=e.w.document.getElementById('voucher-description-0');
+    input.value='Choose your reward.\nMake it yours.';e.w.Function(input.getAttribute('oninput')).call(input);
+    assert.equal(e.run('state.vouchers[0].description'), input.value);
+    e.run('hydratePortal(buildProjectPayload())');
+    assert.equal(e.w.document.getElementById('voucher-description-0').value,input.value);
+  } finally {e.close();}
+});
+
+test('preview position is retained only for the current frame token and project',async()=>{
+  const e=await editor();try {
+    e.run('updatePreview()');const f=e.w.document.getElementById('preview-iframe');
+    const send=(source,token,y)=>e.w.dispatchEvent(new e.w.MessageEvent('message',{source,data:{type:'lpg-preview-position',token,x:0,y,anchor:'cj-progress',offset:-50}}));
+    send(e.w,f.dataset.previewToken,999);send(f.contentWindow,'obsolete',999);
+    assert.equal(e.run("portalPreviewPositions.get(document.getElementById('preview-iframe'))"),undefined);
+    send(f.contentWindow,f.dataset.previewToken,2400);
+    e.run('updatePreview()');assert.ok(f.srcdoc.includes('"y":2400'));assert.ok(f.srcdoc.includes('"anchor":"cj-progress"'));
+    e.run('projectEpoch++;updatePreview()');assert.ok(!f.srcdoc.includes('"y":2400'));
+    assert.doesNotMatch(e.run('generatePortalHTML(state)'),/lpg-preview-position/);
+  } finally {e.close();}
+});

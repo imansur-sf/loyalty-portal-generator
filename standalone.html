@@ -1269,6 +1269,16 @@ function initImageUpload(dropZoneId, previewId, urlInputId, onImageSet) {
   const preview = document.getElementById(previewId);
   const urlInput = document.getElementById(urlInputId);
   if (!dropZone) return;
+  const statusId = dropZoneId.replace(/^drop-/, 'status-');
+  if (!document.getElementById(statusId)) {
+    const status = document.createElement('p');
+    status.id = statusId; status.className = 'text-xs text-gray-500';
+    status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+    status.textContent = 'PNG, JPEG or WebP · up to 12 MB. Images are optimized before saving.';
+    dropZone.insertAdjacentElement('afterend', status);
+  }
+  const describedBy = new Set((dropZone.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean));
+  describedBy.add(statusId); dropZone.setAttribute('aria-describedby', [...describedBy].join(' '));
   const entry = { node: dropZone, active: true, listeners: [], timer: null, operation: 0 };
   LPGImageUploads.entries.set(dropZoneId, entry);
   function listen(node, event, handler) {
@@ -1285,17 +1295,17 @@ function initImageUpload(dropZoneId, previewId, urlInputId, onImageSet) {
   listen(dropZone, 'drop', event => {
     event.preventDefault(); dropZone.classList.remove('border-blue-400', 'bg-blue-50');
     const valid = begin(), file = event.dataTransfer.files[0];
-    if (file && file.type.startsWith('image/')) readFileAsDataURL(file, preview, urlInput, onImageSet, valid);
+    if (file) readFileAsDataURL(file, preview, urlInput, onImageSet, valid, dropZoneId);
   });
   listen(dropZone, 'click', () => {
     // Capture before opening the native picker: returning from an old picker
     // must not attach its selected image to a newly active project or audience.
     const valid = begin(), input = document.createElement('input');
-    input.type = 'file'; input.accept = 'image/*';
+    input.type = 'file'; input.accept = 'image/png,image/jpeg,image/webp';
     input.onchange = event => {
       if (!valid()) return;
       const file = event.target.files[0];
-      if (file && file.type.startsWith('image/')) readFileAsDataURL(file, preview, urlInput, onImageSet, valid);
+      if (file) readFileAsDataURL(file, preview, urlInput, onImageSet, valid, dropZoneId);
     };
     input.click();
   });
@@ -1304,23 +1314,135 @@ function initImageUpload(dropZoneId, previewId, urlInputId, onImageSet) {
   });
   if (urlInput) listen(urlInput, 'input', () => {
     const valid = begin(), url = urlInput.value.trim();
-    entry.timer = setTimeout(() => {
+    entry.timer = setTimeout(async () => {
       if (!valid()) return;
-      if (preview) { preview.src = url; preview.classList.toggle('hidden', !url); }
-      onImageSet(url);
+      try {
+        let image = url;
+        if (url.startsWith('data:')) {
+          if (!/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(url) || url.length > Math.ceil(LPG_UPLOAD_SOURCE_LIMIT * 4 / 3) + 128) throw new Error('Use a PNG, JPEG, or WebP image, or an HTTP(S) image URL.');
+          image = await optimizeUploadedImage(url, uploadImagePolicy(dropZoneId));
+        } else if (url) {
+          const parsed = new URL(url);
+          if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Use an HTTP(S) image URL.');
+        }
+        if (!valid()) return;
+        validateUploadProjectBudget(image, preview?.getAttribute('src') || '');
+        if (preview) { preview.src = image; preview.classList.toggle('hidden', !image); }
+        onImageSet(image); uploadImageStatus(dropZoneId, image ? 'Image ready.' : 'Image removed.');
+      } catch (error) { if (valid()) uploadImageStatus(dropZoneId, (error.message || 'Use a valid HTTP(S) image URL.') + ' The existing image has been kept.', true); }
     }, 400);
   });
 }
 
-function readFileAsDataURL(file, preview, urlInput, onImageSet, valid) {
+// Limits apply to encoded data stored in a project, not just the original file.
+const LPG_UPLOAD_SOURCE_LIMIT = 12 * 1024 * 1024;
+function uploadImagePolicy(id = '') {
+  const compact = /(?:badge|benefit-(?!cover)|card-mark|logo|avatar)/.test(id);
+  return { maxEdge: compact ? 512 : 1600, maxLength: (compact ? 120 : 400) * 1024 };
+}
+function validateUploadProjectBudget(nextImage, previousImage = '') {
+  if (typeof state !== 'object' || !state) return;
+  const encoder = new TextEncoder();
+  const serialized = JSON.stringify(state);
+  const prior = previousImage && serialized.includes(JSON.stringify(previousImage)) ? encoder.encode(JSON.stringify(previousImage)).byteLength : 0;
+  const added = encoder.encode(JSON.stringify(nextImage)).byteLength;
+  const limit = typeof MAX_PROJECT_BYTES === 'number' ? MAX_PROJECT_BYTES : 19 * 1024 * 1024;
+  // Reserve room for editor metadata and future small text edits. Only count one
+  // existing occurrence as replaced; shared/repeated assets remain in the budget.
+  const projected = encoder.encode(serialized).byteLength - prior + added;
+  if (projected > limit - 64 * 1024) throw new Error('This project is nearly full. Remove unused images or use a smaller image before adding this one.');
+}
+function uploadImageStatus(id, message, error = false) {
+  const node = document.getElementById(id.replace(/^drop-/, 'status-'));
+  if (!node) return;
+  node.textContent = message;
+  node.classList.toggle('text-red-600', error);
+}
+// Inspect raster dimensions before asking the browser to allocate a decoded image.
+// Only a bounded header prefix is decoded here (JPEG metadata can be sizable).
+function uploadedImageDimensions(dataUrl) {
+  const bytes = Uint8Array.from(atob(dataUrl.slice(dataUrl.indexOf(',') + 1, dataUrl.indexOf(',') + 1 + 349524)), c => c.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  const ascii = (start, count) => String.fromCharCode(...bytes.slice(start, start + count));
+  if (bytes.length >= 24 && ascii(1, 3) === 'PNG' && view.getUint32(0) === 0x89504e47 && ascii(12, 4) === 'IHDR') return [view.getUint32(16), view.getUint32(20)];
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 4 <= bytes.length) {
+      if (bytes[offset++] !== 0xff) break;
+      while (bytes[offset] === 0xff) offset++;
+      const marker = bytes[offset++];
+      if (marker === 0xd9 || marker === 0xda) break;
+      const length = view.getUint16(offset);
+      if (length < 2) break;
+      if ([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker) && offset + 7 <= bytes.length) return [view.getUint16(offset + 5), view.getUint16(offset + 3)];
+      offset += length;
+    }
+  }
+  if (bytes.length >= 30 && ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP') {
+    if (ascii(12, 4) === 'VP8X') return [1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16), 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16)];
+    if (ascii(12, 4) === 'VP8 ' && bytes[23] === 0x9d && bytes[24] === 1 && bytes[25] === 0x2a) return [view.getUint16(26, true) & 0x3fff, view.getUint16(28, true) & 0x3fff];
+    if (ascii(12, 4) === 'VP8L' && bytes[20] === 0x2f) return [1 + bytes[21] + ((bytes[22] & 0x3f) << 8), 1 + (bytes[22] >> 6) + (bytes[23] << 2) + ((bytes[24] & 0x0f) << 10)];
+  }
+  throw new Error('The file does not have a supported raster image header.');
+}
+function validateUploadDimensions(width, height) {
+  if (!width || !height || width > 16000 || height > 16000 || width * height > 32000000)
+    throw new Error('Image dimensions are too large. Use an image under 32 megapixels and 16,000 pixels per side.');
+}
+async function optimizeUploadedImage(dataUrl, policy) {
+  validateUploadDimensions(...uploadedImageDimensions(dataUrl));
+  const source = await new Promise((resolve, reject) => {
+    const img = new Image();
+    const timer = setTimeout(() => reject(new Error('Image decoding timed out. Try a smaller image.')), 15000);
+    img.onload = () => { clearTimeout(timer); resolve(img); };
+    img.onerror = () => { clearTimeout(timer); reject(new Error('This file could not be decoded as an image.')); };
+    img.src = dataUrl;
+  });
+  const width = source.naturalWidth, height = source.naturalHeight;
+  validateUploadDimensions(width, height);
+  if (Math.max(width, height) <= policy.maxEdge && dataUrl.length <= policy.maxLength) return dataUrl;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Image optimization is unavailable. Try a smaller image.');
+  const scale = Math.min(1, policy.maxEdge / Math.max(width, height));
+  try {
+    for (const factor of [1, 0.8, 0.6, 0.4, 0.25]) {
+      canvas.width = Math.max(1, Math.round(width * scale * factor));
+      canvas.height = Math.max(1, Math.round(height * scale * factor));
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+      // WebP retains transparency; PNG is the transparent fallback for browsers
+      // without a WebP encoder. JPEG input can use JPEG without losing alpha.
+      for (const quality of [0.86, 0.72, 0.55]) {
+        let encoded = canvas.toDataURL('image/webp', quality);
+        if (!/^data:image\/webp;base64,/i.test(encoded)) encoded = canvas.toDataURL(/^data:image\/jpeg;/i.test(dataUrl) ? 'image/jpeg' : 'image/png', quality);
+        if (/^data:image\/(?:png|jpeg|webp);base64,/i.test(encoded) && encoded.length <= policy.maxLength) return encoded;
+      }
+    }
+    throw new Error('This image could not fit the upload budget. Try a simpler or smaller image.');
+  } finally { canvas.width = 1; canvas.height = 1; }
+}
+function readFileAsDataURL(file, preview, urlInput, onImageSet, valid, dropZoneId = '') {
   if (!valid) { const captured = LPGImageUploads.context(); valid = () => LPGImageUploads.same(captured); }
+  const status = (message, error) => { if (valid()) uploadImageStatus(dropZoneId, message, error); };
+  if (!/^image\/(?:png|jpeg|webp)$/i.test(file.type)) { status('Use a PNG, JPEG, or WebP image. SVG and animated formats are not supported for uploads.', true); return; }
+  if (!Number.isFinite(file.size) || file.size <= 0 || file.size > LPG_UPLOAD_SOURCE_LIMIT) { status('Choose an image up to 12 MB. The existing image has been kept.', true); return; }
+  status('Checking and optimizing image…');
   const reader = new FileReader();
-  reader.onload = event => {
+  reader.onerror = () => status('The file could not be read. The existing image has been kept.', true);
+  reader.onload = async event => {
     if (!valid()) return;
-    const dataUrl = event.target.result;
-    if (preview) { preview.src = dataUrl; preview.classList.remove('hidden'); }
-    if (urlInput) urlInput.value = '';
-    onImageSet(dataUrl);
+    try {
+      const original = event.target.result;
+      if (typeof original !== 'string' || original.length > Math.ceil(LPG_UPLOAD_SOURCE_LIMIT * 4 / 3) + 128 || !/^data:image\/(?:png|jpeg|webp);base64,/i.test(original)) throw new Error('The file is not a supported image.');
+      const dataUrl = await optimizeUploadedImage(original, uploadImagePolicy(dropZoneId));
+      if (!valid()) return;
+      validateUploadProjectBudget(dataUrl, preview?.getAttribute('src') || '');
+      if (preview) { preview.src = dataUrl; preview.classList.remove('hidden'); }
+      if (urlInput) urlInput.value = '';
+      onImageSet(dataUrl);
+      status(dataUrl === original ? 'Image ready.' : 'Image optimized for saving (' + Math.ceil(dataUrl.length / 1024) + ' KB encoded).');
+    } catch (error) { status((error.message || 'Image processing failed.') + ' The existing image has been kept.', true); }
   };
   reader.readAsDataURL(file);
 }
@@ -1339,10 +1461,11 @@ function imageUploadHTML(id, label, currentValue) {
   return `
     <div class="space-y-2">
       <label class="block text-xs font-600 text-gray-700">${escape(label)}</label>
-      <div id="drop-${escape(id)}" role="button" tabindex="0" aria-label="Upload ${escape(label)}" class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all">
+      <div id="drop-${escape(id)}" role="button" tabindex="0" aria-label="Upload ${escape(label)}" aria-describedby="status-${escape(id)}" class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all">
         <img id="preview-${escape(id)}" alt="" src="${hasImage ? escape(currentValue) : ''}" class="${hasImage ? '' : 'hidden'} w-16 h-16 object-cover rounded mx-auto mb-2">
         <p class="text-xs text-gray-500">Drop image or click to upload</p>
       </div>
+      <p id="status-${escape(id)}" role="status" aria-live="polite" class="text-xs text-gray-500">PNG, JPEG or WebP · up to 12 MB. Images are optimized before saving.</p>
       <input type="text" id="url-${escape(id)}" aria-label="${escape(label)} URL" value="${currentValue && !currentValue.startsWith('data:') ? escape(currentValue) : ''}" placeholder="Or paste image URL" class="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none">
       ${hasImage ? `<button type="button" onclick="clearImage(${escape(JSON.stringify(id))})" class="text-xs text-red-500 hover:text-red-700">✕ Remove image</button>` : ''}
     </div>
@@ -1351,6 +1474,7 @@ function imageUploadHTML(id, label, currentValue) {
 
 function clearImage(id) {
   LPGImageUploads.cancel('drop-' + id);
+  uploadImageStatus('drop-' + id, 'Image removed.');
   const preview = document.getElementById('preview-' + id);
   const urlInput = document.getElementById('url-' + id);
   if (preview) { preview.src = ''; preview.classList.add('hidden'); }
@@ -3679,6 +3803,32 @@ function lpgEscape(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
+
+// These helpers keep customer content in its intended HTML, URL, or CSS context.
+// Image data is rendered only in image contexts, never as inline document markup.
+function lpgImageSource(value) {
+  const source = String(value == null ? '' : value).trim();
+  return /^(?:https?:\/\/[^/\s?#]+(?:[/?#][^\u0000-\u001f\u007f]*)?|data:image\/(?:png|jpe?g|webp|gif|avif|svg\+xml)(?:;base64)?,[\s\S]+)$/i.test(source) ? source : '';
+}
+function lpgColor(value, fallback = '#243447') {
+  const color = String(value || '');
+  if (/^#[a-f0-9]{6}$/i.test(color)) return color;
+  if (/^#[a-f0-9]{3}$/i.test(color)) return '#' + color.slice(1).split('').map(c => c+c).join('');
+  // Preserve the translucent text colors offered by the upsell editor.
+  if (/^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(color)) return color;
+  return fallback;
+}
+function lpgGradient(value, fallback) {
+  const token = item => /^(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:50|[1-9]00|950)$/.test(String(item || ''));
+  return Array.isArray(value) && value.length === 2 && value.every(token) ? value : fallback;
+}
+function lpgNumber(value) { const number = Number(value); return Number.isFinite(number) ? number : 0; }
+function lpgPercent(value) { return Math.max(0, Math.min(100, lpgNumber(value))); }
+function lpgCssImage(value) {
+  // CSS string escaping is separate from the surrounding HTML attribute escaping.
+  return lpgImageSource(value).replace(/[\\"'()\s<>]/g, c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'));
+}
+
 // RGB channels allow compiled utilities such as ring-primary/30 to retain
 // their opacity modifiers while each export uses its own customer palette.
 function lpgPortalThemeVariables(colors, primaryLight, accentDark, menu, menuLight) {
@@ -3697,16 +3847,16 @@ function lpgPortalThemeVariables(colors, primaryLight, accentDark, menu, menuLig
 }
 
 function generateClassicPortalHTML(s) {
-  const esc = (t) => (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  const raw = (t) => t || '';
+  s = { ...s, colors: Object.fromEntries(Object.entries(s.colors || {}).map(([key, value]) => [key, lpgColor(value)])) };
+  const esc = lpgEscape;
   const primaryLight = lightenColor(s.colors.primary, 20);
   const accentDark = darkenColor(s.colors.accent, 15);
   const menuColor = s.colors.menu || s.colors.primary;
   const menuColorLight = lightenColor(menuColor, 10);
   const programName = s.brand.programName || 'My Loyalty Perks';
   const brandAbbr = (s.brand.name || 'MY').split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,3) || 'MY';
-  const logoSrc = s.brand.logoData || s.brand.logoUrl || '';
-  const avatarSrc = s.member.avatarData || s.member.avatarUrl || '';
+  const logoSrc = lpgImageSource(s.brand.logoData || s.brand.logoUrl);
+  const avatarSrc = lpgImageSource(s.member.avatarData || s.member.avatarUrl);
   const pointsToNext = s.tiers[1] ? Math.max(0, s.tiers[1].points - (s.member.points||0)) : 0;
 
   return `<!DOCTYPE html>
@@ -3721,11 +3871,11 @@ function generateClassicPortalHTML(s) {
       ${lpgPortalThemeVariables(s.colors, primaryLight, accentDark, menuColor, menuColorLight)}
     }
     :root {
-      --brand-primary: ${s.colors.primary};
+      --brand-primary: ${lpgColor(s.colors.primary)};
       --brand-primary-light: ${primaryLight};
-      --brand-accent: ${s.colors.accent};
+      --brand-accent: ${lpgColor(s.colors.accent)};
       --brand-menu: ${menuColor};
-      --brand-dark: ${s.colors.dark};
+      --brand-dark: ${lpgColor(s.colors.dark)};
     }
     body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
     .site-header { background-color: ${menuColor} !important; box-shadow: 0 2px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06); }
@@ -3741,19 +3891,19 @@ function generateClassicPortalHTML(s) {
     .offer-card { transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.25s ease; }
     .offer-card:hover { box-shadow: 0 14px 30px -10px rgba(16,24,40,0.14), 0 6px 12px -6px rgba(16,24,40,0.08); transform: translateY(-2px); }
     .earn-card { transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease; }
-    .earn-card:hover { box-shadow: 0 6px 16px -6px rgba(16,24,40,0.10); border-color: ${s.colors.primary}30; transform: translateY(-1px); }
+    .earn-card:hover { box-shadow: 0 6px 16px -6px rgba(16,24,40,0.10); border-color: ${lpgColor(s.colors.primary)}30; transform: translateY(-1px); }
     .badge-ring { box-shadow: 0 0 0 3px #fff, 0 0 0 5px currentColor, 0 8px 18px -8px rgba(16,24,40,0.35); }
-    .member-hero { background: linear-gradient(135deg, ${s.colors.primary} 0%, ${darkenColor(s.colors.primary, 8)} 55%, ${lightenColor(s.colors.primary, 8)} 100%); position: relative; overflow: hidden; }
+    .member-hero { background: linear-gradient(135deg, ${lpgColor(s.colors.primary)} 0%, ${darkenColor(s.colors.primary, 8)} 55%, ${lightenColor(s.colors.primary, 8)} 100%); position: relative; overflow: hidden; }
     .member-hero::before { content: ''; position: absolute; inset: 0; background-image: radial-gradient(circle at 85% 15%, rgba(255,255,255,0.10) 0%, transparent 45%), radial-gradient(circle at 15% 90%, rgba(255,255,255,0.08) 0%, transparent 40%); pointer-events: none; }
-    .btn-primary { background: ${s.colors.primary}; color: #fff; transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease; box-shadow: 0 2px 8px -2px ${s.colors.primary}55; }
-    .btn-primary:hover { background: ${primaryLight}; transform: translateY(-1px); box-shadow: 0 6px 16px -4px ${s.colors.primary}66; }
-    .btn-ghost { background: transparent; color: ${s.colors.primary}; border: 1.5px solid ${s.colors.primary}; transition: background 0.2s ease, color 0.2s ease; }
-    .btn-ghost:hover { background: ${s.colors.primary}; color: #fff; }
+    .btn-primary { background: ${lpgColor(s.colors.primary)}; color: #fff; transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease; box-shadow: 0 2px 8px -2px ${lpgColor(s.colors.primary)}55; }
+    .btn-primary:hover { background: ${primaryLight}; transform: translateY(-1px); box-shadow: 0 6px 16px -4px ${lpgColor(s.colors.primary)}66; }
+    .btn-ghost { background: transparent; color: ${lpgColor(s.colors.primary)}; border: 1.5px solid ${lpgColor(s.colors.primary)}; transition: background 0.2s ease, color 0.2s ease; }
+    .btn-ghost:hover { background: ${lpgColor(s.colors.primary)}; color: #fff; }
     .nav-link { position: relative; }
-    .nav-link::after { content: ''; position: absolute; left: 50%; bottom: -6px; width: 0; height: 2px; background: ${s.colors.accent}; transition: width 0.25s ease, left 0.25s ease; }
+    .nav-link::after { content: ''; position: absolute; left: 50%; bottom: -6px; width: 0; height: 2px; background: ${lpgColor(s.colors.accent)}; transition: width 0.25s ease, left 0.25s ease; }
     .nav-link:hover::after { width: 100%; left: 0; }
     .section-title { font-weight: 800; letter-spacing: -0.01em; }
-    .divider-gradient { background: linear-gradient(90deg, transparent, ${s.colors.primary}20, transparent); height: 1px; }
+    .divider-gradient { background: linear-gradient(90deg, transparent, ${lpgColor(s.colors.primary)}20, transparent); height: 1px; }
   </style>
 </head>
 <body class="bg-page-bg text-dark min-h-screen">
@@ -3793,18 +3943,20 @@ ${buildScript()}
 
 // ---- HEADER ----
 function buildHeader(s, logoSrc, programName, brandAbbr, menuColor) {
+  menuColor = lpgColor(menuColor);
+  logoSrc = lpgImageSource(logoSrc);
   const navLinks = (s.navLinks||[]).map(n =>
-    `<a href="#" class="nav-link text-white/90 hover:text-white text-sm font-600 transition-colors">${n}</a>`
+    `<a href="#" class="nav-link text-white/90 hover:text-white text-sm font-600 transition-colors">${lpgEscape(n)}</a>`
   ).join('\n            ');
 
   const rawName = (s.brand.name && s.brand.name.trim()) || 'Loyalty';
-  const displayName = rawName.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const displayName = lpgEscape(rawName);
   const logoHTML = logoSrc
-    ? `<img src="${logoSrc}" alt="${displayName}" class="h-10 w-auto object-contain" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
+    ? `<img src="${lpgEscape(logoSrc)}" alt="${displayName}" class="h-10 w-auto object-contain" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
           <span class="text-xl font-800 tracking-tight text-white hidden" style="display:none;">${displayName}</span>`
     : `<span class="text-xl font-800 tracking-tight text-white">${displayName}</span>`;
 
-  const menuAccent = s.colors.accent || '#4299E1';
+  const menuAccent = lpgColor(s.colors.accent, '#4299E1');
 
   return `<header class="site-header sticky top-0 z-50" style="background-color: ${menuColor}; background-image: linear-gradient(180deg, ${lightenColor(menuColor, 3)} 0%, ${menuColor} 100%);">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -3831,17 +3983,17 @@ function buildHeader(s, logoSrc, programName, brandAbbr, menuColor) {
 
 // ---- MEMBER CARD ----
 function buildMemberCard(s) {
-  const avatarSrc = s.member.avatarData || s.member.avatarUrl || '';
+  const avatarSrc = lpgImageSource(s.member.avatarData || s.member.avatarUrl);
   const initials = (s.member.name||'M').split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2) || 'M';
   const avatarHTML = avatarSrc
-    ? `<img src="${avatarSrc}" alt="${(s.member.name||'Member').replace(/"/g,'&quot;')}" class="w-16 h-16 rounded-full object-cover ring-2 ring-white/50 shadow-lg" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"><div class="w-16 h-16 rounded-full items-center justify-center text-xl font-800 hidden ring-2 ring-white/40" style="background-color: ${s.colors.accent}30; color: #fff; display: none;">${lpgEscape(initials)}</div>`
-    : `<div class="w-16 h-16 rounded-full flex items-center justify-center text-xl font-800 ring-2 ring-white/40 shadow-lg" style="background-color: ${s.colors.accent}30; color: #fff;">${lpgEscape(initials)}</div>`;
+    ? `<img src="${lpgEscape(avatarSrc)}" alt="${lpgEscape(s.member.name||'Member')}" class="w-16 h-16 rounded-full object-cover ring-2 ring-white/50 shadow-lg" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"><div class="w-16 h-16 rounded-full items-center justify-center text-xl font-800 hidden ring-2 ring-white/40" style="background-color: ${lpgColor(s.colors.accent)}30; color: #fff; display: none;">${lpgEscape(initials)}</div>`
+    : `<div class="w-16 h-16 rounded-full flex items-center justify-center text-xl font-800 ring-2 ring-white/40 shadow-lg" style="background-color: ${lpgColor(s.colors.accent)}30; color: #fff;">${lpgEscape(initials)}</div>`;
 
   return `<div data-lpg-section="hero" class="member-hero rounded-2xl p-6 mb-6 flex items-center justify-between overflow-hidden shadow-lg">
       <div class="flex items-center gap-4 relative z-10">
         ${avatarHTML}
         <div>
-          <div class="text-white/70 text-[11px] font-600 tracking-[0.15em] uppercase">${s._program && s._program.mode === 'b2b' ? 'Business account' : 'Loyalty Member'} · ${s.member.number||'000000'}</div>
+          <div class="text-white/70 text-[11px] font-600 tracking-[0.15em] uppercase">${s._program && s._program.mode === 'b2b' ? 'Business account' : 'Loyalty Member'} · ${lpgEscape(s.member.number||'000000')}</div>
           <div class="text-white text-2xl font-800 mt-1 tracking-tight">${lpgEscape(s.member.name||'Member')}</div>
         </div>
       </div>
@@ -3849,11 +4001,11 @@ function buildMemberCard(s) {
         <div class="text-right">
           <div class="text-white/70 text-[11px] font-600 tracking-[0.15em] uppercase">${s._program ? lpgEscape(s._program.currencies.redeemableName) : 'Perks Points'}</div>
           <div class="flex items-baseline gap-1 justify-end mt-1">
-            <span data-lpg-balance="redeemable" class="text-white text-3xl font-900 tracking-tight">${(s.member.points||0).toLocaleString()}</span>
+            <span data-lpg-balance="redeemable" class="text-white text-3xl font-900 tracking-tight">${lpgNumber(s.member.points||0).toLocaleString()}</span>
             <span class="text-white/80 text-sm font-600">Pts</span>
           </div>
         </div>
-        <div class="hidden md:flex items-center gap-2" style="color: ${s.colors.accent};">
+        <div class="hidden md:flex items-center gap-2" style="color: ${lpgColor(s.colors.accent)};">
           <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
         </div>
       </div>
@@ -3867,10 +4019,10 @@ function buildTierProgress(s, pointsToNext) {
     const progress = summary.nextTier ? Math.max(0, Math.min(100, (summary.qualifying-summary.tier.threshold)/(summary.nextTier.threshold-summary.tier.threshold)*100)) : 100;
     return `<section data-lpg-section="tiers" class="card p-6 mb-8">
       <div class="flex items-center justify-between gap-4 mb-6"><div><p class="text-xs text-muted">Your status</p><h2 data-lpg-tier class="text-2xl font-800 text-dark">${lpgEscape(summary.tier.name)}</h2></div>
-      <div class="text-right"><strong data-lpg-balance="qualifying" class="text-2xl font-800 text-dark">${summary.qualifying.toLocaleString()}</strong><p class="text-xs text-muted">${lpgEscape(p.currencies.qualifyingName)}</p></div></div>
-      <div class="flex items-center justify-between gap-4 mb-6" style="flex-wrap:wrap">${p.tiers.map((t,i) => `<div data-lpg-tier-index="${i}" class="p-3 text-center"><strong>${lpgEscape(t.name)}</strong><p class="text-xs text-muted">${t.threshold.toLocaleString()} ${lpgEscape(p.currencies.qualifyingName)}</p></div>`).join('')}</div>
-      <div class="h-2.5 bg-gray-100 rounded-full mb-3 overflow-hidden"><div data-lpg-progress class="h-full rounded-full" style="width:${progress}%;background:linear-gradient(90deg,${s.colors.accent},${s.colors.primary})"></div></div>
-      <p data-lpg-progress-text class="text-sm text-muted">${summary.nextTier ? summary.gap.toLocaleString()+' '+lpgEscape(p.currencies.qualifyingName)+' to '+lpgEscape(summary.nextTier.name) : 'Highest tier achieved'}</p>
+      <div class="text-right"><strong data-lpg-balance="qualifying" class="text-2xl font-800 text-dark">${lpgNumber(summary.qualifying).toLocaleString()}</strong><p class="text-xs text-muted">${lpgEscape(p.currencies.qualifyingName)}</p></div></div>
+      <div class="flex items-center justify-between gap-4 mb-6" style="flex-wrap:wrap">${p.tiers.map((t,i) => `<div data-lpg-tier-index="${i}" class="p-3 text-center"><strong>${lpgEscape(t.name)}</strong><p class="text-xs text-muted">${lpgNumber(t.threshold).toLocaleString()} ${lpgEscape(p.currencies.qualifyingName)}</p></div>`).join('')}</div>
+      <div class="h-2.5 bg-gray-100 rounded-full mb-3 overflow-hidden"><div data-lpg-progress class="h-full rounded-full" style="width:${lpgPercent(progress)}%;background:linear-gradient(90deg,${lpgColor(s.colors.accent)},${lpgColor(s.colors.primary)})"></div></div>
+      <p data-lpg-progress-text class="text-sm text-muted">${summary.nextTier ? lpgNumber(summary.gap).toLocaleString()+' '+lpgEscape(p.currencies.qualifyingName)+' to '+lpgEscape(summary.nextTier.name) : 'Highest tier achieved'}</p>
     </section>`;
   }
   const tierIcons = [
@@ -3880,14 +4032,14 @@ function buildTierProgress(s, pointsToNext) {
   ];
   const tiersHTML = s.tiers.map((t,i) => {
     const isActive = i === 0;
-    const bg = isActive ? s.colors.accent : s.colors.primary + '15';
-    const iconColor = isActive ? s.colors.primary : s.colors.primary + '80';
-    const ring = isActive ? `box-shadow: 0 0 0 3px ${s.colors.accent}40, 0 6px 16px -6px ${s.colors.accent}80;` : '';
+    const bg = isActive ? lpgColor(s.colors.accent) : lpgColor(s.colors.primary) + '15';
+    const iconColor = isActive ? lpgColor(s.colors.primary) : lpgColor(s.colors.primary) + '80';
+    const ring = isActive ? `box-shadow: 0 0 0 3px ${lpgColor(s.colors.accent)}40, 0 6px 16px -6px ${lpgColor(s.colors.accent)}80;` : '';
     return `
               <div class="flex flex-col items-center text-center">
                 <div class="w-16 h-16 rounded-full flex items-center justify-center mb-2 transition-transform hover:scale-105" style="background-color: ${bg}; color: ${iconColor}; ${ring}">${tierIcons[i]||tierIcons[2]}</div>
-                <span class="text-sm font-700 text-dark">${t.name}</span>
-                <span class="text-[11px] text-muted mt-0.5">${(t.points||0).toLocaleString()} Tier Points</span>
+                <span class="text-sm font-700 text-dark">${lpgEscape(t.name)}</span>
+                <span class="text-[11px] text-muted mt-0.5">${lpgNumber(t.points||0).toLocaleString()} Tier Points</span>
               </div>`;
   }).join('');
 
@@ -3899,21 +4051,21 @@ function buildTierProgress(s, pointsToNext) {
           <div class="flex-1">
             <div class="flex items-end justify-between mb-5">${tiersHTML}</div>
             <div class="relative h-2.5 bg-gray-100 rounded-full mb-3 overflow-hidden">
-              <div class="absolute left-0 top-0 h-full rounded-full transition-all" style="width: ${s.tierProgress}%; background: linear-gradient(90deg, ${s.colors.accent}, ${s.colors.primary});"></div>
-              <div class="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-white shadow-md" style="left: calc(${s.tierProgress}% - 8px); background-color: ${s.colors.accent};"></div>
+              <div class="absolute left-0 top-0 h-full rounded-full transition-all" style="width: ${lpgPercent(s.tierProgress)}%; background: linear-gradient(90deg, ${lpgColor(s.colors.accent)}, ${lpgColor(s.colors.primary)});"></div>
+              <div class="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-white shadow-md" style="left: calc(${lpgPercent(s.tierProgress)}% - 8px); background-color: ${lpgColor(s.colors.accent)};"></div>
             </div>
-            <p class="text-sm text-dark">Earn <span class="font-800" style="color: ${s.colors.primary};">${pointsToNext.toLocaleString()} points</span> to reach ${nextTierName}! <a href="#" class="font-600 hover:underline ml-2" style="color: ${s.colors.primary};">View Benefits</a></p>
+            <p class="text-sm text-dark">Earn <span class="font-800" style="color: ${lpgColor(s.colors.primary)};">${lpgNumber(pointsToNext).toLocaleString()} points</span> to reach ${lpgEscape(nextTierName)}! <a href="#" class="font-600 hover:underline ml-2" style="color: ${lpgColor(s.colors.primary)};">View Benefits</a></p>
           </div>
         </div>
       </div>
       <div class="space-y-4">
         <div class="card card-hover p-4 flex gap-3">
           <div class="w-10 h-10 rounded-full bg-warning/10 flex items-center justify-center shrink-0"><svg class="w-5 h-5 text-warning" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg></div>
-          <div><p class="text-sm font-700 text-dark">How to retain your ${s.tiers[0].name} tier</p><p class="text-xs text-muted mt-1 leading-relaxed">${s.tiers[0].name} membership expiring in 3 days. Retain by earning 1000 tier points.</p><a href="#" class="text-xs font-700 hover:underline mt-2 inline-block" style="color: ${s.colors.primary};">Refer Now →</a></div>
+          <div><p class="text-sm font-700 text-dark">How to retain your ${lpgEscape(s.tiers[0].name)} tier</p><p class="text-xs text-muted mt-1 leading-relaxed">${lpgEscape(s.tiers[0].name)} membership expiring in 3 days. Retain by earning 1000 tier points.</p><a href="#" class="text-xs font-700 hover:underline mt-2 inline-block" style="color: ${lpgColor(s.colors.primary)};">Refer Now →</a></div>
         </div>
         <div class="card card-hover p-4 flex gap-3">
           <div class="w-10 h-10 rounded-full bg-danger/10 flex items-center justify-center shrink-0"><svg class="w-5 h-5 text-danger" fill="currentColor" viewBox="0 0 24 24"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg></div>
-          <div><p class="text-sm font-700 text-dark">Redeem 200 pts before they expire</p><p class="text-xs text-muted mt-1 leading-relaxed">200 Perks Points are expiring in 2 days. Redeem them now before it's too late!</p><a href="#" class="text-xs font-700 hover:underline mt-2 inline-block" style="color: ${s.colors.primary};">Redeem Now →</a></div>
+          <div><p class="text-sm font-700 text-dark">Redeem 200 pts before they expire</p><p class="text-xs text-muted mt-1 leading-relaxed">200 Perks Points are expiring in 2 days. Redeem them now before it's too late!</p><a href="#" class="text-xs font-700 hover:underline mt-2 inline-block" style="color: ${lpgColor(s.colors.primary)};">Redeem Now →</a></div>
         </div>
       </div>
     </div>`;
@@ -3930,11 +4082,11 @@ function buildProfile(s) {
         <div class="px-6 pb-6 border-t border-border pt-5">
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Name</span><p class="text-sm font-700 text-dark mt-1.5">${lpgEscape(s.member.name||'Member')}</p></div>
-            <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Join Date</span><p class="text-sm font-700 text-dark mt-1.5">${s.member.joinDate||'—'}</p></div>
-            <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Phone</span><p class="text-sm font-700 text-dark mt-1.5">${s.member.phone||'—'}</p></div>
-            <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Email</span><p class="text-sm font-700 text-dark mt-1.5 truncate">${s.member.email||'—'}</p></div>
+            <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Join Date</span><p class="text-sm font-700 text-dark mt-1.5">${lpgEscape(s.member.joinDate||'—')}</p></div>
+            <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Phone</span><p class="text-sm font-700 text-dark mt-1.5">${lpgEscape(s.member.phone||'—')}</p></div>
+            <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Email</span><p class="text-sm font-700 text-dark mt-1.5 truncate">${lpgEscape(s.member.email||'—')}</p></div>
           </div>
-          <p class="text-xs text-muted mt-5">* Complete your profile to see customized offers & earn perks. <a href="#" class="font-700 hover:underline" style="color: ${s.colors.primary};">Edit Profile →</a></p>
+          <p class="text-xs text-muted mt-5">* Complete your profile to see customized offers & earn perks. <a href="#" class="font-700 hover:underline" style="color: ${lpgColor(s.colors.primary)};">Edit Profile →</a></p>
         </div>
       </div>
     </div>`;
@@ -3944,15 +4096,15 @@ function buildProfile(s) {
 function buildBenefits(s) {
   const items = (s.benefits||[]).map(b => {
     const rawCover = b.coverImageData || b.coverImageUrl || '';
-    const cover = s.outputTemplate === 'cinematic' && /^(?:https?:\/\/|data:image\/(?:png|jpe?g|webp|gif|avif|svg\+xml)(?:;base64)?,)/i.test(rawCover) ? rawCover : '';
-    const imgSrc = b.imageData || b.imageUrl || '';
+    const cover = s.outputTemplate === 'cinematic' ? lpgImageSource(rawCover) : '';
+    const imgSrc = lpgImageSource(b.imageData || b.imageUrl);
     const iconInner = imgSrc
-      ? `<img src="${imgSrc}" alt="${(b.name||'').replace(/"/g,'&quot;')}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-lg hidden">${b.emoji || '✨'}</span>`
-      : `<span class="text-lg">${b.emoji || '✨'}</span>`;
+      ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(b.name)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-lg hidden">${lpgEscape(b.emoji || '✨')}</span>`
+      : `<span class="text-lg">${lpgEscape(b.emoji || '✨')}</span>`;
     return `
             <div class="benefit-card ${cover ? 'cj-benefit-has-cover' : ''} flex items-center gap-3 p-3 rounded-xl bg-page-bg transition-colors hover:bg-gray-100">
-              <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style="background-color: ${s.colors.primary}12;">${iconInner}</div>
-              <div class="benefit-copy"><p class="text-sm font-700 text-dark">${b.name}</p></div>
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style="background-color: ${lpgColor(s.colors.primary)}12;">${iconInner}</div>
+              <div class="benefit-copy"><p class="text-sm font-700 text-dark">${lpgEscape(b.name)}</p></div>
               ${cover ? `<img class="lpg-benefit-cover" src="${lpgEscape(cover)}" alt="" loading="lazy" onerror="this.parentElement.classList.remove('cj-benefit-has-cover');this.remove();">` : ''}
             </div>`;
   }).join('');
@@ -3965,7 +4117,7 @@ function buildBenefits(s) {
       <div id="benefits-content" class="toggle-content">
         <div class="px-6 pb-6 border-t border-border pt-5">
           <div class="benefits-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">${items}</div>
-          <p class="text-xs text-muted mt-5">Upgrade to enjoy better benefits and exclusive offers. <a href="#" class="font-700 hover:underline" style="color: ${s.colors.primary};">View All Benefits →</a></p>
+          <p class="text-xs text-muted mt-5">Upgrade to enjoy better benefits and exclusive offers. <a href="#" class="font-700 hover:underline" style="color: ${lpgColor(s.colors.primary)};">View All Benefits →</a></p>
         </div>
       </div>
     </div>`;
@@ -3975,8 +4127,8 @@ function buildBenefits(s) {
 function buildVouchers(s) {
   if (!s.vouchers || s.vouchers.length === 0) return '';
   const cards = s.vouchers.map((v,i) => {
-    const imgSrc = v.imageData || v.imageUrl || '';
-    const grad = v.gradient || VOUCHER_GRADIENTS[i % VOUCHER_GRADIENTS.length];
+    const imgSrc = lpgImageSource(v.imageData || v.imageUrl);
+    const grad = lpgGradient(v.gradient, VOUCHER_GRADIENTS[i % VOUCHER_GRADIENTS.length]);
     const expiryText = (v.expiry||'').toLowerCase();
     const isExpiring = expiryText.includes('today') || expiryText.includes('expire');
     const expiryStyle = isExpiring ? 'color: #DC2626;' : 'color: #059669;';
@@ -3984,19 +4136,19 @@ function buildVouchers(s) {
     if (v.programRewardId) {
       actionHTML = `<span class="text-xs font-700">${lpgEscape(v.actionValue)}</span><button type="button" data-lpg-action="request" data-id="${lpgEscape(v.programRewardId)}" class="btn-primary px-4 py-1.5 text-xs font-700 rounded-full">Redeem reward</button>`;
     } else if (v.actionType === 'points') {
-      actionHTML = `<button class="btn-primary px-4 py-1.5 text-xs font-700 rounded-full">${v.actionValue||'Redeem'}</button>`;
+      actionHTML = `<button class="btn-primary px-4 py-1.5 text-xs font-700 rounded-full">${lpgEscape(v.actionValue||'Redeem')}</button>`;
     } else if (v.actionType === 'code') {
-      actionHTML = `<div class="px-4 py-1.5 text-xs font-700 rounded-full text-white tracking-wider" style="background-color: ${s.colors.dark};">${v.actionValue||'CODE'}</div>`;
+      actionHTML = `<div class="px-4 py-1.5 text-xs font-700 rounded-full text-white tracking-wider" style="background-color: ${lpgColor(s.colors.dark)};">${lpgEscape(v.actionValue||'CODE')}</div>`;
     } else {
       actionHTML = `<button class="btn-primary px-4 py-1.5 text-xs font-700 rounded-full">QR Code</button>`;
     }
     return `<div ${v.programRewardId ? `data-program-reward-id="${lpgEscape(v.programRewardId)}"` : ''} class="voucher-card card p-4 flex gap-4 cursor-pointer">
               <div class="w-20 h-20 rounded-xl bg-gradient-to-br from-${grad[0]} to-${grad[1]} flex items-center justify-center shrink-0 overflow-hidden shadow-inner">
-                ${imgSrc ? `<img src="${imgSrc}" alt="${lpgEscape(v.title)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-3xl hidden">${v.emoji||'🎁'}</span>` : `<span class="text-3xl">${v.emoji||'🎁'}</span>`}
+                ${imgSrc ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(v.title)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-3xl hidden">${lpgEscape(v.emoji||'🎁')}</span>` : `<span class="text-3xl">${lpgEscape(v.emoji||'🎁')}</span>`}
               </div>
               <div class="flex-1 min-w-0">
-                <div class="flex items-start justify-between"><div><h3 class="text-sm font-700 text-dark leading-tight">${lpgEscape(v.title)}</h3><p class="text-xs text-muted mt-1">${lpgEscape(v.vendor||'')}</p>${v.description ? `<p class="text-xs text-muted mt-1">${lpgEscape(v.description)}</p>` : ''}</div></div>
-                ${v.expiry ? `<p class="text-[11px] font-700 mt-2 flex items-center gap-1" style="${expiryStyle}"><svg style="width: 12px; height: 12px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.2 14.2L11 13V7h1.5v5.2l4.5 2.7-.8 1.3z"/></svg>${v.expiry}</p>` : ''}
+                <div class="flex items-start justify-between"><div><h3 class="text-sm font-700 text-dark leading-tight">${lpgEscape(v.title)}</h3><p class="text-xs text-muted mt-1">${lpgEscape(v.vendor||'')}</p>${v.description ? `<p class="text-xs text-muted mt-1" style="white-space:pre-wrap">${lpgEscape(v.description)}</p>` : ''}</div></div>
+                ${v.expiry ? `<p class="text-[11px] font-700 mt-2 flex items-center gap-1" style="${expiryStyle}"><svg style="width: 12px; height: 12px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.2 14.2L11 13V7h1.5v5.2l4.5 2.7-.8 1.3z"/></svg>${lpgEscape(v.expiry)}</p>` : ''}
                 <div class="voucher-actions flex items-center gap-2 mt-3">${actionHTML}
                   ${v.programRewardId ? '' : `<button class="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors" title="Copy code"><svg class="w-3.5 h-3.5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button>`}
                 </div>
@@ -4006,8 +4158,8 @@ function buildVouchers(s) {
 
   return `<section data-lpg-section="vouchers" id="section-vouchers">
           <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${s.colors.primary};"></span>My Vouchers</h2>
-            <a href="#" class="text-sm font-700 hover:underline transition-colors" style="color: ${s.colors.primary};">View All →</a>
+            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${lpgColor(s.colors.primary)};"></span>My Vouchers</h2>
+            <a href="#" class="text-sm font-700 hover:underline transition-colors" style="color: ${lpgColor(s.colors.primary)};">View All →</a>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${cards}</div>
         </section>`;
@@ -4017,31 +4169,31 @@ function buildVouchers(s) {
 function buildOffers(s) {
   if (!s.offers || s.offers.length === 0) return '';
   const cards = s.offers.map((o,i) => {
-    const imgSrc = o.imageData || o.imageUrl || '';
-    const grad = o.gradient || OFFER_GRADIENTS[i % OFFER_GRADIENTS.length];
+    const imgSrc = lpgImageSource(o.imageData || o.imageUrl);
+    const grad = lpgGradient(o.gradient, OFFER_GRADIENTS[i % OFFER_GRADIENTS.length]);
     const meta = [];
-    if (o.playerCount) meta.push(`<span class="flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>${o.playerCount}</span>`);
-    if (o.expiry) meta.push(`<span class="flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>${o.expiry}</span>`);
+    if (o.playerCount) meta.push(`<span class="flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>${lpgEscape(o.playerCount)}</span>`);
+    if (o.expiry) meta.push(`<span class="flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>${lpgEscape(o.expiry)}</span>`);
     return `<div class="offer-card card overflow-hidden flex">
               <div class="w-48 h-40 bg-gradient-to-br from-${grad[0]} to-${grad[1]} flex items-center justify-center shrink-0 overflow-hidden relative">
-                ${imgSrc ? `<img src="${imgSrc}" alt="${o.title}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-5xl hidden">${o.emoji||'🎯'}</span>` : `<span class="text-6xl drop-shadow-lg">${o.emoji||'🎯'}</span>`}
+                ${imgSrc ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(o.title)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-5xl hidden">${lpgEscape(o.emoji||'🎯')}</span>` : `<span class="text-6xl drop-shadow-lg">${lpgEscape(o.emoji||'🎯')}</span>`}
                 <div class="absolute inset-0" style="background: linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.25) 100%);"></div>
               </div>
               <div class="p-5 flex-1 flex flex-col justify-between">
                 <div>
-                  <h3 class="text-base font-800 text-dark leading-tight">${o.title}</h3>
-                  <p class="text-sm text-muted mt-1.5 leading-relaxed">${o.description||''}</p>
+                  <h3 class="text-base font-800 text-dark leading-tight">${lpgEscape(o.title)}</h3>
+                  <p class="text-sm text-muted mt-1.5 leading-relaxed">${lpgEscape(o.description||'')}</p>
                   ${meta.length ? `<div class="flex items-center gap-4 mt-3 text-[11px] font-600 text-muted">${meta.join('')}</div>` : ''}
                 </div>
-                <button class="btn-primary self-start mt-4 px-6 py-2 text-sm font-700 rounded-full">${o.cta||'Learn More'}</button>
+                <button class="btn-primary self-start mt-4 px-6 py-2 text-sm font-700 rounded-full">${lpgEscape(o.cta||'Learn More')}</button>
               </div>
             </div>`;
   }).join('\n');
 
   return `<section data-lpg-section="offers" id="section-offers">
           <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${s.colors.primary};"></span>My Offers &amp; Promotions</h2>
-            <a href="#" class="text-sm font-700 hover:underline" style="color: ${s.colors.primary};">View All →</a>
+            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${lpgColor(s.colors.primary)};"></span>My Offers &amp; Promotions</h2>
+            <a href="#" class="text-sm font-700 hover:underline" style="color: ${lpgColor(s.colors.primary)};">View All →</a>
           </div>
           <div class="space-y-4">${cards}</div>
         </section>`;
@@ -4059,12 +4211,12 @@ function buildEarnMore(s) {
   const cards = s.earnMore.map((e,i) => {
     if (e.programRuleId && e.rule) {
       const rule = e.rule;
-      const image = e.imageData || e.imageUrl || '';
+      const image = lpgImageSource(e.imageData || e.imageUrl);
       const icon = e.emoji ? `<span class="text-xl" aria-hidden="true">${lpgEscape(e.emoji)}</span>` : icons[i % icons.length];
       return `<article data-program-rule-id="${lpgEscape(rule.id)}" class="earn-card card p-4">
         ${image ? `<img src="${lpgEscape(image)}" alt="${lpgEscape(e.title)}" class="w-full h-32 rounded-xl object-cover mb-3" onerror="this.hidden=true;">` : ''}
         <div class="flex items-start gap-3">
-          <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style="background-color: ${s.colors.primary}15; color: ${s.colors.primary};">${icon}</div>
+          <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style="background-color: ${lpgColor(s.colors.primary)}15; color: ${lpgColor(s.colors.primary)};">${icon}</div>
           <div class="flex-1 min-w-0">
             <h3 class="text-sm font-700 text-dark leading-tight"><button type="button" class="w-full flex items-start justify-between gap-3 text-left" data-lpg-action="activity" data-id="${lpgEscape(rule.id)}" aria-label="${lpgEscape('Explore ' + (e.title || 'activity'))}"><span>${lpgEscape(e.title)}</span><svg class="w-5 h-5 text-muted shrink-0" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></button></h3>
             <p data-lpg-activity-description class="text-xs text-muted mt-1 leading-relaxed">${lpgEscape(e.description || '')}</p>
@@ -4075,25 +4227,25 @@ function buildEarnMore(s) {
     if (e.hasCodeInput) {
       return `<div class="earn-card card p-4 cursor-pointer">
               <div class="flex items-start gap-3">
-                <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style="background-color: ${s.colors.primary}15; color: ${s.colors.primary};">${icons[i%icons.length]}</div>
-                <div class="flex-1"><h3 class="text-sm font-700 text-dark">${e.title}</h3></div>
+                <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style="background-color: ${lpgColor(s.colors.primary)}15; color: ${lpgColor(s.colors.primary)};">${icons[i%icons.length]}</div>
+                <div class="flex-1"><h3 class="text-sm font-700 text-dark">${lpgEscape(e.title)}</h3></div>
               </div>
               <div class="flex items-center gap-2 mt-3">
                 <input type="text" placeholder="Enter your code" class="flex-1 px-3 py-2 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
-                <button class="px-4 py-2 text-white text-xs font-700 rounded-lg transition-colors" style="background-color: ${s.colors.dark};" onmouseover="this.style.opacity=0.9" onmouseout="this.style.opacity=1">Enter</button>
+                <button class="px-4 py-2 text-white text-xs font-700 rounded-lg transition-colors" style="background-color: ${lpgColor(s.colors.dark)};" onmouseover="this.style.opacity=0.9" onmouseout="this.style.opacity=1">Enter</button>
               </div>
             </div>`;
     }
     return `<div class="earn-card card p-4 flex items-start gap-3 cursor-pointer">
-              <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style="background-color: ${s.colors.primary}15; color: ${s.colors.primary};">${icons[i%icons.length]}</div>
-              <div class="flex-1"><h3 class="text-sm font-700 text-dark leading-tight">${e.title}</h3><p class="text-xs text-muted mt-1 leading-relaxed">${e.description||''}</p></div>
+              <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style="background-color: ${lpgColor(s.colors.primary)}15; color: ${lpgColor(s.colors.primary)};">${icons[i%icons.length]}</div>
+              <div class="flex-1"><h3 class="text-sm font-700 text-dark leading-tight">${lpgEscape(e.title)}</h3><p class="text-xs text-muted mt-1 leading-relaxed">${lpgEscape(e.description||'')}</p></div>
               <svg class="w-5 h-5 text-muted shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </div>`;
   }).join('\n');
 
   return `<section data-lpg-section="earn" id="section-earn-more">
           <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${s.colors.primary};"></span>Earn More</h2>
+            <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${lpgColor(s.colors.primary)};"></span>Earn More</h2>
           </div>
           <div class="earn-grid grid grid-cols-1 sm:grid-cols-2 gap-4">${cards}</div>
         </section>`;
@@ -4104,15 +4256,15 @@ function buildProfileTasks(s) {
   if (!s.profileTasks || s.profileTasks.length === 0) return '';
   const tasks = s.profileTasks.map(t => `
             <div class="flex items-start justify-between gap-3">
-              <p class="text-xs text-muted flex-1 leading-relaxed">${t.description}</p>
-              <button class="btn-ghost px-4 py-1.5 text-xs font-700 rounded-full shrink-0">${t.cta}</button>
+              <p class="text-xs text-muted flex-1 leading-relaxed">${lpgEscape(t.description)}</p>
+              <button class="btn-ghost px-4 py-1.5 text-xs font-700 rounded-full shrink-0">${lpgEscape(t.cta)}</button>
             </div>`).join('');
 
   return `<section data-lpg-section="profile-tasks" id="section-profile-tasks" class="card p-5">
           <h3 class="text-base font-800 text-dark mb-4 section-title">Complete Profile &amp; Earn</h3>
           <div class="mb-2">
-            <div class="flex items-center justify-between text-xs text-muted mb-1.5"><span>Your profile is <span class="font-800" style="color: ${s.colors.primary};">60%</span> completed</span></div>
-            <div class="h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-full rounded-full transition-all" style="width: 60%; background: linear-gradient(90deg, ${s.colors.accent}, ${s.colors.primary});"></div></div>
+            <div class="flex items-center justify-between text-xs text-muted mb-1.5"><span>Your profile is <span class="font-800" style="color: ${lpgColor(s.colors.primary)};">60%</span> completed</span></div>
+            <div class="h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-full rounded-full transition-all" style="width: 60%; background: linear-gradient(90deg, ${lpgColor(s.colors.accent)}, ${lpgColor(s.colors.primary)});"></div></div>
           </div>
           <div class="space-y-4 mt-5">${tasks}</div>
         </section>`;
@@ -4122,21 +4274,21 @@ function buildProfileTasks(s) {
 function buildBadges(s) {
   if (!s.badges || s.badges.length === 0) return '';
   const items = s.badges.map(b => {
-    const c = b.color || 'amber';
-    const imgSrc = b.imageData || b.imageUrl || '';
+    const c = /^(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)$/.test(b.color || '') ? b.color : 'amber';
+    const imgSrc = lpgImageSource(b.imageData || b.imageUrl);
     const inner = imgSrc
-      ? `<img src="${imgSrc}" alt="${(b.name||'').replace(/"/g,'&quot;')}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-2xl drop-shadow-sm hidden">${b.emoji||'⭐'}</span>`
-      : `<span class="text-2xl drop-shadow-sm">${b.emoji||'⭐'}</span>`;
+      ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(b.name)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-2xl drop-shadow-sm hidden">${lpgEscape(b.emoji||'⭐')}</span>`
+      : `<span class="text-2xl drop-shadow-sm">${lpgEscape(b.emoji||'⭐')}</span>`;
     return `<div class="flex flex-col items-center gap-2 group">
               <div class="w-16 h-16 rounded-full bg-gradient-to-br from-${c}-400 to-${c}-600 flex items-center justify-center overflow-hidden transition-transform group-hover:scale-105" style="box-shadow: 0 0 0 3px #fff, 0 0 0 5px rgb(var(--tw-${c}-300, 251 191 36 / 0.7) / 0.6), 0 8px 16px -6px rgba(0,0,0,0.15);">${inner}</div>
-              <span class="text-[11px] font-700 text-center text-dark leading-tight">${(b.name||'Badge').replace(/ /g,'<br>')}</span>
+              <span class="text-[11px] font-700 text-center text-dark leading-tight">${lpgEscape(b.name||'Badge').replace(/ /g,'<br>')}</span>
             </div>`;
   }).join('');
 
   return `<section data-lpg-section="badges" id="section-badges">
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-base font-800 text-dark section-title">My Badges (${s.badges.length})</h3>
-            <a href="#" class="text-sm font-700 hover:underline" style="color: ${s.colors.primary};">View All →</a>
+            <a href="#" class="text-sm font-700 hover:underline" style="color: ${lpgColor(s.colors.primary)};">View All →</a>
           </div>
           <div class="flex items-center justify-start gap-6 flex-wrap">${items}</div>
         </section>`;
@@ -4146,16 +4298,16 @@ function buildBadges(s) {
 function buildClubs(s) {
   if (!s.clubs || s.clubs.length === 0) return '';
   const items = s.clubs.map((c,i) => {
-    const imgSrc = c.imageData || c.imageUrl || '';
-    const grad = c.gradient || CLUB_GRADIENTS[i % CLUB_GRADIENTS.length];
+    const imgSrc = lpgImageSource(c.imageData || c.imageUrl);
+    const grad = lpgGradient(c.gradient, CLUB_GRADIENTS[i % CLUB_GRADIENTS.length]);
     return `<div class="card card-hover p-4 flex gap-3 cursor-pointer">
               <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-${grad[0]} to-${grad[1]} flex items-center justify-center shrink-0 overflow-hidden shadow-inner">
-                ${imgSrc ? `<img src="${imgSrc}" alt="${c.name}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-2xl hidden">${c.emoji||'👥'}</span>` : `<span class="text-2xl drop-shadow">${c.emoji||'👥'}</span>`}
+                ${imgSrc ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(c.name)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-2xl hidden">${lpgEscape(c.emoji||'👥')}</span>` : `<span class="text-2xl drop-shadow">${lpgEscape(c.emoji||'👥')}</span>`}
               </div>
               <div class="min-w-0">
-                <h4 class="text-sm font-800 text-dark leading-tight">${c.name}</h4>
-                <p class="text-xs text-muted mt-1 leading-relaxed line-clamp-2">${c.description||''}</p>
-                <p class="text-[11px] text-muted mt-2 flex items-center gap-1 font-600"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>${(c.memberCount||0).toLocaleString()} Members</p>
+                <h4 class="text-sm font-800 text-dark leading-tight">${lpgEscape(c.name)}</h4>
+                <p class="text-xs text-muted mt-1 leading-relaxed line-clamp-2">${lpgEscape(c.description||'')}</p>
+                <p class="text-[11px] text-muted mt-2 flex items-center gap-1 font-600"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>${lpgNumber(c.memberCount||0).toLocaleString()} Members</p>
               </div>
             </div>`;
   }).join('');
@@ -4163,7 +4315,7 @@ function buildClubs(s) {
   return `<section data-lpg-section="clubs" id="section-clubs">
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-base font-800 text-dark section-title">My Social Clubs (${s.clubs.length})</h3>
-            <a href="#" class="text-sm font-700 hover:underline" style="color: ${s.colors.primary};">View All →</a>
+            <a href="#" class="text-sm font-700 hover:underline" style="color: ${lpgColor(s.colors.primary)};">View All →</a>
           </div>
           <div class="space-y-4">${items}</div>
         </section>`;
@@ -4174,33 +4326,33 @@ function buildUpsell(s) {
   if (!s.upsell || !s.upsell.title) return '';
   const u = s.upsell;
 
-  const bgColor = u.bgColor || '#7C1D1D';
+  const bgColor = lpgColor(u.bgColor, '#7C1D1D');
   const bgColorDark = darkenColor(bgColor, 15);
-  const bgImage = u.bgImageData || u.bgImageUrl || '';
-  const titleColor = u.titleColor || s.colors.accent;
-  const subtitleColor = u.subtitleColor || '#FFFFFF';
-  const priceColor = u.priceColor || '#FFFFFF';
-  const periodColor = u.periodColor || 'rgba(255,255,255,0.80)';
+  const bgImage = lpgCssImage(u.bgImageData || u.bgImageUrl);
+  const titleColor = lpgColor(u.titleColor, lpgColor(s.colors.accent));
+  const subtitleColor = lpgColor(u.subtitleColor, lpgColor('#FFFFFF'));
+  const priceColor = lpgColor(u.priceColor, lpgColor('#FFFFFF'));
+  const periodColor = lpgColor(u.periodColor, lpgColor('rgba(255,255,255,0.80)'));
 
   // When there's a bg image, put a subtle scrim over it so text stays legible.
   const bgLayers = bgImage
-    ? `background-image: linear-gradient(135deg, ${bgColor}CC 0%, ${bgColorDark}CC 100%), url('${bgImage.replace(/'/g, "\\'")}'); background-size: cover, cover; background-position: center, center;`
+    ? `background-image: linear-gradient(135deg, ${bgColor}CC 0%, ${bgColorDark}CC 100%), url('${bgImage}'); background-size: cover, cover; background-position: center, center;`
     : `background-image: linear-gradient(135deg, ${bgColor} 0%, ${bgColorDark} 100%);`;
 
   return `<section data-lpg-section="upsell" id="section-upsell" class="card overflow-hidden">
-          <div class="relative p-7 text-center overflow-hidden" style="${bgLayers}">
+          <div class="relative p-7 text-center overflow-hidden" style="${lpgEscape(bgLayers)}">
             <div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.2), transparent 40%), radial-gradient(circle at 80% 80%, rgba(255,255,255,0.15), transparent 40%);"></div>
             <div class="relative">
-              <div class="text-2xl font-900 mb-1 italic" style="color: ${titleColor}; font-family: 'Georgia', serif; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">${u.title}</div>
-              <div class="text-xs font-800 uppercase tracking-[0.2em] mt-2" style="color: ${subtitleColor};">${u.subtitle||''}</div>
+              <div class="text-2xl font-900 mb-1 italic" style="color: ${titleColor}; font-family: 'Georgia', serif; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">${lpgEscape(u.title)}</div>
+              <div class="text-xs font-800 uppercase tracking-[0.2em] mt-2" style="color: ${subtitleColor};">${lpgEscape(u.subtitle||'')}</div>
               ${u.price ? `<div class="mt-4 flex items-start justify-center gap-1" style="color: ${priceColor};">${String(u.price).startsWith('$') ? '<span class="text-2xl font-700 mt-2">$</span>' : ''}<span class="text-6xl font-900 leading-none">${lpgEscape(String(u.price).replace(/^\$/,''))}</span></div>` : ''}
               ${u.price && u.period ? `<div class="text-[11px] mt-2 uppercase tracking-[0.15em] font-700" style="color: ${periodColor};">${lpgEscape(u.period)}</div>` : ''}
             </div>
           </div>
           <div class="p-5 text-center">
-            <p class="text-sm text-dark font-500 mb-4 leading-relaxed">${u.tagline||''}</p>
-            <button class="btn-primary w-full py-3 text-sm font-800 rounded-full uppercase tracking-wider">${u.cta||'Upgrade'}</button>
-            <div class="flex items-center justify-center gap-2 mt-4"><div class="w-6 h-1.5 rounded-full" style="background-color: ${s.colors.primary};"></div><div class="w-1.5 h-1.5 rounded-full bg-gray-300"></div><div class="w-1.5 h-1.5 rounded-full bg-gray-300"></div></div>
+            <p class="text-sm text-dark font-500 mb-4 leading-relaxed">${lpgEscape(u.tagline||'')}</p>
+            <button class="btn-primary w-full py-3 text-sm font-800 rounded-full uppercase tracking-wider">${lpgEscape(u.cta||'Upgrade')}</button>
+            <div class="flex items-center justify-center gap-2 mt-4"><div class="w-6 h-1.5 rounded-full" style="background-color: ${lpgColor(s.colors.primary)};"></div><div class="w-1.5 h-1.5 rounded-full bg-gray-300"></div><div class="w-1.5 h-1.5 rounded-full bg-gray-300"></div></div>
           </div>
         </section>`;
 }
@@ -4220,6 +4372,7 @@ function paymentIconsHTML() {
 
 // ---- SOCIAL ICONS ----
 function socialIconsHTML(primaryColor) {
+  primaryColor = lpgColor(primaryColor);
   const dot = (svg) => `<a href="#" class="w-10 h-10 rounded-full flex items-center justify-center transition-all hover:-translate-y-0.5" style="background-color: #1F2937; color: #fff;" onmouseover="this.style.backgroundColor='${primaryColor}';" onmouseout="this.style.backgroundColor='#1F2937';">${svg}</a>`;
   const instagram = `<svg class="w-4.5 h-4.5" style="width: 18px; height: 18px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>`;
   const facebook = `<svg class="w-4.5 h-4.5" style="width: 18px; height: 18px;" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>`;
@@ -4235,8 +4388,8 @@ function buildFooter(s, programName, brandAbbr) {
   const cols = [fl.col1, fl.col2, fl.col3].filter(Boolean);
   const colsHTML = cols.map(col => `
         <div>
-          <h4 class="text-[11px] font-800 text-dark uppercase tracking-[0.15em] mb-4">${col.title||'Links'}</h4>
-          <ul class="space-y-2.5">${(col.links||[]).map(l => `<li><a href="#" class="text-xs text-muted hover:text-primary transition-colors">${l}</a></li>`).join('')}</ul>
+          <h4 class="text-[11px] font-800 text-dark uppercase tracking-[0.15em] mb-4">${lpgEscape(col.title||'Links')}</h4>
+          <ul class="space-y-2.5">${(col.links||[]).map(l => `<li><a href="#" class="text-xs text-muted hover:text-primary transition-colors">${lpgEscape(l)}</a></li>`).join('')}</ul>
         </div>`).join('');
 
   return `<footer class="bg-white border-t border-gray-200 mt-16">
@@ -4251,7 +4404,7 @@ function buildFooter(s, programName, brandAbbr) {
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-8 mb-10">
         ${colsHTML}
         <div class="flex items-center justify-center">
-          <div class="relative w-28 h-28 rounded-full flex items-center justify-center text-center" style="background: radial-gradient(circle, #fff 60%, transparent 61%); border: 2px dashed ${s.colors.primary}30;">
+          <div class="relative w-28 h-28 rounded-full flex items-center justify-center text-center" style="background: radial-gradient(circle, #fff 60%, transparent 61%); border: 2px dashed ${lpgColor(s.colors.primary)}30;">
             <div>
               <div class="text-[10px] font-700 text-primary uppercase tracking-wider">2 Year</div>
               <div class="text-[9px] text-muted italic mt-0.5">Guarantee</div>
@@ -4265,7 +4418,7 @@ function buildFooter(s, programName, brandAbbr) {
       </div>
       <div class="border-t border-gray-100 pt-6 text-center">
         <div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[10px] text-muted uppercase tracking-[0.15em] font-600">
-          <a href="#" class="hover:text-primary transition-colors">${programName}</a><span class="text-gray-300">|</span>
+          <a href="#" class="hover:text-primary transition-colors">${lpgEscape(programName)}</a><span class="text-gray-300">|</span>
           <a href="#" class="hover:text-primary transition-colors">Site Map</a><span class="text-gray-300">|</span>
           <a href="#" class="hover:text-primary transition-colors">Terms &amp; Conditions</a><span class="text-gray-300">|</span>
           <a href="#" class="hover:text-primary transition-colors">Privacy Policy</a><span class="text-gray-300">|</span>
@@ -5110,6 +5263,39 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     } catch (_) { /* ignore */ }
   }
 
+  // Generation capabilities are short-lived and scoped to one backend. Never
+  // persist them in project data, localStorage, URLs, or another backend's request.
+  const backendCapabilities = new Map();
+  async function backendAccessHeaders(base = '') {
+    const key = String(base).replace(/\/+$/, '');
+    let cached = backendCapabilities.get(key);
+    if (cached?.expiresAt > Date.now() + 30000) return { 'X-LPG-Capability': cached.token };
+    if (!cached?.pending) {
+      const pending = (async () => {
+        const response = await timedFetch(`${key}/api/capability`, { method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        // Explicit absence supports old custom backends. Modern LPG endpoints
+        // still enforce their own capability check; this cannot bypass it.
+        if (response.status === 404) return null;
+        const data = await transportJSON(response);
+        if (!response.ok) throw backendFailure(response.status, data);
+        if (typeof data.token !== 'string' || data.token.length < 24 || data.token.length > 4096 || !Number.isFinite(data.expiresAt) || data.expiresAt <= Date.now()) throw localError('generation_protocol');
+        return { token: data.token, expiresAt: data.expiresAt };
+      })();
+      cached = { pending }; backendCapabilities.set(key, cached);
+    }
+    try {
+      const result = await cached.pending;
+      if (backendCapabilities.get(key) === cached) {
+        if (result) backendCapabilities.set(key, result); else backendCapabilities.delete(key);
+      }
+      return result ? { 'X-LPG-Capability': result.token } : {};
+    } catch (error) {
+      if (backendCapabilities.get(key) === cached) backendCapabilities.delete(key);
+      throw error;
+    }
+  }
+
   async function scrapeViaCorsProxy(url) {
     let lastError = null;
 
@@ -5118,22 +5304,29 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     const scrapeBase = own || '';  // empty = same origin
     {
       try {
-        const res = await fetch(`${scrapeBase}/api/scrape?url=${encodeURIComponent(url)}`, { method: 'GET' });
+        const headers = await backendAccessHeaders(scrapeBase);
+        const res = await fetch(`${scrapeBase}/api/scrape?url=${encodeURIComponent(url)}`, { method: 'GET', credentials: 'same-origin', headers });
         if (res.ok) {
           const ct = res.headers.get('content-type') || '';
-          const html = await res.text();
+          const raw = await res.text();
+          let html = raw;
+          if (/application\/json/i.test(ct)) {
+            try { const envelope = JSON.parse(raw); html = typeof envelope.html === 'string' ? envelope.html : ''; } catch (_) { html = ''; }
+          }
           if (html && html.length >= 40) {
             // Worker returns text/html or json errors — a json response starting
             // with { and no `<` means it's likely a structured error, not HTML.
-            const looksJson = /application\/json/i.test(ct) || (html.trim().startsWith('{') && !html.trim().startsWith('{"contents"'));
+            const looksJson = html.trim().startsWith('{');
             if (!looksJson) return html;
           }
           lastError = localError('own_scraper_empty', { endpoint: scrapeBase || window.location.origin });
         } else {
           const body = await res.text().catch(() => '');
           lastError = localError('own_scraper_status', { status: res.status, endpoint: scrapeBase || window.location.origin, body: body.slice(0, 160) });
+          if ([401,403,429].includes(res.status)) { lastError.noProxy = true; throw lastError; }
         }
       } catch (err) {
+        if (err.noProxy || ['generation_session','default_rate_limited','generation_budget'].includes(err.code)) throw err;
         lastError = localError('own_scraper_network', { endpoint: scrapeBase || window.location.origin, cause: err.message });
       }
     }
@@ -5208,6 +5401,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
   function backendFailure(status, body = {}, transport = false) {
     const code = body?.error;
     if (status === 401 || status === 403) return localError('generation_session');
+    if (['generation_budget_exceeded', 'capability_limit'].includes(code)) return localError('generation_budget');
     if (code === 'generation_busy') return localError('generation_busy');
     if (code === 'generation_result_too_large') return localError('generation_result_too_large');
     if (code === 'llm_not_configured') return localError('default_not_configured');
@@ -5233,10 +5427,11 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     const paths = { llm: '/api/llm', images: '/api/generate-images', image: '/api/generate-image' };
     if (!paths[kind]) throw localError('generation_protocol');
     const deadline = Date.now() + JOB_DEADLINE_MS;
+    const access = await backendAccessHeaders(base);
     let submitted;
     try {
       submitted = await timedFetch(`${base}/api/jobs`, { method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, kind }) });
+        headers: { 'Content-Type': 'application/json', ...access }, body: JSON.stringify({ ...body, kind }) });
     } catch (_) {
       // The server may already have accepted the paid job. Never resubmit it or
       // fall back to another POST when the submission outcome is uncertain.
@@ -5247,7 +5442,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
       // permitted synchronous fallback, not a recovery for a failed AI call.
       try {
         const legacy = await timedFetch(`${base}${paths[kind]}`, { method: 'POST', credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          headers: { 'Content-Type': 'application/json', ...access }, body: JSON.stringify(body) });
         const payload = await transportJSON(legacy);
         if (!legacy.ok) throw backendFailure(legacy.status, payload);
         return payload;
@@ -5755,9 +5950,11 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
       case 'generation_job_missing':
         return 'This generation result expired or the server restarted. Your current portal was kept. Please generate again.';
       case 'generation_session':
-        return 'The app access session needs attention. Sign in to the app again, then retry generation. Your current portal was kept.';
+        return 'Refresh the generator to renew generation access. Complete app sign-in if prompted, then try again. Your current portal was kept.';
       case 'generation_gateway':
         return 'The hosting gateway is temporarily unavailable while checking generation. Your current portal was kept. Please try again shortly.';
+      case 'generation_budget':
+        return 'The shared generation usage limit for this connection has been reached. Your current portal was kept. Try again after the usage window resets.';
       case 'generation_busy':
         return 'The generator is handling several requests. Your current portal was kept; wait a few seconds and try again.';
       case 'generation_protocol':
@@ -5860,6 +6057,7 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
     callSFGateway,
     callDefaultBackend,
     runBackendJob,
+    backendAccessHeaders,
     scrapeViaCorsProxy,
     optimizeGeneratedImage,
     fillMissingImages,
@@ -6711,6 +6909,8 @@ function renderVouchers() {
         </div>`}
         <div><label class="block text-xs font-600 text-gray-600 mb-1">${state.program && v.programRewardId ? 'Points cost' : 'Action Value'}</label><input type="${state.program && v.programRewardId ? 'number' : 'text'}" value="${esc(state.program && v.programRewardId ? String(state.program.rewards.find(r => r.id === v.programRewardId)?.cost || '') : v.actionValue||'')}" onchange="updateItem('vouchers',${i},'actionValue',this.value)" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="e.g. 250pts or CODE123"></div>
       </div>
+      <label class="block text-xs font-600 text-gray-600 mt-3" for="voucher-description-${i}">Description</label>
+      <textarea id="voucher-description-${i}" rows="3" maxlength="8000" class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" oninput="updateItem('vouchers',${i},'description',this.value)">${esc(v.description || '')}</textarea>
       ${imageUploadHTML('voucher-'+i, 'Voucher Image', v.imageData||v.imageUrl||'')}
     </div>
   `).join('');
@@ -7038,7 +7238,8 @@ function schedulePreview() {
   previewTimer = setTimeout(updatePreview, 300);
 }
 
-let portalPreviewSequence = 0, expandedPreviewTimer = null, presenterRoleId = null;
+let portalPreviewSequence = 0, expandedPreviewTimer = null, presenterRoleId = null, presenterRoleEpoch = null;
+const portalPreviewPositions = new WeakMap();
 const DESKTOP_PREVIEW_WIDTH = 1440, DESKTOP_PREVIEW_HEIGHT = 900;
 let previewSizingInitialized = false, previewResizeObserver = null;
 function fitDesktopPreview() {
@@ -7074,13 +7275,45 @@ function previewStatus(message, retry = false) {
   const button = document.getElementById('expanded-preview-retry');
   if (button) button.hidden = !retry;
 }
+// Runs only in the sandboxed builder preview; never included in downloaded portals.
+function portalPreviewBridge(token, previous) {
+  const send = data => parent.postMessage({ ...data, token }, '*');
+  const candidates = () => {
+    const scenes = Array.from(document.querySelectorAll('.cj-scene'));
+    return scenes.length ? scenes : Array.from(document.querySelectorAll('[data-lpg-section]'));
+  };
+  const key = node => node.id || node.dataset.lpgSection || '';
+  let pending;
+  function report() {
+    pending = null;
+    const anchor = candidates().filter(node => node.getBoundingClientRect().top <= innerHeight / 2).at(-1);
+    send({ type: 'lpg-preview-position', x: scrollX, y: scrollY,
+      anchor: anchor ? key(anchor) : '', offset: anchor ? anchor.getBoundingClientRect().top : 0 });
+  }
+  function restore() {
+    if (previous) {
+      const anchor = previous.anchor && candidates().find(node => key(node) === previous.anchor);
+      const y = anchor ? scrollY + anchor.getBoundingClientRect().top - previous.offset : previous.y;
+      const root = document.documentElement, behavior = root.style.scrollBehavior;
+      root.style.scrollBehavior = 'auto';
+      scrollTo({ left: previous.x, top: Math.max(0, y), behavior: 'auto' });
+      requestAnimationFrame(() => { root.style.scrollBehavior = behavior; });
+    }
+    report(); send({ type: 'lpg-preview-ready' });
+  }
+  addEventListener('scroll', () => { if (!pending) pending = setTimeout(report, 100); }, { passive: true });
+  // Allow layout scripts and two paint frames to establish sticky scene geometry.
+  const start = () => requestAnimationFrame(() => requestAnimationFrame(restore));
+  if (document.readyState === 'loading') addEventListener('DOMContentLoaded', start, { once: true }); else start();
+}
 function loadPortalPreview(frame, html) {
   if (!frame) return;
   const token = String(++portalPreviewSequence);
   frame.dataset.previewToken = token;
-  // Sandboxed srcdoc frames have opaque origins. Only this frame and its latest
-  // token can acknowledge readiness; no access to its DOM is required.
-  const ready = '<script>parent.postMessage({type:"lpg-preview-ready",token:' + JSON.stringify(token) + '},"*");<\/script>';
+  frame.dataset.previewEpoch = String(typeof projectEpoch === 'number' ? projectEpoch : 0);
+  const stored = portalPreviewPositions.get(frame);
+  const previous = stored?.epoch === frame.dataset.previewEpoch ? stored.position : null;
+  const ready = '<script>(' + portalPreviewBridge.toString() + ')(' + JSON.stringify(token) + ',' + JSON.stringify(previous) + ');<\/script>';
   frame.srcdoc = html.replace(/<\/body>\s*<\/html>\s*$/i, ready + '</body></html>');
   if (frame.id === 'expanded-preview-iframe') {
     clearTimeout(expandedPreviewTimer);
@@ -7089,13 +7322,21 @@ function loadPortalPreview(frame, html) {
   }
 }
 window.addEventListener('message', event => {
-  if (event.data?.type !== 'lpg-preview-ready') return;
+  if (!['lpg-preview-ready', 'lpg-preview-position'].includes(event.data?.type)) return;
   const frame = ['preview-iframe', 'expanded-preview-iframe'].map(id => document.getElementById(id)).find(node => node && event.source === node.contentWindow);
   if (!frame || event.data.token !== frame.dataset.previewToken) return;
+  if (event.data.type === 'lpg-preview-position') {
+    const { x, y, anchor, offset } = event.data;
+    if (![x,y,offset].every(value => Number.isFinite(value) && Math.abs(value) <= 10000000) || x < 0 || y < 0 || typeof anchor !== 'string' || !/^[a-zA-Z0-9_-]{0,100}$/.test(anchor)) return;
+    portalPreviewPositions.set(frame, { epoch: frame.dataset.previewEpoch, position: { x, y, anchor, offset } });
+    return;
+  }
   if (state.programEnabled && state.program?.roles?.some(role => role.id === presenterRoleId)) frame.contentWindow.postMessage({type:'lpg-preview-control',action:'role',roleId:presenterRoleId}, '*');
   if (frame.id === 'expanded-preview-iframe') { clearTimeout(expandedPreviewTimer); previewStatus(''); }
 });
 function refreshPresenterTools() {
+  const epoch = typeof projectEpoch === 'number' ? projectEpoch : 0;
+  if (presenterRoleEpoch !== epoch) { presenterRoleId = state.program?.member?.role || null; presenterRoleEpoch = epoch; }
   const program = state.programEnabled ? state.program : null;
   if (!program?.roles?.some(role => role.id === presenterRoleId)) presenterRoleId = program?.member?.role || null;
   document.querySelectorAll('[data-presenter-action]').forEach(button => { button.disabled = !program; });
@@ -7120,7 +7361,6 @@ function controlPortalPreview(action, roleId) {
 }
 function updatePreview() {
   initializePreviewSizing();
-  presenterRoleId = state.program?.member?.role || null;
   refreshPresenterTools();
   try {
     const html = generatePortalHTML(state);
@@ -7213,9 +7453,7 @@ function startOver() {
 
 // ---- UTILITY ----
 function esc(str) {
-  const d = document.createElement('div');
-  d.textContent = str || '';
-  return d.innerHTML;
+  return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
 </script>

@@ -56,6 +56,7 @@ function createGenerationJobs({ handlers, validators = {}, ttlMs = 15 * 60_000, 
     let status = 200;
     let completed = false;
     const output = {
+      set() { return output; },
       status(value) { status = value; return output; },
       json(value) {
         if (completed) return;

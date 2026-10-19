@@ -838,6 +838,8 @@ function renderVouchers() {
         </div>`}
         <div><label class="block text-xs font-600 text-gray-600 mb-1">${state.program && v.programRewardId ? 'Points cost' : 'Action Value'}</label><input type="${state.program && v.programRewardId ? 'number' : 'text'}" value="${esc(state.program && v.programRewardId ? String(state.program.rewards.find(r => r.id === v.programRewardId)?.cost || '') : v.actionValue||'')}" onchange="updateItem('vouchers',${i},'actionValue',this.value)" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="e.g. 250pts or CODE123"></div>
       </div>
+      <label class="block text-xs font-600 text-gray-600 mt-3" for="voucher-description-${i}">Description</label>
+      <textarea id="voucher-description-${i}" rows="3" maxlength="8000" class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" oninput="updateItem('vouchers',${i},'description',this.value)">${esc(v.description || '')}</textarea>
       ${imageUploadHTML('voucher-'+i, 'Voucher Image', v.imageData||v.imageUrl||'')}
     </div>
   `).join('');
@@ -1165,7 +1167,8 @@ function schedulePreview() {
   previewTimer = setTimeout(updatePreview, 300);
 }
 
-let portalPreviewSequence = 0, expandedPreviewTimer = null, presenterRoleId = null;
+let portalPreviewSequence = 0, expandedPreviewTimer = null, presenterRoleId = null, presenterRoleEpoch = null;
+const portalPreviewPositions = new WeakMap();
 const DESKTOP_PREVIEW_WIDTH = 1440, DESKTOP_PREVIEW_HEIGHT = 900;
 let previewSizingInitialized = false, previewResizeObserver = null;
 function fitDesktopPreview() {
@@ -1201,13 +1204,45 @@ function previewStatus(message, retry = false) {
   const button = document.getElementById('expanded-preview-retry');
   if (button) button.hidden = !retry;
 }
+// Runs only in the sandboxed builder preview; never included in downloaded portals.
+function portalPreviewBridge(token, previous) {
+  const send = data => parent.postMessage({ ...data, token }, '*');
+  const candidates = () => {
+    const scenes = Array.from(document.querySelectorAll('.cj-scene'));
+    return scenes.length ? scenes : Array.from(document.querySelectorAll('[data-lpg-section]'));
+  };
+  const key = node => node.id || node.dataset.lpgSection || '';
+  let pending;
+  function report() {
+    pending = null;
+    const anchor = candidates().filter(node => node.getBoundingClientRect().top <= innerHeight / 2).at(-1);
+    send({ type: 'lpg-preview-position', x: scrollX, y: scrollY,
+      anchor: anchor ? key(anchor) : '', offset: anchor ? anchor.getBoundingClientRect().top : 0 });
+  }
+  function restore() {
+    if (previous) {
+      const anchor = previous.anchor && candidates().find(node => key(node) === previous.anchor);
+      const y = anchor ? scrollY + anchor.getBoundingClientRect().top - previous.offset : previous.y;
+      const root = document.documentElement, behavior = root.style.scrollBehavior;
+      root.style.scrollBehavior = 'auto';
+      scrollTo({ left: previous.x, top: Math.max(0, y), behavior: 'auto' });
+      requestAnimationFrame(() => { root.style.scrollBehavior = behavior; });
+    }
+    report(); send({ type: 'lpg-preview-ready' });
+  }
+  addEventListener('scroll', () => { if (!pending) pending = setTimeout(report, 100); }, { passive: true });
+  // Allow layout scripts and two paint frames to establish sticky scene geometry.
+  const start = () => requestAnimationFrame(() => requestAnimationFrame(restore));
+  if (document.readyState === 'loading') addEventListener('DOMContentLoaded', start, { once: true }); else start();
+}
 function loadPortalPreview(frame, html) {
   if (!frame) return;
   const token = String(++portalPreviewSequence);
   frame.dataset.previewToken = token;
-  // Sandboxed srcdoc frames have opaque origins. Only this frame and its latest
-  // token can acknowledge readiness; no access to its DOM is required.
-  const ready = '<script>parent.postMessage({type:"lpg-preview-ready",token:' + JSON.stringify(token) + '},"*");<\/script>';
+  frame.dataset.previewEpoch = String(typeof projectEpoch === 'number' ? projectEpoch : 0);
+  const stored = portalPreviewPositions.get(frame);
+  const previous = stored?.epoch === frame.dataset.previewEpoch ? stored.position : null;
+  const ready = '<script>(' + portalPreviewBridge.toString() + ')(' + JSON.stringify(token) + ',' + JSON.stringify(previous) + ');<\/script>';
   frame.srcdoc = html.replace(/<\/body>\s*<\/html>\s*$/i, ready + '</body></html>');
   if (frame.id === 'expanded-preview-iframe') {
     clearTimeout(expandedPreviewTimer);
@@ -1216,13 +1251,21 @@ function loadPortalPreview(frame, html) {
   }
 }
 window.addEventListener('message', event => {
-  if (event.data?.type !== 'lpg-preview-ready') return;
+  if (!['lpg-preview-ready', 'lpg-preview-position'].includes(event.data?.type)) return;
   const frame = ['preview-iframe', 'expanded-preview-iframe'].map(id => document.getElementById(id)).find(node => node && event.source === node.contentWindow);
   if (!frame || event.data.token !== frame.dataset.previewToken) return;
+  if (event.data.type === 'lpg-preview-position') {
+    const { x, y, anchor, offset } = event.data;
+    if (![x,y,offset].every(value => Number.isFinite(value) && Math.abs(value) <= 10000000) || x < 0 || y < 0 || typeof anchor !== 'string' || !/^[a-zA-Z0-9_-]{0,100}$/.test(anchor)) return;
+    portalPreviewPositions.set(frame, { epoch: frame.dataset.previewEpoch, position: { x, y, anchor, offset } });
+    return;
+  }
   if (state.programEnabled && state.program?.roles?.some(role => role.id === presenterRoleId)) frame.contentWindow.postMessage({type:'lpg-preview-control',action:'role',roleId:presenterRoleId}, '*');
   if (frame.id === 'expanded-preview-iframe') { clearTimeout(expandedPreviewTimer); previewStatus(''); }
 });
 function refreshPresenterTools() {
+  const epoch = typeof projectEpoch === 'number' ? projectEpoch : 0;
+  if (presenterRoleEpoch !== epoch) { presenterRoleId = state.program?.member?.role || null; presenterRoleEpoch = epoch; }
   const program = state.programEnabled ? state.program : null;
   if (!program?.roles?.some(role => role.id === presenterRoleId)) presenterRoleId = program?.member?.role || null;
   document.querySelectorAll('[data-presenter-action]').forEach(button => { button.disabled = !program; });
@@ -1247,7 +1290,6 @@ function controlPortalPreview(action, roleId) {
 }
 function updatePreview() {
   initializePreviewSizing();
-  presenterRoleId = state.program?.member?.role || null;
   refreshPresenterTools();
   try {
     const html = generatePortalHTML(state);
@@ -1340,7 +1382,5 @@ function startOver() {
 
 // ---- UTILITY ----
 function esc(str) {
-  const d = document.createElement('div');
-  d.textContent = str || '';
-  return d.innerHTML;
+  return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }

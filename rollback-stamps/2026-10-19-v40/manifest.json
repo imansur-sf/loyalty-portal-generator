@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-19",
+  "tag": "lpg-rollback-2026-10-19-v40",
+  "commit": "056e8ef7da959d763e77d46a876656f08b2d34bd",
+  "herokuApp": "sassysolutions-loyaltygen",
+  "release": 40,
+  "purpose": "Baseline before LPG backend and UI improvement audit",
+  "pendingTrackedFiles": [
+    "HANDOFF.md",
+    "PROGRESS.md",
+    "worker/scrape.js"
+  ],
+  "pendingPatchSha256": "17b96de1e70b11c087a56c35a1199ef64eeddf4c1f81e8ded5df2a402861d391",
+  "excludedUntrackedToolState": [
+    ".claude/",
+    ".wrangler/",
+    "worker/.wrangler/"
+  ],
+  "scope": "Git tag restores committed application code. Local patch preserves pending tracked edits. Does not snapshot account service data, saved projects, secrets or runtime configuration."
+}

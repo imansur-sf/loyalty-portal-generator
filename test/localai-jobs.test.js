@@ -5,7 +5,7 @@ const vm = require('node:vm');
 
 const ticket = { id: 'job-id-123456', token: 'test-token-123456789' };
 const response = (status, body, type = 'application/json') => ({ status, ok: status >= 200 && status < 300,
-  headers: { get: () => type }, json: async () => body });
+  headers: { get: () => type }, json: async () => body, text: async () => typeof body === 'string' ? body : JSON.stringify(body) });
 const complete = (status, body) => response(200, { status: 'complete', result: { status, body } });
 
 function client(handler) {
@@ -26,7 +26,7 @@ function client(handler) {
     const [id, timer] = [...timers].find(([, value]) => value.ms > 1500) || [];
     assert.ok(timer); timers.delete(id); now += timer.ms; timer.fn();
   };
-  context.fetch = async (url, options) => { calls.push({ url, ...options }); return handler(url, options, { expireRequest }); };
+  context.fetch = async (url, options) => { if (url.endsWith('/api/capability')) return response(200, {token:'capability-for-test-1234567890',expiresAt:now+900000}); calls.push({ url, ...options }); return handler(url, options, { expireRequest }); };
   vm.runInContext(fs.readFileSync('js/localai.js', 'utf8'), context);
   return { api: context.LocalAI, calls, timeoutValues, timers };
 }
@@ -176,4 +176,49 @@ test('selected cinematic slot ignores unrelated missing images and honors author
   assert.match(submitted[0].prompt, /Author visual direction: Opalescent waves/);
   assert.match(submitted[0].prompt, /no text, words or numbers/);
   assert.equal(data.benefits[0].imageData, undefined); assert.equal(data.cinematic.card.markImageData, undefined);
+});
+
+
+test('job submission carries a capability while polling uses only its job ticket', async () => {
+  const c = client(async (_url, options) => options.method === 'POST' ? response(202, ticket) : options.method === 'DELETE' ? response(204) : complete(200, { text: 'Ready' }));
+  await c.api.callDefaultBackend({ prompt: 'Brief' });
+  assert.equal(c.calls[0].headers['X-LPG-Capability'], 'capability-for-test-1234567890');
+  assert.equal(c.calls[1].headers['X-LPG-Capability'], undefined);
+  assert.equal(c.calls[1].headers.Authorization, `Bearer ${ticket.token}`);
+});
+
+test('capabilities are cached by backend and never saved in browser storage', async () => {
+  const calls = [];
+  const context = vm.createContext({ console, AbortController, URL, Date, setTimeout, clearTimeout });
+  context.window = context; context.location = {origin:'https://portal.test'};
+  context.PageHost = { _analysis: {} };
+  context.fetch = async (url, options) => { calls.push({url,options}); return response(200, {token:'capability-for-'+calls.length+'-123456789012345',expiresAt:Date.now()+900000}); };
+  vm.runInContext(fs.readFileSync('js/localai.js','utf8'), context);
+  const first = await context.LocalAI.backendAccessHeaders('');
+  assert.equal((await context.LocalAI.backendAccessHeaders(''))['X-LPG-Capability'], first['X-LPG-Capability']);
+  const other = await context.LocalAI.backendAccessHeaders('https://other.test');
+  assert.notEqual(other['X-LPG-Capability'], first['X-LPG-Capability']);
+  assert.equal(calls.length,2);
+  assert.equal(calls[0].options.credentials,'same-origin');
+});
+
+test('capability rejection never submits a paid request', async () => {
+  const context = vm.createContext({ console, AbortController, URL, Date, setTimeout, clearTimeout });
+  context.window=context; context.PageHost={_analysis:{}};
+  const calls=[]; context.fetch=async url=>{calls.push(url); return response(403,{error:'capability_required'});};
+  vm.runInContext(fs.readFileSync('js/localai.js','utf8'), context);
+  await assert.rejects(context.LocalAI.callDefaultBackend({prompt:'Do not submit'}), error=>error.code==='generation_session');
+  assert.deepEqual(calls,['/api/capability']);
+});
+
+
+test('scraper reads non-executable JSON and keeps rejected destinations out of public proxy fallback', async () => {
+  const html='<html><body>Customer content long enough for brand analysis.</body></html>';
+  const c=client(async()=>response(200,{html,finalUrl:'https://brand.test/'}));
+  assert.equal(await c.api.scrapeViaCorsProxy('https://brand.test/'),html);
+  assert.equal(c.calls.length,1);
+  assert.equal(c.calls[0].headers['X-LPG-Capability'],'capability-for-test-1234567890');
+  const blocked=client(async()=>response(403,{error:'blocked_destination'}));
+  await assert.rejects(blocked.api.scrapeViaCorsProxy('http://private.test/'),error=>error.code==='own_scraper_status');
+  assert.equal(blocked.calls.length,1);
 });

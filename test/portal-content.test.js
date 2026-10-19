@@ -30,7 +30,8 @@ function content(program) {
   };
 }
 const makeProgram = overrides => model.normalize({ providerName: 'ISACA', name: 'Professional Rewards', ...overrides });
-const legacyFetch = handler => (url, options) => url.endsWith('/api/jobs')
+const legacyFetch = handler => (url, options) => url.endsWith('/api/capability')
+  ? Promise.resolve({status:200,ok:true,json:async()=>({token:'capability-for-test-1234567890',expiresAt:Date.now()+900000})}) : url.endsWith('/api/jobs')
   ? Promise.resolve({ status: 404, ok: false }) : handler(url, options);
 
 test('rich generation retains website candidates and requests full branded content and image enrichment', async () => {

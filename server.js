@@ -2,9 +2,16 @@ const express = require('express');
 const path = require('path');
 const { createAccountsProxy } = require('./accounts-proxy');
 const { createGenerationJobs } = require('./generation-jobs');
+const { scrapeText } = require('./outbound-fetch');
+const { createApiSecurity } = require('./api-security');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// Heroku appends the real connecting address as the last X-Forwarded-For hop.
+// Outside Heroku trust no proxy unless deployment explicitly configures hops.
+const proxyHops = Number(process.env.LPG_TRUST_PROXY_HOPS ?? (process.env.DYNO ? 1 : 0));
+app.set('trust proxy', Number.isInteger(proxyHops) && proxyHops >= 0 && proxyHops <= 3 ? proxyHops : 0);
+const apiSecurity = createApiSecurity();
 
 // ============================================================
 // Configuration
@@ -12,12 +19,11 @@ const PORT = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const MAX_SCRAPE_BYTES = 3_000_000;
 const SCRAPE_TIMEOUT_MS = 15_000;
-const USER_AGENT = 'Mozilla/5.0 (compatible; LoyaltyPortalScraper/1.0)';
 
 // Image generation
 const IMAGE_GEN_MODEL = 'gemini-3.1-flash-image';
 const IMAGE_GEN_TIMEOUT_MS = 90_000;
-const MAX_IMAGE_GEN_BATCH = 12; // max images per batch request (covers all slots)
+const MAX_IMAGE_GEN_BATCH = 4; // shared by direct and pollable endpoints
 
 // Gemini model mapping by tier
 const TIER_MODELS = {
@@ -26,11 +32,6 @@ const TIER_MODELS = {
   powerful: 'gemini-3.1-pro-preview'
 };
 const DEFAULT_MODEL = TIER_MODELS.balanced;
-
-// Rate limiting — in-memory per-IP (same approach as the CloudFlare Worker)
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 30; // 30 LLM req/min/IP
-const rateBuckets = new Map();
 
 // ============================================================
 // Middleware
@@ -43,17 +44,8 @@ app.use((error, req, res, next) => {
   next(error);
 });
 
-// CORS for API routes (same-origin won't need it, but useful for dev)
-app.use('/api', (req, res, next) => {
-  res.set({
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Max-Age': '86400'
-  });
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
+app.use('/api', apiSecurity.cors);
+app.post('/api/capability', apiSecurity.issue);
 
 // ============================================================
 // API Routes
@@ -64,82 +56,29 @@ app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
     service: 'loyalty-portal',
-    version: 4,
+    version: 5,
+    generation_capabilities: true,
     generation_jobs: true,
-    endpoints: ['GET /api/scrape', 'POST /api/jobs', 'GET /api/jobs/:id', 'DELETE /api/jobs/:id', 'POST /api/llm', 'POST /api/generate-images', 'GET /api/health'],
+    endpoints: ['POST /api/capability', 'GET /api/scrape', 'POST /api/jobs', 'GET /api/jobs/:id', 'DELETE /api/jobs/:id', 'POST /api/llm', 'POST /api/generate-images', 'GET /api/health'],
     llm_configured: Boolean(GEMINI_API_KEY)
   });
 });
 
 // --- Scrape Endpoint ---
 app.get('/api/scrape', async (req, res) => {
-  const target = req.query.url;
-  if (!target) return res.status(400).json({ error: 'missing_url' });
-
-  let targetURL;
-  try { targetURL = new URL(target); }
-  catch { return res.status(400).json({ error: 'invalid_url' }); }
-
-  if (targetURL.protocol !== 'https:' && targetURL.protocol !== 'http:') {
-    return res.status(400).json({ error: 'bad_protocol', got: targetURL.protocol });
-  }
-  if (isDangerousHost(targetURL.hostname)) {
-    return res.status(403).json({ error: 'blocked_host', hostname: targetURL.hostname });
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), SCRAPE_TIMEOUT_MS);
+  if (!req.query.url || typeof req.query.url !== 'string') return res.status(400).json({error:'missing_url'});
+  const release = apiSecurity.reserve(req,res,{scrape:true});
+  if (!release) return;
   try {
-
-    const upstream = await fetch(targetURL.toString(), {
-      method: 'GET',
-      redirect: 'follow',
-      headers: {
-        'User-Agent': USER_AGENT,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9'
-      },
-      signal: controller.signal
-    });
-    if (!upstream.ok) {
-      return res.status(502).json({ error: 'upstream_status', status: upstream.status });
-    }
-
-    const contentType = upstream.headers.get('content-type') || 'text/html; charset=utf-8';
-    if (!/^text\//i.test(contentType) && !/(json|xml|xhtml)/i.test(contentType)) {
-      return res.status(415).json({ error: 'not_text', contentType });
-    }
-
-    // Stream and cap at MAX_SCRAPE_BYTES
-    const reader = upstream.body.getReader();
-    const chunks = [];
-    let total = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.length;
-      if (total > MAX_SCRAPE_BYTES) {
-        try { reader.cancel(); } catch (_) {}
-        return res.status(413).json({ error: 'too_large', limitBytes: MAX_SCRAPE_BYTES });
-      }
-      chunks.push(value);
-    }
-
-    const body = Buffer.concat(chunks);
-    res.set({
-      'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=600',
-      'X-Scraper-Source': targetURL.hostname,
-      'X-Scraper-Bytes': String(total)
-    });
-    res.send(body);
-  } catch (err) {
-    const code = err && err.name === 'AbortError' ? 'timeout' : 'network_error';
-    res.status(502).json({ error: code, message: (err && err.message) || 'unknown' });
-  } finally {
-    clearTimeout(timeout);
-  }
+    const result = await scrapeText(req.query.url,{maxBytes:MAX_SCRAPE_BYTES,timeoutMs:SCRAPE_TIMEOUT_MS});
+    res.set({'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox",'Cache-Control':'no-store'});
+    res.json(result);
+  } catch(error) {
+    res.status(error.status || 502).json({error:error.code && error.status ? error.code : 'network_error'});
+  } finally {release();}
 });
+
+app.use(['/api/llm','/api/generate-image','/api/generate-images'], (req,res,next)=>{if(!apiSecurity.authorize(req,res))next();});
 
 // --- LLM Endpoint (Gemini API) ---
 function validateLLM(req, res) {
@@ -150,13 +89,6 @@ function validateLLM(req, res) {
     });
   }
 
-  // Rate limiting
-  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
-  const rl = checkRateLimit(ip);
-  if (!rl.ok) {
-    return res.status(429).json({ error: 'rate_limited', retryAfterMs: rl.retryAfterMs });
-  }
-
   const { prompt, system } = req.body || {};
 
   if (!prompt || typeof prompt !== 'string') {
@@ -165,7 +97,10 @@ function validateLLM(req, res) {
   if (prompt.length > 200_000) {
     return res.status(413).json({ error: 'prompt_too_long' });
   }
-  if (system && typeof system === 'string' && system.length > 20_000) {
+  if (system !== undefined && typeof system !== 'string') {
+    return res.status(400).json({error:'invalid_system'});
+  }
+  if (system && system.length > 20_000) {
     return res.status(413).json({ error: 'system_too_long' });
   }
   if (req.body.responseFormat !== undefined && req.body.responseFormat !== 'json') {
@@ -256,8 +191,20 @@ async function handleLLM(req, res) {
     clearTimeout(timeout);
   }
 }
+function protectedHandler(kind, handler) {
+  return async (req,res) => {
+    const images=kind==='images'?req.body.prompts.length:kind==='image'?1:0;
+    // Reserve the maximum output plus a conservative input-token bound. Failed
+    // provider work also consumes quota so retries cannot bypass the budget.
+    const tokens=kind==='llm' ? Math.min(Math.max(parseInt(req.body.maxTokens,10)||8000,100),16000) + (req.body.prompt.length+(req.body.system?.length||0)) : 0;
+    const release=apiSecurity.reserve(req,res,{images,tokens});
+    if(!release)return;
+    try {await handler(req,res);}finally{release();}
+  };
+}
+const secureLLM=protectedHandler('llm',handleLLM);
 app.post('/api/llm', (req, res) => {
-  if (!validateLLM(req, res)) return handleLLM(req, res);
+  if (!validateLLM(req, res)) return secureLLM(req, res);
 });
 
 // --- Image Generation (Gemini) ---
@@ -266,10 +213,6 @@ function validateImage(req, res) {
   if (!GEMINI_API_KEY) {
     return res.status(503).json({ error: 'llm_not_configured', hint: 'Set GEMINI_API_KEY' });
   }
-
-  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
-  const rl = checkRateLimit(ip);
-  if (!rl.ok) return res.status(429).json({ error: 'rate_limited', retryAfterMs: rl.retryAfterMs });
 
   const { prompt } = req.body || {};
   if (!prompt || typeof prompt !== 'string' || prompt.length > 2000) {
@@ -289,8 +232,9 @@ async function handleImage(req, res) {
     res.status(502).json({ error: 'image_gen_failed', message: err.message || 'unknown' });
   }
 }
+const secureImage=protectedHandler('image',handleImage);
 app.post('/api/generate-image', (req, res) => {
-  if (!validateImage(req, res)) return handleImage(req, res);
+  if (!validateImage(req, res)) return secureImage(req, res);
 });
 
 // Batch image generation — runs in parallel, returns partial results on individual failures
@@ -298,10 +242,6 @@ function validateImages(req, res) {
   if (!GEMINI_API_KEY) {
     return res.status(503).json({ error: 'llm_not_configured', hint: 'Set GEMINI_API_KEY' });
   }
-
-  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
-  const rl = checkRateLimit(ip);
-  if (!rl.ok) return res.status(429).json({ error: 'rate_limited', retryAfterMs: rl.retryAfterMs });
 
   const { prompts } = req.body || {};
   if (!Array.isArray(prompts) || prompts.length === 0 || prompts.length > MAX_IMAGE_GEN_BATCH) {
@@ -336,16 +276,17 @@ async function handleImages(req, res) {
 
   res.json({ results: output });
 }
+const secureImages=protectedHandler('images',handleImages);
 app.post('/api/generate-images', (req, res) => {
-  if (!validateImages(req, res)) return handleImages(req, res);
+  if (!validateImages(req, res)) return secureImages(req, res);
 });
 
 // Short requests keep AI work independent of Heroku's router deadline.
 const generationJobs = createGenerationJobs({
-  handlers: { llm: handleLLM, images: handleImages, image: handleImage },
+  handlers: { llm: secureLLM, images: secureImages, image: secureImage },
   validators: { llm: validateLLM, images: validateImages, image: validateImage }
 });
-app.post('/api/jobs', generationJobs.submit);
+app.post('/api/jobs', (req,res,next)=>{if(!apiSecurity.authorize(req,res))next();}, generationJobs.submit);
 app.get('/api/jobs/:id', generationJobs.poll);
 app.delete('/api/jobs/:id', generationJobs.remove);
 app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
@@ -395,18 +336,18 @@ async function generateImage(prompt) {
 // ============================================================
 // Static file serving (AFTER API routes)
 // ============================================================
-app.use(express.static(path.join(__dirname), {
-  extensions: ['html'],
-  maxAge: '1h',
-  setHeaders(res, filePath) {
-    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
-  }
-}));
-
-// Fallback to index.html for SPA-style routing
-app.get('*', (req, res) => {
-  res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, 'index.html'));
+// Serve only browser assets and the explicitly supported entry documents.
+// Source modules, tests, operational notes and rollback backups are private.
+const assetOptions = { maxAge:'1h', index:false, dotfiles:'deny', fallthrough:true };
+app.use('/js', express.static(path.join(__dirname,'js'),assetOptions));
+app.use('/assets', express.static(path.join(__dirname,'assets'),assetOptions));
+app.get(['/', '/index.html', '/portal-editor'], (req,res)=>{
+  res.set('Cache-Control','no-cache').sendFile(path.join(__dirname,'index.html'));
 });
+app.get('/standalone.html', (req,res)=>{
+  res.set('Cache-Control','no-cache').sendFile(path.join(__dirname,'standalone.html'));
+});
+app.use((req,res)=>res.status(404).type('text/plain').send('Not found'));
 
 // ============================================================
 // Start server
@@ -416,40 +357,3 @@ if (require.main === module) app.listen(PORT, '::', () => {
   console.log(`LLM backend: ${GEMINI_API_KEY ? 'Gemini API configured' : 'NOT configured (set GEMINI_API_KEY)'}`);
 });
 module.exports = app;
-
-// ============================================================
-// Utilities
-// ============================================================
-function isDangerousHost(host) {
-  if (!host) return true;
-  const h = host.toLowerCase();
-  if (h === 'localhost' || h === 'localhost.localdomain') return true;
-  if (h === 'metadata.google.internal') return true;
-  if (h.endsWith('.internal') || h.endsWith('.local')) return true;
-  if (h === '169.254.169.254') return true;
-  if (/^(10|127)\./.test(h)) return true;
-  if (/^192\.168\./.test(h)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-  if (/^169\.254\./.test(h)) return true;
-  if (h === '0.0.0.0') return true;
-  if (h === '::1' || h.startsWith('fe80:') || h.startsWith('fc00:') || h.startsWith('fd00:')) return true;
-  return false;
-}
-
-function checkRateLimit(ip) {
-  const now = Date.now();
-  let bucket = rateBuckets.get(ip);
-  if (!bucket || now >= bucket.resetAt) {
-    bucket = { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
-    rateBuckets.set(ip, bucket);
-  }
-  bucket.count++;
-  // GC occasionally
-  if (rateBuckets.size > 5000) {
-    for (const [k, v] of rateBuckets) if (v.resetAt < now) rateBuckets.delete(k);
-  }
-  if (bucket.count > RATE_LIMIT_MAX) {
-    return { ok: false, retryAfterMs: Math.max(0, bucket.resetAt - now) };
-  }
-  return { ok: true };
-}
