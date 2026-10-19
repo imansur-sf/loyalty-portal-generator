@@ -7,6 +7,7 @@ const state = {
   schemaVersion: 2,
   brief: { mode: 'b2c', objective: '', text: '', roles: '', sources: [] },
   program: null, programReview: null, programEnabled: false, outputTemplate: 'classic',
+  activeVariant: 'b2c', variants: {},
   brand: { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' },
   colors: { primary: '#2D3748', secondary: '#F7FAFC', accent: '#4299E1', dark: '#1A202C', menu: '#2D3748' },
   menuColorCustom: false,
@@ -243,40 +244,8 @@ async function onQuickStartAnalyze() {
 
   btn.disabled = true;
   try {
-    if (programRequest) {
-      await window.LPGRequirementsEditor.analyze(client, url);
-      return;
-    }
-    const analysisSnapshot = JSON.stringify(state), analysisProject = projectEpoch;
-    const fetchLabel = mode === 'pagehost'
-      ? 'Fetching customer site via Page Host proxy…'
-      : 'Fetching customer site via CORS proxy…';
-    setQuickStartStatus(fetchLabel, true);
-    const data = await client.analyzeCustomerURL(url, {
-      onStatus: (phase) => {
-        if (phase === 'anthropic_url_doc') setQuickStartStatus('Anthropic is fetching the site server-side + analyzing…', true);
-        else if (phase === 'fetching') setQuickStartStatus(fetchLabel, true);
-        else if (phase === 'fallback_url_only') setQuickStartStatus('Site couldn\'t be scraped — AI will use training knowledge instead…', true);
-        else if (phase === 'analyzing') setQuickStartStatus('AI is analyzing brand and generating content…', true);
-        else if (phase === 'generating_images') setQuickStartStatus('🎨 Generating AI images for empty slots…', true);
-      }
-    });
-    if (analysisProject !== projectEpoch || analysisSnapshot !== JSON.stringify(state) || url !== (input?.value || '').trim()) throw new Error('The editor changed while AI was working. Your edits were kept; analyze again when ready.');
-    setQuickStartStatus('Populating wizard…', true);
-    applyAnalysis(data);
-    const host = new URL(data._meta.source_url).hostname;
-    const isUrlOnly = /url-only/.test(data._meta.mode || '');
-    const isAnthropicDoc = data._meta.mode === 'local-anthropic-url-doc';
-    const genCount = data._meta.images_generated || 0;
-    const genSuffix = genCount > 0 ? ` + ${genCount} AI-generated image${genCount > 1 ? 's' : ''}` : '';
-    if (isAnthropicDoc) {
-      setQuickStartStatus(`✓ Populated from ${host} via Anthropic URL-document fetch${genSuffix}. Review each step and tweak.`, false);
-    } else if (isUrlOnly) {
-      setQuickStartStatus(`✓ Populated for ${host} using AI brand knowledge${genSuffix} (site couldn't be scraped). Review carefully.`, false);
-    } else {
-      const modeTag = data._meta.mode === 'local' ? 'local' : 'Page Host';
-      setQuickStartStatus(`✓ Populated from ${host} (${modeTag}, live site)${genSuffix}. Review each step and tweak.`, false);
-    }
+    await window.LPGRequirementsEditor.analyze(client, url);
+
   } catch (err) {
     console.error('[QuickStart] analyze failed:', err);
     const msg = client.humanErrorMessage(err);
@@ -287,60 +256,60 @@ async function onQuickStartAnalyze() {
   }
 }
 
-function applyAnalysis(d) {
+function applyAnalysis(d, target = state, { render = true } = {}) {
   if (!d || typeof d !== 'object') return;
 
   // Brand
-  if (d.brandName) state.brand.name = d.brandName;
+  if (d.brandName) target.brand.name = d.brandName;
   if (d.industry && ['carwash','restaurant','retail','fitness','healthcare','generic'].includes(d.industry)) {
-    state.brand.industry = d.industry;
+    target.brand.industry = d.industry;
   }
-  if (d.programName) state.brand.programName = d.programName;
+  if (d.programName) target.brand.programName = d.programName;
 
   // Colors
   if (d.colors && typeof d.colors === 'object') {
     ['primary','accent','secondary','dark'].forEach(k => {
-      if (isHex(d.colors[k])) state.colors[k] = d.colors[k].toUpperCase();
+      if (isHex(d.colors[k])) target.colors[k] = d.colors[k].toUpperCase();
     });
-    if (!state.menuColorCustom) state.colors.menu = state.colors.primary;
+    if (!target.menuColorCustom) target.colors.menu = target.colors.primary;
   }
 
   // Tiers
   if (Array.isArray(d.tiers) && d.tiers.length) {
     d.tiers.slice(0, 3).forEach((t, i) => {
-      if (!state.tiers[i]) state.tiers[i] = { name: '', points: 0 };
-      if (t.name) state.tiers[i].name = t.name;
-      if (typeof t.points === 'number') state.tiers[i].points = t.points;
+      if (!target.tiers[i]) target.tiers[i] = { name: '', points: 0 };
+      if (t.name) target.tiers[i].name = t.name;
+      if (typeof t.points === 'number') target.tiers[i].points = t.points;
     });
   }
 
   // Collections — replace wholesale when AI returned them
-  if (Array.isArray(d.vouchers) && d.vouchers.length) state.vouchers = d.vouchers.map(cleanVoucher);
-  if (Array.isArray(d.offers) && d.offers.length)   state.offers   = d.offers.map(cleanOffer);
-  if (Array.isArray(d.badges) && d.badges.length)   state.badges   = d.badges.map(cleanBadge);
-  if (Array.isArray(d.clubs) && d.clubs.length)     state.clubs    = d.clubs.map(cleanClub);
-  if (Array.isArray(d.benefits) && d.benefits.length) state.benefits = d.benefits.map(cleanBenefit);
-  if (Array.isArray(d.earnMore) && d.earnMore.length) state.earnMore = d.earnMore.map(cleanEarnMore);
-  if (Array.isArray(d.profileTasks) && d.profileTasks.length) state.profileTasks = d.profileTasks.map(cleanProfileTask);
-  if (d.upsell && typeof d.upsell === 'object') state.upsell = { ...state.upsell, ...cleanUpsell(d.upsell) };
-  if (Array.isArray(d.navLinks) && d.navLinks.length) state.navLinks = d.navLinks.filter(x => typeof x === 'string' && x).slice(0, 8);
-  if (d.footerLinks && typeof d.footerLinks === 'object') state.footerLinks = d.footerLinks;
+  if (Array.isArray(d.vouchers)) target.vouchers = d.vouchers.map(cleanVoucher);
+  if (Array.isArray(d.offers))   target.offers   = d.offers.map(cleanOffer);
+  if (Array.isArray(d.badges))   target.badges   = d.badges.map(cleanBadge);
+  if (Array.isArray(d.clubs))     target.clubs    = d.clubs.map(cleanClub);
+  if (Array.isArray(d.benefits)) target.benefits = d.benefits.map(cleanBenefit);
+  if (Array.isArray(d.earnMore)) target.earnMore = d.earnMore.map(cleanEarnMore);
+  if (Array.isArray(d.profileTasks)) target.profileTasks = d.profileTasks.map(cleanProfileTask);
+  if (d.upsell && typeof d.upsell === 'object') target.upsell = { ...target.upsell, ...cleanUpsell(d.upsell) };
+  if (Array.isArray(d.navLinks) && d.navLinks.length) target.navLinks = d.navLinks.filter(x => typeof x === 'string' && x).slice(0, 8);
+  if (d.footerLinks && typeof d.footerLinks === 'object') target.footerLinks = d.footerLinks;
 
   // Member — only name + join date come from AI; keep other fields
   if (d.member && typeof d.member === 'object') {
-    if (d.member.name) state.member.name = d.member.name;
-    if (d.member.joinDate) state.member.joinDate = d.member.joinDate;
+    if (d.member.name) target.member.name = d.member.name;
+    if (d.member.joinDate) target.member.joinDate = d.member.joinDate;
   }
 
   // ---- BRAND LOGO — layered fallback ----
   // Priority order:
-  //   1. Existing user upload (state.brand.logoData) — never overwrite
-  //   2. Existing user URL (state.brand.logoUrl) — never overwrite
+  //   1. Existing user upload (target.brand.logoData) — never overwrite
+  //   2. Existing user URL (target.brand.logoUrl) — never overwrite
   //   3. AI-picked logo from candidate list (d.brand.logoUrl)
   //   4. Clearbit Logo API for the domain (works even in URL-only mode)
   //   5. Apple touch icon
   //   6. Favicon
-  if (!state.brand.logoData && !state.brand.logoUrl) {
+  if (!target.brand.logoData && !target.brand.logoUrl) {
     let logo = '';
     if (d.brand && typeof d.brand === 'object' && d.brand.logoUrl && isSafeUrl(d.brand.logoUrl)) {
       logo = d.brand.logoUrl;
@@ -355,27 +324,28 @@ function applyAnalysis(d) {
     if (!logo && d._meta && d._meta.favicon)    logo = d._meta.favicon;
 
     if (logo) {
-      state.brand.logoUrl = logo;
-      const prev = document.getElementById('preview-logo');
-      if (prev) { prev.src = logo; prev.classList.remove('hidden'); }
-      setVal('url-logo', logo);
+      target.brand.logoUrl = logo;
+      if (render) {
+        const prev = document.getElementById('preview-logo');
+        if (prev) { prev.src = logo; prev.classList.remove('hidden'); }
+        setVal('url-logo', logo);
+      }
     }
   }
 
   // Upsell — accept AI-picked background image (scraped URL or generated data)
   if (d.upsell && d.upsell.bgImageUrl && isSafeUrl(d.upsell.bgImageUrl)) {
-    state.upsell.bgImageUrl = d.upsell.bgImageUrl;
-    state.upsell.bgImageData = '';
+    target.upsell.bgImageUrl = d.upsell.bgImageUrl;
+    target.upsell.bgImageData = '';
   } else if (d.upsell && d.upsell.bgImageData && d.upsell.bgImageData.startsWith('data:image/')) {
-    state.upsell.bgImageData = d.upsell.bgImageData;
-    state.upsell.bgImageUrl = '';
+    target.upsell.bgImageData = d.upsell.bgImageData;
+    target.upsell.bgImageUrl = '';
   }
 
-  // Re-render everything
-  populateFormFromState();
-  renderPaletteButtons();
-  renderDynamicSections();
-  schedulePreview();
+  if (render) {
+    populateFormFromState(); renderPaletteButtons(); renderDynamicSections(); schedulePreview();
+  }
+  return target;
 }
 
 function isSafeUrl(u) {
@@ -391,6 +361,8 @@ function isHex(s) { return typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s.t
 
 function cleanVoucher(v) {
   return {
+    programRewardId: str(v.programRewardId, 100),
+    description: str(v.description, 240),
     title: str(v.title, 60),
     vendor: str(v.vendor, 80),
     expiry: str(v.expiry, 40),
@@ -443,6 +415,7 @@ function cleanBenefit(b) {
 }
 function cleanEarnMore(e) {
   return {
+    programRuleId: str(e.programRuleId, 100),
     title: str(e.title, 80),
     description: str(e.description, 200),
     hasCodeInput: Boolean(e.hasCodeInput)
@@ -455,8 +428,8 @@ function cleanUpsell(u) {
   return {
     title: str(u.title, 60),
     subtitle: str(u.subtitle, 60),
-    price: str(u.price, 12) || '$29',
-    period: str(u.period, 24) || 'Monthly',
+    price: str(u.price, 12),
+    period: str(u.period, 24),
     tagline: str(u.tagline, 160),
     cta: str(u.cta, 30) || 'Upgrade'
   };
@@ -510,6 +483,13 @@ function populateFormFromState() {
   setVal('color-menu', state.colors.menu || state.colors.primary);
   setVal('hex-menu', state.colors.menu || state.colors.primary);
 
+  // Program tiers are governed by the shared rule model.
+  for (let i = 0; i < 3; i++) for (const part of ['name', 'points']) {
+    const input = document.getElementById(`tier${i+1}-${part}`);
+    if (input) { input.disabled = !!state.program && !state.tiers[i]; if (!state.tiers[i]) input.value = ''; }
+  }
+  const progress = document.getElementById('tier-progress');
+  if (progress) progress.disabled = !!state.program;
   // Tiers
   state.tiers.forEach((t, i) => {
     setVal(`tier${i+1}-name`, t.name);
@@ -572,13 +552,13 @@ function getVal(id) {
 }
 
 // ---- FIELD HANDLERS ----
-function onFieldChange() {
+function onFieldChange(event) {
   // Read all fields into state
   state.brand.name = getVal('brand-name');
   state.brand.programName = getVal('program-name');
 
   // Tiers
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < Math.min(3, state.tiers.length); i++) {
     state.tiers[i].name = getVal(`tier${i+1}-name`);
     state.tiers[i].points = parseInt(getVal(`tier${i+1}-points`)) || 0;
   }
@@ -606,6 +586,18 @@ function onFieldChange() {
     // reflect in hex mirror
     const hexEl = document.getElementById('hex-upsell-' + part);
     if (hexEl && c) hexEl.value = c;
+  });
+
+  const id = event?.target?.id;
+  if (state.program && id) commitProgramEdit(program => {
+    if (id === 'brand-name') program.providerName = state.brand.name;
+    if (id === 'program-name') program.name = state.brand.programName;
+    if (id === 'member-name') program.member.name = state.member.name;
+    if (id === 'member-points') program.opening.redeemable = Number(getVal(id));
+    const tier = /^tier([1-3])-(name|points)$/.exec(id);
+    if (tier && program.tiers[Number(tier[1]) - 1]) {
+      program.tiers[Number(tier[1]) - 1][tier[2] === 'points' ? 'threshold' : 'name'] = tier[2] === 'points' ? Number(getVal(id)) : getVal(id);
+    }
   });
 
   schedulePreview();
@@ -798,6 +790,10 @@ function renderPaletteButtons() {
 
 // ---- DYNAMIC SECTION RENDERING ----
 function renderDynamicSections() {
+  for (const section of ['vouchers', 'earnMore']) {
+    const button = document.querySelector(`button[onclick="autoGenerate('${section}')"]`);
+    if (button) button.textContent = state.program ? (section === 'vouchers' ? 'Edit reward rules' : 'Edit earning rules') : '⚡ Auto-generate from industry';
+  }
   renderVouchers();
   renderOffers();
   renderBadges();
@@ -820,14 +816,14 @@ function renderVouchers() {
         <div><label class="block text-xs font-600 text-gray-600 mb-1">Vendor</label><input type="text" value="${esc(v.vendor||'')}" onchange="updateItem('vouchers',${i},'vendor',this.value)" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50"></div>
         <div><label class="block text-xs font-600 text-gray-600 mb-1">Expiry</label><input type="text" value="${esc(v.expiry||'')}" onchange="updateItem('vouchers',${i},'expiry',this.value)" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="e.g. Ends in 14 days"></div>
         <div><label class="block text-xs font-600 text-gray-600 mb-1">Emoji</label><input type="text" value="${esc(v.emoji||'')}" onchange="updateItem('vouchers',${i},'emoji',this.value)" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50"></div>
-        <div><label class="block text-xs font-600 text-gray-600 mb-1">Action Type</label>
+        ${state.program && v.programRewardId ? '' : `<div><label class="block text-xs font-600 text-gray-600 mb-1">Action Type</label>
           <select onchange="updateItem('vouchers',${i},'actionType',this.value)" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50 bg-white">
             <option value="points" ${v.actionType==='points'?'selected':''}>Points</option>
             <option value="code" ${v.actionType==='code'?'selected':''}>Code</option>
             <option value="qr" ${v.actionType==='qr'?'selected':''}>QR</option>
           </select>
-        </div>
-        <div><label class="block text-xs font-600 text-gray-600 mb-1">Action Value</label><input type="text" value="${esc(v.actionValue||'')}" onchange="updateItem('vouchers',${i},'actionValue',this.value)" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="e.g. 250pts or CODE123"></div>
+        </div>`}
+        <div><label class="block text-xs font-600 text-gray-600 mb-1">${state.program && v.programRewardId ? 'Points cost' : 'Action Value'}</label><input type="${state.program && v.programRewardId ? 'number' : 'text'}" value="${esc(state.program && v.programRewardId ? String(state.program.rewards.find(r => r.id === v.programRewardId)?.cost || '') : v.actionValue||'')}" onchange="updateItem('vouchers',${i},'actionValue',this.value)" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="e.g. 250pts or CODE123"></div>
       </div>
       ${imageUploadHTML('voucher-'+i, 'Voucher Image', v.imageData||v.imageUrl||'')}
     </div>
@@ -836,6 +832,12 @@ function renderVouchers() {
 }
 
 function addVoucher() {
+  if (state.program) {
+    const id = 'reward-' + Date.now();
+    if (!commitProgramEdit(program => program.rewards.push({ id, name: 'New reward', cost: 100 }))) return;
+    state.vouchers.push({ programRewardId: id, title: 'New reward', vendor: state.brand.name, description: '', actionType: 'points', actionValue: '100', emoji: '🎁', imageUrl: '', imageData: '' });
+    renderVouchers(); schedulePreview(); return;
+  }
   state.vouchers.push({ title: '', vendor: '', expiry: '', actionType: 'points', actionValue: '', emoji: '🎁', imageUrl: '', imageData: '' });
   renderVouchers();
 }
@@ -947,13 +949,19 @@ function renderEarnMore() {
       <div class="grid grid-cols-1 gap-2">
         <div><label class="block text-xs font-600 text-gray-600 mb-1">Title</label><input type="text" value="${esc(e.title)}" onchange="updateItem('earnMore',${i},'title',this.value)" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50"></div>
         <div><label class="block text-xs font-600 text-gray-600 mb-1">Description</label><input type="text" value="${esc(e.description||'')}" onchange="updateItem('earnMore',${i},'description',this.value)" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50"></div>
-        <label class="flex items-center gap-2 text-xs"><input type="checkbox" ${e.hasCodeInput?'checked':''} onchange="updateItem('earnMore',${i},'hasCodeInput',this.checked)"> Show code input field</label>
+        ${state.program && e.programRuleId ? '' : `<label class="flex items-center gap-2 text-xs"><input type="checkbox" ${e.hasCodeInput?'checked':''} onchange="updateItem('earnMore',${i},'hasCodeInput',this.checked)"> Show code input field</label>`}
       </div>
     </div>
   `).join('');
 }
 
 function addEarnMore() {
+  if (state.program) {
+    const id = 'activity-' + Date.now();
+    if (!commitProgramEdit(program => program.earnRules.push({ id, name: 'New activity', kind: 'fixed', amount: 1, qualifyingRate: 0, redeemableRate: 0, qualifyingPoints: 25, redeemablePoints: 25, monthlyCap: null }))) return;
+    state.earnMore.push({ programRuleId: id, title: 'New activity', description: 'Complete this activity to earn points.', hasCodeInput: false });
+    renderEarnMore(); schedulePreview(); return;
+  }
   state.earnMore.push({ title: '', description: '', hasCodeInput: false });
   renderEarnMore();
 }
@@ -1008,9 +1016,33 @@ function removeNavLink(i) {
   schedulePreview();
 }
 
+function commitProgramEdit(change) {
+  if (!state.program || !window.LPGProgram) return true;
+  const next = JSON.parse(JSON.stringify(state.program)); change(next);
+  const result = LPGProgram.validate(next);
+  const status = document.getElementById('portal-edit-status');
+  if (!result.valid) {
+    if (status) status.textContent = 'Preview keeps the last valid rules: ' + result.errors.join('; ');
+    return false;
+  }
+  state.program = result.model;
+  if (state.programReview) change(state.programReview.program);
+  if (status) status.textContent = '';
+  return true;
+}
+
 // ---- GENERIC ITEM HELPERS ----
 function updateItem(section, index, field, value) {
   if (state[section] && state[section][index]) {
+    const item = state[section][index];
+    if (state.program && ['vouchers', 'earnMore'].includes(section)) {
+      const ok = commitProgramEdit(program => {
+        const rule = section === 'vouchers' ? program.rewards.find(r => r.id === item.programRewardId) : program.earnRules.find(r => r.id === item.programRuleId);
+        if (rule && field === 'title') rule.name = value;
+        if (rule && section === 'vouchers' && field === 'actionValue') rule.cost = Number(String(value).trim().match(/^\d+(?:\.\d+)?/)?.[0] ?? NaN);
+      });
+      if (!ok) return;
+    }
     state[section][index][field] = value;
     schedulePreview();
   }
@@ -1018,6 +1050,11 @@ function updateItem(section, index, field, value) {
 
 function removeItem(section, index) {
   if (state[section]) {
+    const item = state[section][index];
+    if (state.program && item) commitProgramEdit(program => {
+      if (section === 'vouchers') program.rewards = program.rewards.filter(r => r.id !== item.programRewardId);
+      if (section === 'earnMore') program.earnRules = program.earnRules.filter(r => r.id !== item.programRuleId);
+    });
     state[section].splice(index, 1);
     // Re-render the section
     const renderers = { vouchers: renderVouchers, offers: renderOffers, badges: renderBadges, clubs: renderClubs, benefits: renderBenefits, earnMore: renderEarnMore, profileTasks: renderProfileTasks };
@@ -1028,6 +1065,11 @@ function removeItem(section, index) {
 
 // ---- AUTO-GENERATE ----
 function autoGenerate(section) {
+  if (state.program && ['vouchers', 'earnMore'].includes(section)) {
+    goToStep(0); window.LPGRequirementsEditor?.editProgram();
+    document.getElementById('program-review')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
   const d = getDefaults(state.brand.industry);
   if (section === 'vouchers') { state.vouchers = d.vouchers.map(v => ({ ...v })); renderVouchers(); }
   else if (section === 'offers') { state.offers = d.offers.map(o => ({ ...o })); renderOffers(); }
@@ -1114,16 +1156,24 @@ function updatePreview() {
   try {
     const html = generatePortalHTML(state);
     iframe.srcdoc = html;
+    if (document.getElementById('portal-preview-dialog')?.open) document.getElementById('expanded-preview-iframe').srcdoc = html;
   } catch (err) {
     console.error('Preview error:', err);
   }
+}
+
+function openPortalPreview() {
+  const dialog = document.getElementById('portal-preview-dialog');
+  document.getElementById('expanded-preview-iframe').srcdoc = generatePortalHTML(state);
+  if (!dialog.open) dialog.showModal();
 }
 
 // ---- EXPORT ----
 function downloadHTML() {
   const html = generatePortalHTML(state);
   const slug = (state.brand.name || 'loyalty-portal').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  const filename = `loyalty-portal-${slug || 'demo'}.html`;
+  const audience = state.program ? '-' + (state.activeVariant || state.program.mode) : '';
+  const filename = `loyalty-portal-${slug || 'demo'}${audience}.html`;
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

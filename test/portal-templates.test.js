@@ -3,78 +3,109 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-
+const { JSDOM } = require('jsdom');
 const context = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/portal-templates.js'), 'utf8'), context);
 const templates = context.PortalTemplates;
-const html = '<!doctype html><html><head><title>A &amp; B</title></head><body class="original"><main><button onclick="redeem()">Redeem</button><section hidden>Private view</section></main><script>function redeem(){return 42}</script></body></html>';
+const sections = ['hero','tiers','benefits','vouchers','offers','earn','profile','profile-tasks','badges','clubs','upsell','activity','team','account','future-section'];
+const html = `<!doctype html><html><head><title>A &amp; B</title></head><body class="original"><header>Brand</header><main><h1>A &amp; B Loyalty</h1><div class="old-layout">${sections.map(id => `<section data-lpg-section="${id}" id="section-${id}"><h2>${id}</h2>${id === 'vouchers' ? '<div class="grid"><article class="voucher-card"><img src="https://example.com/reward.jpg" alt="Exam voucher"><button onclick="window.redemptions=(window.redemptions||0)+1">Redeem certification voucher</button></article></div>' : id === 'offers' ? '<article class="offer-card"><img src="https://example.com/event.jpg" alt="Conference"><p>Annual chapter conference &amp; networking</p></article>' : id === 'benefits' ? '<div id="benefits-content" class="toggle-content">Professional training</div>' : '<p>Customer-specific ' + id + ' content</p>'}</section>`).join('')}</div><p id="unmarked">Unmarked content survives</p><section hidden>Private view</section></main><script>window.originalScriptRan=true;</script></body></html>`;
+function render(id, input = html) {
+  return new JSDOM(templates.apply(input, { outputTemplate: id, colors: { primary: '#123456', accent: '#abc' } }), { runScripts: 'dangerously' });
+}
 
 test('classic and unknown templates preserve the original export byte for byte', () => {
   for (const state of [undefined, {}, { outputTemplate: 'classic' }, { outputTemplate: 'future-template' }]) assert.equal(templates.apply(html, state), html);
-  assert.deepEqual(Array.from(templates.list, item => item.id), ['classic', 'modern']);
+  assert.deepEqual(Array.from(templates.list, item => item.id), ['classic','dashboard','showcase','editorial']);
 });
 
-test('modern retains document content and interactions while adding scoped presentation', () => {
-  const result = templates.apply(html, { outputTemplate: 'modern', colors: { primary: '#123456', accent: '#abc', menu: '#143825' } });
-  assert.match(result, /<body class="original" data-lpg-template="modern">/);
-  assert.match(result, /--lpg-brand: #123456;/);
-  assert.match(result, /--lpg-accent: #aabbcc;/);
-  assert.match(result, /<button onclick="redeem\(\)">Redeem<\/button>/);
-  assert.match(result, /<script>function redeem\(\)\{return 42\}<\/script>/);
-  assert.match(result, /<section hidden>Private view<\/section>/);
-  assert.match(result, /\[hidden\] \{ display: none !important; \}/);
-  assert.match(result, /prefers-reduced-motion/);
-  assert.match(result, /:focus-visible/);
-  assert.equal((result.match(/<style /g) || []).length, 1);
+test('every layout retains all shared sections, images, copy, and working actions', () => {
+  for (const id of ['dashboard','showcase','editorial','modern']) {
+    const dom = render(id); const doc = dom.window.document;
+    assert.equal(doc.querySelectorAll('[data-lpg-section]').length, sections.length, id);
+    for (const section of sections) assert.equal(doc.querySelectorAll(`[data-lpg-section="${section}"]`).length, 1, section);
+    for (const image of ['https://example.com/reward.jpg','https://example.com/event.jpg']) assert.ok(doc.querySelector(`img[src="${image}"]`), image);
+    assert.match(doc.body.textContent, /Annual chapter conference & networking/);
+    assert.match(doc.querySelector('#unmarked').textContent, /Unmarked content survives/);
+    assert.ok(doc.querySelector('section[hidden]'));
+    assert.ok(dom.window.originalScriptRan);
+    doc.querySelector('.voucher-card button').click();
+    assert.equal(dom.window.redemptions, 1, 'existing action remains attached after moving cards');
+    assert.ok(doc.querySelector('#benefits-content').classList.contains('open'));
+    assert.match(doc.querySelector('#lpg-layout-template').textContent, /prefers-reduced-motion/);
+    assert.match(doc.querySelector('#lpg-layout-template').textContent, /:focus-visible/);
+    dom.window.close();
+  }
 });
 
-test('reapplying the modern template replaces its palette without duplicating markup', () => {
-  const once = templates.apply(html, { outputTemplate: 'modern' });
-  const twice = templates.apply(once, { outputTemplate: 'modern', colors: { primary: '#006644' } });
-  assert.equal((twice.match(/<style id="lpg-modern-template">/g) || []).length, 1);
-  assert.equal((twice.match(/data-lpg-template="modern">/g) || []).length, 1);
+test('layouts compose content differently, and old Modern projects use the dashboard', () => {
+  const dashboard = render('dashboard');
+  assert.ok(dashboard.window.document.querySelector('.lpg-overview > [data-lpg-section="hero"]'));
+  assert.ok(dashboard.window.document.querySelector('.lpg-dashboard-columns > .lpg-secondary > [data-lpg-section="activity"]'));
+  const showcase = render('showcase');
+  assert.ok(showcase.window.document.querySelector('.lpg-catalogue > [data-lpg-section="vouchers"]'));
+  assert.ok(showcase.window.document.querySelector('.lpg-promotions > [data-lpg-section="offers"]'));
+  assert.equal(showcase.window.document.querySelector('.lpg-dashboard-columns'), null);
+  const editorial = render('editorial');
+  assert.ok(editorial.window.document.querySelector('.lpg-brand-opening > .lpg-brand-photo'));
+  assert.ok(editorial.window.document.querySelector('.lpg-brand-stories > [data-lpg-section="offers"]'));
+  const modern = render('modern');
+  assert.equal(modern.window.document.body.dataset.lpgTemplate, 'dashboard');
+  for (const dom of [dashboard,showcase,editorial,modern]) dom.window.close();
+});
+
+test('reapplying a template replaces palette and layout script without duplication', () => {
+  const once = templates.apply(html, { outputTemplate: 'dashboard' });
+  const twice = templates.apply(once, { outputTemplate: 'showcase', colors: { primary: '#006644' } });
+  assert.equal((twice.match(/<style id="lpg-layout-template">/g) || []).length, 1);
+  assert.equal((twice.match(/<script id="lpg-template-layout">/g) || []).length, 1);
   assert.match(twice, /--lpg-brand: #006644;/);
   assert.doesNotMatch(twice, /--lpg-brand: #245c4f;/);
+  const dom = new JSDOM(twice, { runScripts: 'dangerously' });
+  assert.equal(dom.window.document.querySelectorAll('[data-lpg-layout]').length, 1);
+  assert.equal(dom.window.document.body.dataset.lpgTemplate, 'showcase');
+  dom.window.close();
 });
 
-test('untrusted project colors cannot inject CSS, markup, remote resources, or scripts', () => {
+test('untrusted project colors cannot inject CSS, markup, resources, or scripts', () => {
   const hostile = '</style><script>alert(1)</script><style>';
-  const result = templates.apply(html, { outputTemplate: 'modern', colors: { primary: hostile, menu: 'url(https://example.com/track)', accent: '#fff; } body { display:none' } });
-  assert.doesNotMatch(result, /alert\(1\)|example\.com|display:none/);
+  const result = templates.apply(html, { outputTemplate: 'dashboard', colors: { primary: hostile, menu: 'url(https://evil.test/track)', accent: '#fff; } body { display:none' } });
+  assert.doesNotMatch(result, /alert\(1\)|evil\.test|display:none/);
   assert.match(result, /--lpg-brand: #245c4f;/);
   assert.match(result, /--lpg-accent: #b9e7cb;/);
-  assert.equal((result.match(/<script>/g) || []).length, 1);
 });
 
-test('light brand colors get a dark readable hero and button surface', () => {
-  const result = templates.apply(html, { outputTemplate: 'modern', colors: { primary: '#ffff00' } });
+test('light brand colors receive readable hero and button surfaces', () => {
+  const result = templates.apply(html, { outputTemplate: 'editorial', colors: { primary: '#ffff00' } });
   const hex = result.match(/--lpg-brand-deep: (#[a-f\d]{6})/i)[1];
-  const luminance = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
-    .map(c => c <= 0.04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4))
-    .reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0);
-  assert.ok(1.05 / (luminance + .05) >= 7, 'white primary text should exceed 7:1 contrast');
+  const luminance = [1,3,5].map(i => parseInt(hex.slice(i,i+2),16)/255).map(c => c <= .04045 ? c / 12.92 : Math.pow((c+.055)/1.055,2.4)).reduce((s,c,i) => s+c*[.2126,.7152,.0722][i],0);
+  assert.ok(1.05/(luminance+.05) >= 7);
   assert.match(result, /--lpg-brand: #ffff00;/);
 });
 
-test('incomplete document input falls back without corrupting content', () => {
-  for (const partial of ['<div>Preview unavailable</div>', '<head></head>', null]) assert.equal(templates.apply(partial, { outputTemplate: 'modern' }), partial);
+test('missing images and optional sections leave a complete usable editorial layout', () => {
+  const dom = render('editorial', '<html><head></head><body><main><h1>Membership</h1><section data-lpg-section="hero">Alex</section><section data-lpg-section="vouchers"><button>Redeem</button></section></main></body></html>');
+  assert.equal(dom.window.document.querySelector('.lpg-brand-photo'), null);
+  assert.equal(dom.window.document.querySelector('.lpg-brand-opening').textContent, 'Alex');
+  assert.equal(dom.window.document.querySelector('.lpg-catalogue button').textContent, 'Redeem');
+  dom.window.close();
 });
 
-test('modern supports runtime exports whose ID-based stylesheet is emitted after the head', () => {
-  const runtimeContext = vm.createContext({});
-  runtimeContext.window = runtimeContext;
-  for (const name of ['program-model.js', 'program-runtime.js', 'portal-templates.js']) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '../js', name), 'utf8'), runtimeContext);
-  }
-  const state = { programEnabled: true, outputTemplate: 'modern', colors: { primary: '#ddeeff' }, brand: { name: 'Demo Co' }, program: { mode: 'b2b' } };
-  const base = '<html><head></head><body><header>Old header</header><main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">Old cards</main><footer>Old footer</footer></body></html>';
-  const programHTML = runtimeContext.LPGProgramRuntime.enhance(base, state);
-  const result = runtimeContext.PortalTemplates.apply(programHTML, state);
-  assert.match(result, /id="lpg-program-root" class="lpg-program"/);
-  assert.match(result, /body\[data-lpg-template="modern"\] #lpg-program-root \.lpg-p-intro/);
-  assert.match(result, /body\[data-lpg-template="modern"\] #lpg-program-root \.lpg-p-primary/);
-  assert.match(result, /body\[data-lpg-template="modern"\] #lpg-program-root \.lpg-p-nav \[aria-current="page"\]/);
-  assert.ok(result.indexOf('<style id="lpg-modern-template">') < result.indexOf('</head>'));
-  assert.match(result, /runtime.mount\(/);
-  assert.equal(runtimeContext.PortalTemplates.apply(programHTML, { outputTemplate: 'classic' }), programHTML);
+test('editorial image enhancement does not promote unsafe source URLs', () => {
+  const dom = render('editorial', html.replace('https://example.com/event.jpg','javascript:alert(1)'));
+  assert.equal(dom.window.document.querySelector('.lpg-brand-photo'), null);
+  dom.window.close();
+});
+
+test('incomplete documents fall back without corrupting content', () => {
+  for (const partial of ['<div>Preview unavailable</div>','<head></head>',null]) assert.equal(templates.apply(partial,{outputTemplate:'dashboard'}),partial);
+});
+
+test('literal closing-body strings inside runtime code cannot swallow template injection', () => {
+  const source = html.replace('window.originalScriptRan=true;', 'window.literal="</body>";window.originalScriptRan=true;');
+  const dom = render('dashboard', source);
+  assert.equal(dom.window.literal, '</body>');
+  assert.equal(dom.window.originalScriptRan, true);
+  assert.ok(dom.window.document.querySelector('.lpg-layout-dashboard'));
+  assert.equal(dom.window.document.querySelectorAll('#lpg-template-layout').length, 1);
+  dom.window.close();
 });

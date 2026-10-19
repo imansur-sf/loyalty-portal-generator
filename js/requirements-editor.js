@@ -20,11 +20,13 @@
     for (const field of ['mode', 'objective', 'text', 'roles']) if (el('brief-' + field)) el('brief-' + field).value = state.brief[field];
     if (el('output-template')) el('output-template').value = state.outputTemplate || 'classic';
     syncExperience();
+    root.LPGVariants?.render();
     renderSources(); renderReview();
   }
   function syncExperience() {
-    if (el('program-enabled')) el('program-enabled').checked = !!state.programEnabled;
-    if (el('program-mode-note')) el('program-mode-note').textContent = state.programEnabled ? 'The program controls the portal’s points, tiers, people and journeys. Brand and color controls still apply. Edit program rules here; the remaining classic card controls apply when Program experience is off.' : 'Classic cards remain available. Analyze a brief or start with a sample to create an interactive program.';
+    if (el('program-mode-note')) el('program-mode-note').textContent = state.program
+      ? 'Your portal includes branded content and demo interactions. Fine-tune any section, or open program details to adjust points, rewards and assumptions.'
+      : 'Generate a complete branded portal, then explore layouts without regenerating content.';
   }
   function changed() {
     state.brief = state.brief || defaults();
@@ -58,53 +60,83 @@
     importSequence++; importing = false; state.brief.sources.splice(Number(button.dataset.removeSource), 1); renderSources(); scheduleDraftRecovery();
   }
   function wantsProgram() {
-    return !!(state.programEnabled || state.brief?.text?.trim() || state.brief?.objective?.trim() || state.brief?.roles?.trim() || state.brief?.sources?.length || state.brief?.mode === 'b2b');
+    return !!(state.programEnabled || state.brief?.text?.trim() || state.brief?.objective?.trim() || state.brief?.roles?.trim() || state.brief?.sources?.length || ['b2b', 'both'].includes(state.brief?.mode));
   }
   async function analyze(client, rawURL) {
     if (importing) throw new Error('Please wait for the requirements documents to finish reading.');
     changed();
     const sequence = ++generationSequence, before = fingerprint(), project = projectEpoch;
-    const brief = clone(state.brief), current = state.programEnabled ? clone(state.program) : null;
+    const brief = clone(state.brief);
+    const checkCurrent = () => {
+      if (sequence !== generationSequence || project !== projectEpoch || before !== fingerprint()) {
+        throw new Error('The editor changed while AI was working. Your edits were kept; generate again when ready.');
+      }
+    };
     let website = null;
-    setQuickStartStatus('Reading the brief and program requirements…', true);
+    setQuickStartStatus('Reading the customer website and requirements…', true);
     if (rawURL) {
       const url = PageHost._analysis.normalizeURL(rawURL);
       if (!url) throw new Error('Enter a valid website URL or leave it blank.');
       try {
         const html = await (client === root.PageHost ? client.proxyFetch(url) : client.scrapeViaCorsProxy(url));
-        const extracted = PageHost._analysis.extractCoreHTML(html, url);
-        website = { url, title: extracted.title, bodyText: extracted.bodyText?.slice(0, 10000), description: extracted.description };
-      } catch (_) { website = { url, note: 'Website could not be read. Do not treat brand guesses as verified facts.' }; }
+        website = PageHost._analysis.extractCoreHTML(html, url);
+      } catch (_) { website = { url, note: 'Website could not be read. Brand knowledge is a demo assumption, not verified website evidence.' }; }
     }
-    const prompt = LPGRequirements.buildPrompt(brief, website, current);
-    let result = await client.callLLM({ system: LPGRequirements.SYSTEM, prompt, maxTokens: 8000, tier: 'balanced' });
-    let proposal;
-    try { proposal = LPGRequirements.parseResponse(result, LPGProgram, brief.mode); }
-    catch (error) {
-      if (error.code !== 'invalid_program') throw error;
-      if (sequence !== generationSequence || project !== projectEpoch || before !== fingerprint()) throw new Error('The editor changed while AI was working. Your edits were kept; review with AI again when ready.');
-      setQuickStartStatus('AI is correcting an invalid program field before review…', true);
-      result = await client.callLLM({ system: LPGRequirements.SYSTEM,
-        prompt: prompt + '\nValidation feedback on the previous attempt (return a complete corrected program, preserving the source requirements):\n' + JSON.stringify(error.details),
-        maxTokens: 8000, tier: 'balanced' });
-      proposal = LPGRequirements.parseResponse(result, LPGProgram, brief.mode);
+    checkCurrent();
+    const modes = brief.mode === 'both' ? ['b2c', 'b2b'] : [brief.mode];
+    const generated = {}, warnings = [];
+    for (const mode of modes) {
+      const audienceBrief = { ...brief, mode };
+      const existing = root.LPGVariants.get(mode);
+      const current = existing?.program ? clone(existing.program) : null;
+      setQuickStartStatus(`Designing the ${mode.toUpperCase()} loyalty experience…`, true);
+      const prompt = LPGRequirements.buildPrompt(audienceBrief, website, current);
+      let result = await client.callLLM({ system: LPGRequirements.SYSTEM, prompt, maxTokens: 8000, tier: 'balanced' });
+      checkCurrent();
+      let proposal;
+      try { proposal = LPGRequirements.parseResponse(result, LPGProgram, mode); }
+      catch (error) {
+        if (error.code !== 'invalid_program') throw error;
+        setQuickStartStatus('AI is correcting a program detail…', true);
+        result = await client.callLLM({ system: LPGRequirements.SYSTEM,
+          prompt: prompt + '\nValidation feedback (return a complete corrected program):\n' + JSON.stringify(error.details),
+          maxTokens: 8000, tier: 'balanced' });
+        checkCurrent(); proposal = LPGRequirements.parseResponse(result, LPGProgram, mode);
+      }
+      setQuickStartStatus(`Creating ${mode.toUpperCase()} offers, rewards and branded imagery…`, true);
+      const content = await root.LPGPortalContent.generate({ client, brief: audienceBrief, program: proposal.program,
+        website, rawURL, existing: current ? existing : null,
+        onStatus: phase => { checkCurrent(); setQuickStartStatus(phase === 'generating_images' ? `Creating ${mode.toUpperCase()} portal imagery…` : `Personalizing ${mode.toUpperCase()} portal content…`, true); } });
+      checkCurrent();
+      if (content._meta?.image_warning || content._meta?.image_error) warnings.push(`${mode.toUpperCase()}: ${content._meta.image_warning || 'Some images could not be generated. You can add images or generate again.'}`);
+      const portal = existing || root.LPGVariants.snapshot();
+      applyAnalysis(content, portal, { render: false });
+      portal.program = proposal.program; portal.programEnabled = true; portal.programReview = null;
+      portal.brand.name = proposal.program.providerName || content.brandName;
+      portal.brand.programName = proposal.program.name;
+      portal.member.name = proposal.program.member.name;
+      portal.member.points = proposal.program.opening.redeemable;
+      portal.tiers = proposal.program.tiers.map(tier => ({ name: tier.name, points: tier.threshold }));
+      portal.outputTemplate = mode === state.activeVariant ? state.outputTemplate : existing?.outputTemplate || state.outputTemplate || 'classic';
+      generated[mode] = portal;
     }
-    // Refining program rules must not replace an author's accepted palette.
-    if (current) proposal.brand = {};
-    if (sequence !== generationSequence || project !== projectEpoch || before !== fingerprint()) throw new Error('The editor changed while AI was working. Your edits were kept; review with AI again when ready.');
-    state.programReview = { ...proposal, snapshot: before };
-    renderReview(); updateProgram(true);
-    setQuickStartStatus('Program generated and preview updated. Refine the rules below; valid edits appear live.', false);
-    el('program-review').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    checkCurrent();
+    root.LPGVariants.replace(generated, brief.mode === 'both' ? state.activeVariant : brief.mode);
+    populateFormFromState(); renderDynamicSections(); renderPaletteButtons(); schedulePreview();
+    if (el('portal-edit-status')) el('portal-edit-status').textContent = warnings.join(' ');
+    setQuickStartStatus(modes.length === 2 ? 'Both portals are ready. Switch between B2C and B2B, choose a layout, and save your project.' : 'Your branded portal is ready. Refine any section, choose a layout, and save your project.', false);
   }
   function sample() {
     generationSequence++;
     changed();
-    const mode = state.brief.mode;
+    const mode = state.brief.mode === 'both' ? state.activeVariant : state.brief.mode;
     const program = LPGProgram.normalize({ mode, providerName: state.brand.name || 'Demo Provider', name: state.brand.programName || 'Loyalty Program', approvalRequired: mode === 'b2b', opening: { qualifying: 1000, redeemable: 500 },
       assumptions: ['This is an editable demonstration sample, not an interpretation of the attached requirements.', 'Opening balances are fictional demo values.'] });
+    const portal = root.LPGVariants.snapshot();
+    portal.program = program; portal.programEnabled = true; portal.programReview = null;
+    root.LPGVariants.replace({ [mode]: portal }, mode);
     state.programReview = { program, brand: {}, snapshot: fingerprint() };
-    renderReview(); updateProgram();
+    renderReview(); updateProgram(); root.LPGVariants.render();
   }
   function editProgram() {
     if (!state.program) return sample();
@@ -199,8 +231,22 @@
       state.brand.name = result.model.providerName || review.brand.name || state.brand.name;
     }
     if (!review.live || result.model.name !== state.program?.name) state.brand.programName = result.model.name;
+    if (root.LPGPortalContent) {
+      const mapped = root.LPGPortalContent.reconcile(state, result.model, { existing: state, allowMissing: true });
+      state.vouchers = mapped.vouchers.map(cleanVoucher); state.earnMore = mapped.earnMore.map(cleanEarnMore);
+    }
     state.program = result.model; state.programEnabled = true; state.schemaVersion = 2;
+    state.activeVariant = result.model.mode;
+    state.member.name = result.model.member.name; state.member.points = result.model.opening.redeemable;
+    state.tiers = result.model.tiers.map(tier => ({ name: tier.name, points: tier.threshold }));
     setVal('brand-name', state.brand.name); setVal('program-name', state.brand.programName);
+    setVal('member-name', state.member.name); setVal('member-points', state.member.points);
+    for (let i = 0; i < 3; i++) for (const part of ['name', 'points']) {
+      const input = el(`tier${i+1}-${part}`); if (!input) continue;
+      input.disabled = !state.tiers[i]; input.value = state.tiers[i]?.[part] ?? '';
+    }
+    if (el('tier-progress')) el('tier-progress').disabled = true;
+    renderVouchers(); renderEarnMore();
     review.live = true;
     el('program-review-error').textContent = '';
     syncExperience(); schedulePreview();
@@ -214,8 +260,9 @@
     setQuickStartStatus('Preview updated. You can save your project or export the portal.', false);
   }
   function reset() {
+    root.LPGImages?.invalidate();
     importSequence++; generationSequence++; importing = false;
-    state.schemaVersion = 2; state.brief = defaults(); state.program = null; state.programReview = null; state.programEnabled = false; state.outputTemplate = 'classic';
+    state.schemaVersion = 2; state.brief = defaults(); state.program = null; state.programReview = null; state.programEnabled = false; state.outputTemplate = 'classic'; state.activeVariant = 'b2c'; state.variants = {};
     if (el('brief-import-status')) el('brief-import-status').textContent = '';
     sync();
   }
@@ -228,10 +275,7 @@
     el('program-apply').addEventListener('click', apply);
     el('program-discard').addEventListener('click', () => { generationSequence++; state.programReview = null; renderReview(); scheduleDraftRecovery(); });
     el('output-template').addEventListener('change', event => { state.outputTemplate = event.target.value; schedulePreview(); });
-    el('program-enabled').addEventListener('change', event => {
-      if (event.target.checked && !state.program) { event.target.checked = false; sample(); return; }
-      state.programEnabled = event.target.checked; sync(); schedulePreview();
-    });
+    root.LPGVariants?.init();
   }
   root.LPGRequirementsEditor = { init, sync, reset, wantsProgram, analyze, fingerprint, apply, sample, editProgram, isImporting: () => importing };
 })(window);

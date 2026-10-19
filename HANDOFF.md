@@ -2,49 +2,48 @@
 
 Last updated: 2026-10-18. **Read this first.** `git log` records shipped changes; PROGRESS.md records the current sign-in/save rollout. `CLAUDE.md` in this repo is stale (still describes a Page Host zip-bundle deployment that was abandoned); its two-build-outputs instructions still apply.
 
-## Requirements-driven programs and templates
+## Rich portal restoration (current implementation)
 
-Deployed as commit `a3f4196`, Heroku release **v27**. The new web process is up;
-health, editor controls, script/PDF asset hashes and auth endpoint checks passed. `REQUIREMENTS-AND-B2B-DESIGN.md` contains the original design;
-the initial implementation adds its B2C/B2B foundation and a first modern template.
+User reoriented LPG around polished SE demos. v27/v28's requirements path
+bypassed rich content and replaced the portal with a sparse simulator. This
+implementation removes that split. Deployment verification is in PROGRESS.md.
 
-- Step 1 now accepts a program objective, requirements prompt, role descriptions
-  and up to three text PDFs/TXT files. Website-only analysis retains the original
-  flow. Requirements generation calls the selected adapter's existing `callLLM`
-  API, so it supports the hosted backend, BYOK and Page Host paths.
-- `js/requirements.js` handles bounded page-aware text extraction, source-data
-  separation, strict AI parsing and project migration. The pinned PDF.js legacy
-  modules live under `assets/pdfjs`; the standalone build embeds both modules.
-  No document binaries are sent or saved. Extracted text is sent on analysis and
-  retained in saved editor projects. Scanned PDFs need pasted text (no OCR).
-- `js/requirements-editor.js` owns the editable proposal, rule/role controls,
-  coverage/assumption review and stale-result protection. Valid AI results and
-  edits now activate automatically and update the live preview. Invalid drafts
-  retain the last valid preview; the form remains open without losing focus. One schema-repair call is allowed for invalid AI output. Incomplete
-  manual edits survive draft/cloud round trips. Targeted program refinements
-  preserve the accepted brand palette.
-- `js/program-model.js` validates program rules and computes dual balances,
-  tier progress, fixed/spend earning, UTC monthly caps and RP-only redemption.
-  `js/program-runtime.js` provides self-contained demo Overview, Earn, Rewards,
-  Activity and B2B Team/Approvals pages. B2B requests are permission checked and
-  cannot be approved twice or by their requesting role. Demo activity is scoped
-  to the current preview/export session and resets on reload/regeneration.
-- `js/portal-templates.js` supplies Classic (unchanged default) and Modern Brand.
-  The same data and actions drive both. `generatePortalHTML` applies the program
-  renderer followed by the selected template, covering preview and exports.
-- Projects add `schemaVersion:2`, `brief`, `program`, `programReview`,
-  `programEnabled`, and `outputTemplate`. Old projects reopen as Classic. Private
-  source text, requirements coverage, assumptions and future notes stay out of
-  exported HTML. The program renderer intentionally excludes legacy card/editor
-  controls; a Step 1 explanation directs authors to the program rule editor.
-- Verification: 79 tests pass, including DOM integration, old saves, incomplete
-  drafts, concurrent AI/editor changes, source metadata escaping, caps, rounding,
-  role approvals, template preservation and exported scripts. All 22 pages of
-  the supplied customer PDF extracted successfully. A synthetic B2B request to
-  the existing live Gemini endpoint passed the strict model validator. Browser
-  visual checking is still blocked by the managed origin policy; no workaround
-  was used. Rebuild with `python3 build-standalone.py` after frontend edits.
-- Preserve the pre-existing `worker/scrape.js` modifications and tool directories.
+- Every Generate request runs validated program analysis, then complete branded
+  presentation generation using the original content schema and scraped image
+  candidates. Optional notes/PDFs inform both stages via rules/source coverage.
+  `portal-content.js` binds vouchers/earning cards by stable program IDs, rejects
+  incomplete output, and uses the existing image-generation backend for gaps.
+- Website/source instructions remain untrusted. Program and content changes
+  commit together after stale-result checks. Both-audience generation commits
+  atomically. Failures retain the previous portals. Sources/assumptions are never
+  embedded in exported HTML. PDF extraction remains text-only, no OCR.
+- `variants.js` stores the active audience in the original state fields and only
+  inactive audiences in `state.variants`, avoiding duplicated image payloads.
+  Source documents stay shared. B2C and B2B keep independent content, edits and
+  templates. Save Project includes both; export includes the selected audience.
+- No program checkbox or manual apply gate. Program details/assumptions are
+  optional. Valid edits update immediately; incomplete drafts retain valid output.
+  Shared voucher/earning/member/tier controls synchronize authoritative rules.
+- `generator.js` retains the original rich sections. `program-runtime.js` binds
+  points/tier progression, earning/redemption, B2B approval and activity to those
+  same cards. A simulated welcome/sign-in view is included. No real Salesforce
+  transactions occur; demo activity resets on reload or preview regeneration.
+- Templates: Classic, Member Dashboard, Rewards Showcase, Brand Experience.
+  Alternate layouts rearrange shared nodes and keep their images and controls.
+  Saved `modern` selections migrate to Dashboard. Full-size preview is available.
+- Generated raster images are batched (12/request,48/run including benefits) and
+  optimized to <=200KiB data URIs (960px cards/1280px hero). Existing uploads are
+  untouched. Partial image failures surface warnings. The shared19MiB save cap
+  still protects unusually large uploads. Image callbacks cannot cross audience,
+  project, regeneration or widget-replacement boundaries.
+- Editor HTML revalidates; versioned JS assets keep caching. Rebuild standalone
+  after frontend changes using `python3 build-standalone.py`.
+- Hosted synthetic B2C and B2B tests passed both AI stages with complete specific
+  copy (4 rewards each); one actual image-service request returned200+image.
+  Comparison artifacts preserve original ISACA18images/4vouchers/2offers in all
+  layouts. Also prepared retail and industrial B2B examples. Browser screenshots
+  remain unavailable: CUA reports no browsers/apps. Do not claim visual review.
+- Preserve pre-existing worker/scrape.js and untracked tool-directory changes.
 
 ## October sign-in and saving update (shipped)
 

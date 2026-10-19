@@ -91,6 +91,8 @@
     .btn-secondary-sf { background: #fff; color: var(--sf-blue); font-weight: 600; border: 1.5px solid var(--sf-blue); border-radius: 999px; padding: 10px 22px; transition: background 0.18s ease, color 0.18s ease; }
     .btn-secondary-sf:hover { background: var(--cloud-95); }
 
+    #portal-variants button[aria-pressed="true"] { background:#003e9e;color:white;border-color:#003e9e; }
+    #portal-variants button:disabled { opacity:.45;cursor:default; }
     /* ── Preview frame ─────────────────────────────────────────── */
     .preview-shell { background: #fff; border-radius: var(--radius-xl); border: 1px solid rgba(0,30,91,0.08); box-shadow: var(--shadow-card); overflow: hidden; }
     .preview-chrome { background: linear-gradient(180deg, #FAFCFF 0%, #F3F7FD 100%); border-bottom: 1px solid rgba(0,30,91,0.08); }
@@ -268,6 +270,11 @@
 
   <!-- MAIN LAYOUT: Wizard + Preview -->
   <div class="max-w-[1400px] mx-auto px-4 py-6">
+    <section id="portal-variants" class="wizard-card p-4 mb-4" hidden aria-label="Generated portal audiences">
+      <div class="program-actions"><button type="button" id="variant-b2c" aria-pressed="true">B2C · Member portal</button><button type="button" id="variant-b2b" aria-pressed="false">B2B · Business portal</button></div>
+      <p id="variant-note" class="program-help"></p>
+    </section>
+    <p id="portal-edit-status" class="program-warning" role="status"></p>
     <div class="flex gap-6" id="main-layout">
 
       <!-- LEFT: WIZARD FORM -->
@@ -280,10 +287,10 @@
             <div class="quickstart-inner">
               <div class="quickstart-eyebrow">⚡ Quick Start</div>
               <div class="quickstart-title">Build around your customer’s program</div>
-              <div class="quickstart-sub">Use a website for a quick branded portal, or add a brief and requirements to create an interactive B2C or B2B program.</div>
+              <div class="quickstart-sub">Turn a customer website into a branded loyalty demo. Add optional notes or requirements, choose your audience, and let AI build the experience.</div>
               <div class="brief-inputs">
                 <label for="brief-mode">Who participates?</label>
-                <select id="brief-mode"><option value="b2c">B2C · Individual members</option><option value="b2b">B2B · Business accounts</option></select>
+                <select id="brief-mode"><option value="b2c">B2C · Individual members</option><option value="b2b">B2B · Business accounts</option><option value="both">Both · Generate and save both audiences</option></select>
                 <label for="brief-objective">Demo objective <span>(optional)</span></label>
                 <input id="brief-objective" maxlength="2000" placeholder="Show how members earn status and redeem points toward renewal">
                 <label for="brief-text">Customer requirements or instructions <span>(optional)</span></label>
@@ -299,7 +306,7 @@
               </div>
               <div class="quickstart-row">
                 <input type="text" id="quickstart-url" class="quickstart-input" placeholder="https://expresswashconcepts.com" spellcheck="false" autocomplete="off">
-                <button id="quickstart-btn" class="quickstart-btn" onclick="onQuickStartAnalyze()">Analyze →</button>
+                <button id="quickstart-btn" class="quickstart-btn" onclick="onQuickStartAnalyze()">Generate portals →</button>
               </div>
               <div class="quickstart-status" id="quickstart-status"></div>
               <div class="quickstart-error" id="quickstart-error" style="display:none;"></div>
@@ -345,17 +352,17 @@
 
           <section class="wizard-card p-7 program-authoring" aria-labelledby="program-controls-title">
             <h2 id="program-controls-title" class="wizard-title">Portal experience</h2>
-            <label class="program-field" for="output-template">Output template<select id="output-template"><option value="classic">Classic · Original portal</option><option value="modern">Modern Brand · Spacious branded cards</option></select></label>
-            <label class="program-check"><input id="program-enabled" type="checkbox"> Use program experience</label>
+            <label class="program-field" for="output-template">Output template<select id="output-template"><option value="classic">Classic · Original portal</option><option value="dashboard">Member Dashboard · Overview and activity</option><option value="showcase">Rewards Showcase · Image-led catalogue</option><option value="editorial">Brand Experience · Immersive brand stories</option></select></label>
+
             <p id="program-mode-note" class="program-help"></p>
-            <div class="program-actions"><button type="button" id="program-edit">Edit program rules</button><button type="button" id="program-sample">Start from editable sample</button></div>
+            <div class="program-actions"><button type="button" id="program-edit">Program details &amp; assumptions</button><button type="button" id="program-sample">Start with a sample</button><button type="button" onclick="openPortalPreview()">Preview full size</button></div>
           </section>
           <section id="program-review" class="wizard-card p-7 program-authoring" hidden aria-labelledby="program-review-title">
             <h2 id="program-review-title" class="wizard-title">Edit your program</h2>
             <p class="program-help">AI results and valid edits update the preview automatically. Opening balances and people are demo data. If a field is incomplete or invalid, the preview keeps the last valid program.</p>
             <div id="program-review-fields"></div>
             <p id="program-review-error" role="alert" class="program-warning"></p>
-            <div class="program-actions"><button type="button" id="program-apply" class="btn-primary-sf">Update preview &amp; close</button><button type="button" id="program-discard">Close editor</button></div>
+            <div class="program-actions"><button type="button" id="program-apply" class="btn-primary-sf">Done editing</button><button type="button" id="program-discard">Close without incomplete edits</button></div>
           </section>
           <div class="wizard-card p-7">
             <div class="wizard-eyebrow mb-2">Step 1 of 7</div>
@@ -365,7 +372,7 @@
             <div class="space-y-4">
               <div>
                 <label class="block text-sm font-600 text-gray-700 mb-1">Brand Name <span class="text-red-500">*</span></label>
-                <input type="text" id="brand-name" placeholder="e.g. Express Wash Concepts" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none" oninput="onFieldChange()">
+                <input type="text" id="brand-name" placeholder="e.g. Express Wash Concepts" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none" oninput="onFieldChange(event)">
               </div>
 
               <div>
@@ -382,7 +389,7 @@
 
               <div>
                 <label class="block text-sm font-600 text-gray-700 mb-1">Program Name</label>
-                <input type="text" id="program-name" placeholder="My Loyalty Perks" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none" oninput="onFieldChange()">
+                <input type="text" id="program-name" placeholder="My Loyalty Perks" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none" oninput="onFieldChange(event)">
                 <p class="text-xs text-gray-400 mt-1">Shown as the portal's main heading. Leave blank for "My Loyalty Perks".</p>
               </div>
 
@@ -465,32 +472,32 @@
             <h3 class="text-sm font-700 text-gray-800 mb-3">Loyalty Tiers</h3>
             <div class="space-y-3 mb-6">
               <div class="grid grid-cols-2 gap-3">
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tier 1 Name</label><input type="text" id="tier1-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="tier1-points" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tier 1 Name</label><input type="text" id="tier1-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="tier1-points" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
               </div>
               <div class="grid grid-cols-2 gap-3">
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tier 2 Name</label><input type="text" id="tier2-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="tier2-points" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tier 2 Name</label><input type="text" id="tier2-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="tier2-points" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
               </div>
               <div class="grid grid-cols-2 gap-3">
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tier 3 Name</label><input type="text" id="tier3-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="tier3-points" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tier 3 Name</label><input type="text" id="tier3-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="tier3-points" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
               </div>
               <div>
                 <label class="block text-xs font-600 text-gray-600 mb-1">Tier Progress (%)</label>
-                <input type="range" id="tier-progress" min="0" max="100" value="30" class="w-full" oninput="document.getElementById('tier-progress-val').textContent=this.value+'%'; onFieldChange()">
+                <input type="range" id="tier-progress" min="0" max="100" value="30" class="w-full" oninput="document.getElementById('tier-progress-val').textContent=this.value+'%'; onFieldChange(event)">
                 <span id="tier-progress-val" class="text-xs text-gray-500">30%</span>
               </div>
             </div>
 
             <h3 class="text-sm font-700 text-gray-800 mb-3">Demo Member Profile</h3>
             <div class="grid grid-cols-2 gap-3">
-              <div><label class="block text-xs font-600 text-gray-600 mb-1">Name</label><input type="text" id="member-name" value="Imran Mansur" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-              <div><label class="block text-xs font-600 text-gray-600 mb-1">Member #</label><input type="text" id="member-number" value="234567" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-              <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="member-points" value="1200" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-              <div><label class="block text-xs font-600 text-gray-600 mb-1">Email</label><input type="email" id="member-email" placeholder="member@email.com" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-              <div><label class="block text-xs font-600 text-gray-600 mb-1">Phone</label><input type="text" id="member-phone" placeholder="555-123-4567" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-              <div><label class="block text-xs font-600 text-gray-600 mb-1">Join Date</label><input type="text" id="member-join" placeholder="21st Nov, 2019" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Name</label><input type="text" id="member-name" value="Imran Mansur" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Member #</label><input type="text" id="member-number" value="234567" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Points</label><input type="number" id="member-points" value="1200" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Email</label><input type="email" id="member-email" placeholder="member@email.com" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Phone</label><input type="text" id="member-phone" placeholder="555-123-4567" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+              <div><label class="block text-xs font-600 text-gray-600 mb-1">Join Date</label><input type="text" id="member-join" placeholder="21st Nov, 2019" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
             </div>
 
             <div class="mt-4">
@@ -617,12 +624,12 @@
               </div>
               <button onclick="autoGenerate('upsell')" class="mb-3 px-4 py-2 bg-blue-50 text-blue-600 text-xs font-600 rounded-lg hover:bg-blue-100">⚡ Auto-generate</button>
               <div class="grid grid-cols-2 gap-3">
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">Title</label><input type="text" id="upsell-title" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">Subtitle</label><input type="text" id="upsell-subtitle" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">Price</label><input type="text" id="upsell-price" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">Period</label><input type="text" id="upsell-period" placeholder="Monthly" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tagline</label><input type="text" id="upsell-tagline" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
-                <div><label class="block text-xs font-600 text-gray-600 mb-1">CTA Button</label><input type="text" id="upsell-cta" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange()"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Title</label><input type="text" id="upsell-title" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Subtitle</label><input type="text" id="upsell-subtitle" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Price</label><input type="text" id="upsell-price" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Period</label><input type="text" id="upsell-period" placeholder="Monthly" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">Tagline</label><input type="text" id="upsell-tagline" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
+                <div><label class="block text-xs font-600 text-gray-600 mb-1">CTA Button</label><input type="text" id="upsell-cta" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onFieldChange(event)"></div>
               </div>
 
               <!-- Upsell — background + text colors + bg image -->
@@ -632,35 +639,35 @@
                   <div>
                     <label class="block text-xs font-600 text-gray-600 mb-1">Background Color</label>
                     <div class="flex items-center gap-2">
-                      <input type="color" id="color-upsell-bg" value="#7C1D1D" onchange="onFieldChange()">
+                      <input type="color" id="color-upsell-bg" value="#7C1D1D" onchange="onFieldChange(event)">
                       <input type="text" id="hex-upsell-bg" value="#7C1D1D" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onUpsellHexChange('bg')">
                     </div>
                   </div>
                   <div>
                     <label class="block text-xs font-600 text-gray-600 mb-1">Title Color</label>
                     <div class="flex items-center gap-2">
-                      <input type="color" id="color-upsell-title" value="#E8B931" onchange="onFieldChange()">
+                      <input type="color" id="color-upsell-title" value="#E8B931" onchange="onFieldChange(event)">
                       <input type="text" id="hex-upsell-title" value="#E8B931" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onUpsellHexChange('title')">
                     </div>
                   </div>
                   <div>
                     <label class="block text-xs font-600 text-gray-600 mb-1">Subtitle Color</label>
                     <div class="flex items-center gap-2">
-                      <input type="color" id="color-upsell-subtitle" value="#FFFFFF" onchange="onFieldChange()">
+                      <input type="color" id="color-upsell-subtitle" value="#FFFFFF" onchange="onFieldChange(event)">
                       <input type="text" id="hex-upsell-subtitle" value="#FFFFFF" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onUpsellHexChange('subtitle')">
                     </div>
                   </div>
                   <div>
                     <label class="block text-xs font-600 text-gray-600 mb-1">Price Color</label>
                     <div class="flex items-center gap-2">
-                      <input type="color" id="color-upsell-price" value="#FFFFFF" onchange="onFieldChange()">
+                      <input type="color" id="color-upsell-price" value="#FFFFFF" onchange="onFieldChange(event)">
                       <input type="text" id="hex-upsell-price" value="#FFFFFF" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onUpsellHexChange('price')">
                     </div>
                   </div>
                   <div class="col-span-2">
                     <label class="block text-xs font-600 text-gray-600 mb-1">Period Color</label>
                     <div class="flex items-center gap-2">
-                      <input type="color" id="color-upsell-period" value="#E5E7EB" onchange="onFieldChange()">
+                      <input type="color" id="color-upsell-period" value="#E5E7EB" onchange="onFieldChange(event)">
                       <input type="text" id="hex-upsell-period" value="#E5E7EB" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono outline-none focus:ring-2 focus:ring-blue-400/50" oninput="onUpsellHexChange('period')">
                     </div>
                   </div>
@@ -694,7 +701,7 @@
           <div class="wizard-card p-7">
             <div class="wizard-eyebrow mb-2">Step 7 of 7</div>
             <h2 class="wizard-title mb-1">Preview & Export</h2>
-            <p class="wizard-sub mb-6">Review your portal and download the HTML — it's fully self-contained.</p>
+            <p class="wizard-sub mb-6">Review the selected audience and download its HTML prototype. Save Project keeps both audiences editable.</p>
 
             <div class="flex gap-3 mb-3">
               <button onclick="saveCurrentProject()" class="btn-secondary-sf flex-1 py-3 text-sm flex items-center justify-center gap-2">
@@ -725,7 +732,7 @@
             </div>
             <div id="cloudy-hint" class="hidden bg-blue-50 text-blue-700 text-sm font-600 text-center py-2 rounded-lg mb-4">Downloaded! Sign in via SSO at sfdc.co/cloudy, then drag your file in.</div>
 
-            <p class="text-xs text-gray-400 text-center">The downloaded HTML file is fully self-contained — open it in any browser for a live demo.</p>
+            <p class="text-xs text-gray-400 text-center">Open the downloaded HTML in a browser for a live demo. Website images and styling load online.</p>
           </div>
         </div>
 
@@ -744,7 +751,7 @@
             <div class="w-3 h-3 rounded-full bg-red-400"></div>
             <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
             <div class="w-3 h-3 rounded-full bg-green-400"></div>
-            <span class="text-[11px] font-600 text-gray-500 ml-2 tracking-wider uppercase">Live Preview</span>
+            <span class="text-[11px] font-600 text-gray-500 ml-2 tracking-wider uppercase">Live Preview</span><button type="button" onclick="openPortalPreview()" class="ml-auto text-xs font-semibold text-blue-700">Expand ↗</button>
           </div>
           <iframe id="preview-iframe" class="w-full bg-white" style="height: calc(100vh - 200px);" sandbox="allow-scripts"></iframe>
         </div>
@@ -753,19 +760,25 @@
     </div>
   </div>
 
+  <dialog id="portal-preview-dialog" style="width:96vw;max-width:1600px;height:94vh;max-height:94vh;padding:0;border:0;border-radius:16px;box-shadow:0 20px 80px #0004;" aria-label="Full size portal preview">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:#f5f7fb;"><strong>Portal preview</strong><button type="button" onclick="document.getElementById('portal-preview-dialog').close()" class="btn-secondary-sf">Close preview</button></div>
+    <iframe id="expanded-preview-iframe" title="Full size loyalty portal" sandbox="allow-scripts" style="width:100%;height:calc(100% - 64px);border:0;"></iframe>
+  </dialog>
   <!-- Scripts -->
   <script src="./js/accounts-loader.js?v=20261018"></script>
   <script src="./js/defaults.js?v=20260718c"></script>
-  <script src="./js/images.js?v=20260718c"></script>
-  <script src="./js/program-model.js?v=20261018b"></script>
-  <script src="./js/program-runtime.js?v=20261018b"></script>
-  <script src="./js/portal-templates.js?v=20261018b"></script>
-  <script src="./js/requirements.js?v=20261018b"></script>
-  <script src="./js/requirements-editor.js?v=20261018c"></script>
-  <script src="./js/generator.js?v=20261018b"></script>
-  <script src="./js/pagehost.js?v=20260718c"></script>
-  <script src="./js/localai.js?v=20260718c"></script>
-  <script src="./js/app.js?v=20261018b"></script>
-  <script src="./js/projects.js?v=20261018b"></script>
+  <script src="./js/images.js?v=20261018d"></script>
+  <script src="./js/program-model.js?v=20261018d"></script>
+  <script src="./js/program-runtime.js?v=20261018d"></script>
+  <script src="./js/portal-templates.js?v=20261018d"></script>
+  <script src="./js/requirements.js?v=20261018d"></script>
+  <script src="./js/portal-content.js?v=20261018d"></script>
+  <script src="./js/variants.js?v=20261018d"></script>
+  <script src="./js/requirements-editor.js?v=20261018d"></script>
+  <script src="./js/generator.js?v=20261018d"></script>
+  <script src="./js/pagehost.js?v=20261018d"></script>
+  <script src="./js/localai.js?v=20261018d"></script>
+  <script src="./js/app.js?v=20261018d"></script>
+  <script src="./js/projects.js?v=20261018d"></script>
 </body>
 </html>

@@ -77,7 +77,37 @@ The unrelated worker edit and local tool directories remain untouched.
 - [x] Identify why generated requirements stay out of the preview (manual apply gate).
 - [x] Automatically activate valid generated programs and valid edits; retain invalid drafts.
 - [x] Verify editor, export and saved-project behavior (79 tests pass).
-- [ ] Deploy and verify the live preview fix.
+- [x] Deploy and verify the live preview fix.
 
 Review also covered invalid-rule/color edits and preservation of newer shared
 brand identity changes. Both have regression tests. Standalone rebuilt.
+
+Live preview fix deployed: commit 6db880d, Heroku v28 succeeded. New web
+process web-665656bc8f-q7pm2 is up. In-process HTTP checks returned health
+200, new editor copy and cache-versioned script; served editor SHA-256 matches
+the tested source. No real customer data or emails used in verification.
+
+## Rich portal restoration and variants
+
+User approved mission-aligned implementation: rich branded demos, optional
+requirements, B2C/B2B/Both, immediate preview, saved variants and real layouts.
+
+- [x] Restore full content and image enrichment for all generation requests.
+- [x] Preserve Classic and connect interactions to the same rich portal.
+- [x] Add independent saved B2C/B2B variants and simplify authoring controls.
+- [x] Add Dashboard, Rewards Showcase and Brand Experience layouts.
+- [x] Verify rich exports, interactions and variant persistence.
+- [ ] Browser screenshot review (unavailable: CUA has no browsers/apps).
+- [ ] Deploy and verify the completed change.
+
+Ownership: main owns authoring/app/projects/variants/migration; generation_quality
+owns portal-content + LocalAI image helper; rich_runtime owns generator/runtime;
+layout_templates owns template rendering. Preexisting worker edits untouched.
+
+Hosted synthetic checks: B2C ISACA-inspired membership and B2B Northstar Supply
+both passed strict rule and full presentation validation, with4rewards each and
+contextual benefits/offers. A separate image request returned200+983KB image.
+This exposed save-size risk; new generated images now optimize to<=200KiB each.
+Full-size preview added so SEs can assess desktop compositions beyond the narrow
+side preview.12 comparison HTML specimens include original ISACA assets and
+retail/B2B examples; original ISACA retains18images/4vouchers/2offers throughout.

@@ -346,12 +346,15 @@ async function generateImage(prompt) {
 // ============================================================
 app.use(express.static(path.join(__dirname), {
   extensions: ['html'],
-  maxAge: '1h'
+  maxAge: '1h',
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+  }
 }));
 
 // Fallback to index.html for SPA-style routing
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, 'index.html'));
 });
 
 // ============================================================

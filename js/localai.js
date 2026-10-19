@@ -334,15 +334,17 @@
 
   // ---- AI IMAGE GENERATION (fills empty image slots after analysis) ----
 
-  // Priority order: higher-priority slots get generated first (capped at 5 total).
+  // Cover every visible section before filling additional cards in each section.
   const IMAGE_SLOT_CONFIG = [
     { collection: 'vouchers', field: 'imageUrl', dataField: 'imageData', type: 'voucher',  aspect: '1:1',  priority: 1 },
     { collection: 'offers',   field: 'imageUrl', dataField: 'imageData', type: 'offer',    aspect: '16:9', priority: 1 },
     { collection: 'clubs',    field: 'imageUrl', dataField: 'imageData', type: 'club',     aspect: '1:1',  priority: 1 },
     { collection: 'badges',   field: 'imageUrl', dataField: 'imageData', type: 'badge',    aspect: '1:1',  priority: 1 },
+    { collection: 'benefits', field: 'imageUrl', dataField: 'imageData', type: 'benefit',  aspect: '1:1',  priority: 1 },
   ];
   // Also handle upsell.bgImageUrl separately (single object, not array)
-  const MAX_IMAGE_GEN = 12;
+  const IMAGE_BATCH_SIZE = 12; // Server limit per request.
+  const MAX_IMAGE_GEN = 48; // Bound exceptional programs; normal portals use two batches.
 
   function buildImagePrompt(type, item, brand) {
     const brandName = brand.brandName || 'the brand';
@@ -358,12 +360,65 @@
         return `Lifestyle promotional image for a ${industry} special offer: "${item.title || 'Special Offer'}" — ${item.description || ''}. Brand: ${brandName}. ${colorHint} Aspirational, inviting mood. No text or words in the image.`;
       case 'badge':
         return `A single clean achievement badge icon for "${item.name || 'Achievement'}" in a ${industry} loyalty program. ${colorHint} Minimal, modern flat design. Centered on a subtle background. No text.`;
+      case 'benefit':
+        return `A polished illustrated benefit icon representing "${item.name || 'Member benefit'}" for ${brandName}. ${colorHint} Clean, modern, consistent flat illustration. Centered on a subtle background. No text or words.`;
       case 'club':
         return `Community/group lifestyle image for a ${industry} loyalty club called "${item.name || 'Club'}" — ${item.description || ''}. Brand: ${brandName}. ${colorHint} Warm, social, inviting. No text.`;
       case 'upsell':
         return `Wide cinematic background image for a premium ${industry} membership upgrade by ${brandName}. ${colorHint} Dark, luxurious, atmospheric mood. Abstract or environmental scene. No text or words.`;
       default:
         return `Professional ${industry} image for ${brandName}. ${colorHint} Clean, modern style. No text.`;
+    }
+  }
+
+  const MAX_GENERATED_IMAGE_LENGTH = 200 * 1024; // Includes data URI/base64 overhead in saved JSON.
+
+  async function optimizeGeneratedImage(imageData, { hero = false } = {}) {
+    const valid = /^data:image\/(?:png|jpeg|webp|gif);base64,/i;
+    if (typeof imageData !== 'string' || !valid.test(imageData)) return { imageData: '', optimized: false, warning: 'The image service returned an unsupported image format.' };
+    // Small assets already meet the saved-project budget; this also permits
+    // previews in environments without a canvas implementation.
+    if (imageData.length <= MAX_GENERATED_IMAGE_LENGTH) return { imageData, optimized: false };
+    const omitted = reason => ({ imageData: '', optimized: false,
+      warning: `A generated image was omitted to keep the project saveable: ${reason}. Add a smaller image or generate again.` });
+    if (typeof window.Image !== 'function' || !window.document?.createElement) return omitted('image optimization is unavailable');
+    try {
+      const source = new window.Image();
+      await new Promise((resolve, reject) => {
+        let timer;
+        const finish = error => {
+          if (timer !== undefined) window.clearTimeout(timer);
+          source.onload = null; source.onerror = null;
+          if (error) reject(error); else resolve();
+        };
+        source.onload = () => finish();
+        source.onerror = () => finish(new Error('the generated image could not be decoded'));
+        if (typeof window.setTimeout === 'function') timer = window.setTimeout(() => finish(new Error('image decoding timed out')), 20000);
+        source.src = imageData;
+      });
+      const width = source.naturalWidth || source.width, height = source.naturalHeight || source.height;
+      if (!(width > 0 && height > 0)) return omitted('the generated image has invalid dimensions');
+      const canvas = window.document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      if (!context || typeof canvas.toDataURL !== 'function') return omitted('canvas encoding is unavailable');
+      const longest = hero ? 1280 : 960;
+      const baseScale = Math.min(1, longest / Math.max(width, height));
+      // Bounded work: progressively lower quality, then dimensions. Never store
+      // the original megabyte asset when the encoder cannot meet the budget.
+      for (const scale of [1, 0.75, 0.5]) {
+        canvas.width = Math.max(1, Math.round(width * baseScale * scale));
+        canvas.height = Math.max(1, Math.round(height * baseScale * scale));
+        context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(source, 0, 0, canvas.width, canvas.height);
+        for (const quality of [0.82, 0.7, 0.58, 0.46]) {
+          let encoded = canvas.toDataURL('image/webp', quality);
+          if (!/^data:image\/webp;base64,/i.test(encoded)) encoded = canvas.toDataURL('image/jpeg', quality);
+          if (/^data:image\/(?:webp|jpeg);base64,/i.test(encoded) && encoded.length <= MAX_GENERATED_IMAGE_LENGTH) return { imageData: encoded, optimized: true };
+        }
+      }
+      return omitted('the image stayed above the 200 KB budget after compression');
+    } catch (error) {
+      return omitted(error?.message || 'image optimization failed');
     }
   }
 
@@ -378,7 +433,7 @@
     if (parsed.upsell && !parsed.upsell.bgImageUrl && !parsed.upsell.bgImageData) {
       slots.push({
         slot: 'upsell-bg',
-        prompt: buildImagePrompt('upsell', parsed.upsell, parsed),
+        prompt: buildImagePrompt('upsell', parsed.upsell, parsed).slice(0, 2000),
         priority: 0,
         apply: (dataUri) => { parsed.upsell.bgImageData = dataUri; }
       });
@@ -392,8 +447,8 @@
         if (!item[cfg.field] && !item[cfg.dataField]) {
           slots.push({
             slot: `${cfg.type}-${i}`,
-            prompt: buildImagePrompt(cfg.type, item, parsed),
-            priority: cfg.priority,
+            prompt: buildImagePrompt(cfg.type, item, parsed).slice(0, 2000),
+            priority: cfg.priority + i,
             apply: (dataUri) => { item[cfg.dataField] = dataUri; }
           });
         }
@@ -405,49 +460,55 @@
       return { generated: 0, total_empty: 0 };
     }
 
-    // Sort by priority (lower = higher priority), take top N
+    // Round-robin priority prevents a large rewards list from starving offers,
+    // clubs, badges and benefits. Respect the backend's 12-image request limit.
     slots.sort((a, b) => a.priority - b.priority);
-    const batch = slots.slice(0, MAX_IMAGE_GEN);
-    const skipped = slots.length - batch.length;
+    const selected = slots.slice(0, MAX_IMAGE_GEN);
+    const skipped = slots.length - selected.length;
 
-    console.log(`[LocalAI] Generating ${batch.length} images (${skipped} lower-priority slots skipped)`);
+    console.log(`[LocalAI] Generating ${selected.length} images (${skipped} additional slots beyond this run's limit)`);
     if (onStatus) onStatus('generating_images');
-
-    try {
-      const res = await fetch(`${base}/api/generate-images`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompts: batch.map(s => ({ slot: s.slot, prompt: s.prompt }))
-        })
-      });
-
-      if (!res.ok) {
-        console.warn('[LocalAI] Image generation batch failed:', res.status);
-        return { generated: 0, total_empty: slots.length, error: `HTTP ${res.status}` };
-      }
-
-      const data = await res.json();
-      let generated = 0;
-
-      if (Array.isArray(data.results)) {
-        for (const result of data.results) {
-          if (result.imageData && !result.error) {
-            const match = batch.find(s => s.slot === result.slot);
-            if (match) {
-              match.apply(result.imageData);
-              generated++;
+    let generated = 0, attempted = 0;
+    const errors = [];
+    for (let offset = 0; offset < selected.length; offset += IMAGE_BATCH_SIZE) {
+      const batch = selected.slice(offset, offset + IMAGE_BATCH_SIZE);
+      attempted += batch.length;
+      try {
+        const res = await fetch(`${base}/api/generate-images`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompts: batch.map(s => ({ slot: s.slot, prompt: s.prompt })) })
+        });
+        if (!res.ok) {
+          errors.push(`HTTP ${res.status}`);
+          // Rate limits and unavailable services should not receive more batches.
+          if ([401, 403, 429, 502, 503, 504].includes(res.status)) break;
+          continue;
+        }
+        const data = await res.json();
+        const completed = new Set();
+        if (Array.isArray(data.results)) {
+          for (const result of data.results) {
+            if (/^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(result.imageData || '') && !result.error) {
+              const match = batch.find(s => s.slot === result.slot);
+              if (match && !completed.has(match.slot)) {
+                const optimized = await optimizeGeneratedImage(result.imageData, { hero: match.slot === 'upsell-bg' });
+                if (optimized.imageData) { match.apply(optimized.imageData); completed.add(match.slot); generated++; }
+                else if (optimized.warning) errors.push(optimized.warning);
+              }
             }
           }
         }
+        if (completed.size < batch.length) errors.push(`${batch.length - completed.size} images failed in a batch`);
+      } catch (err) {
+        errors.push(err.message || 'Image service unavailable');
+        break;
       }
-
-      console.log(`[LocalAI] Generated ${generated}/${batch.length} images successfully`);
-      return { generated, total_empty: slots.length, attempted: batch.length };
-    } catch (err) {
-      console.warn('[LocalAI] Image generation failed (non-fatal):', err.message);
-      return { generated: 0, total_empty: slots.length, error: err.message };
     }
+    const remaining = slots.length - generated;
+    const warning = remaining ? `${generated} of ${slots.length} missing images generated; ${remaining} remain empty.${skipped ? ` ${skipped} exceed the ${MAX_IMAGE_GEN}-image limit for one run.` : ''}${errors.length ? ' ' + [...new Set(errors)].join('; ') + '.' : ''}` : '';
+    console.log(`[LocalAI] Generated ${generated}/${slots.length} images successfully`);
+    return { generated, total_empty: slots.length, attempted, remaining, skipped, failed: attempted - generated,
+      ...(warning ? { warning } : {}), ...(errors.length ? { error: [...new Set(errors)].join('; ') } : {}) };
   }
 
   // ---- MAIN ORCHESTRATION ----
@@ -682,6 +743,8 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
     callSFGateway,
     callDefaultBackend,
     scrapeViaCorsProxy,
+    optimizeGeneratedImage,
+    fillMissingImages,
     analyzeCustomerURL,
     humanErrorMessage
   };

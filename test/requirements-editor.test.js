@@ -4,217 +4,167 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
-async function editor() {
-  // Pure DOM integration; no browser navigation, external scripts or network.
-  const html = fs.readFileSync('index.html', 'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
-  const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'https://lpg.test/' });
-  const w = dom.window;
-  await new Promise(resolve => w.document.addEventListener('DOMContentLoaded', resolve, { once: true }));
-  w.HTMLElement.prototype.scrollIntoView = () => {};
-  w.confirm = () => true;
-  const run = code => vm.runInContext(code, dom.getInternalVMContext());
-  for (const file of ['defaults', 'images', 'program-model', 'program-runtime', 'portal-templates', 'generator', 'requirements', 'requirements-editor', 'app', 'projects']) run(fs.readFileSync(`js/${file}.js`, 'utf8'));
-  run(`applyIndustryDefaults('generic'); editorDefaults = cloneProject(state); scheduleDraftRecovery = () => {}; schedulePreview = () => {}; populateFormFromState(); LPGRequirementsEditor.init();`);
-  const field = (id, value) => { const node = w.document.getElementById(id); node.value = value; node.dispatchEvent(new w.Event('input', { bubbles: true })); };
-  return { w, run, field, close: () => w.close() };
+function presentation(program) {
+  return {
+    brandName: program.providerName, programName: program.name, industry: 'generic', brand: { logoUrl: '' },
+    colors: { primary:'#002654',accent:'#00a5d9',dark:'#112233',secondary:'#f5f7fa' }, tiers:[],
+    vouchers:program.rewards.map(r=>({programRewardId:r.id,title:r.name,description:'Professional learning reward',vendor:program.providerName,actionType:'points',actionValue:String(r.cost),imageUrl:''})),
+    earnMore:program.earnRules.map(r=>({programRuleId:r.id,title:r.name,description:'Build skills and earn points',hasCodeInput:false})),
+    offers:[{title:'CPE learning series',description:'Explore professional development',cta:'Explore',imageUrl:''}],
+    benefits:[{name:'Professional Journal',imageUrl:''}],badges:[{name:'Learning leader',emoji:'⭐',color:'blue',imageUrl:''}],
+    clubs:[{name:'Local chapter',description:'Meet other members',memberCount:25,imageUrl:''}],profileTasks:[{description:'Complete your interests',cta:'Update'}],
+    upsell:{title:'Explore membership',subtitle:'Your next chapter',price:'',period:'',tagline:'Discover more',cta:'Explore benefits',bgImageUrl:''},
+    navLinks:['Rewards','Learning','Community'],footerLinks:Object.fromEntries(['col1','col2','col3'].map(k=>[k,{title:'Member resources',links:['Support','Learning']}])),member:{name:program.member.name,joinDate:'October 2026'}
+  };
 }
-test('B2B sample review applies rules and template choice without a conflicting snapshot', async () => {
-  const e = await editor();
-  try {
-    e.field('brief-mode', 'b2b'); e.w.LPGRequirementsEditor.sample();
-    assert.equal(e.run('state.program.mode'), 'b2b');
-    e.run("state.outputTemplate = 'modern'"); e.w.LPGRequirementsEditor.apply();
-    assert.equal(e.run('state.program.mode'), 'b2b'); assert.equal(e.run('state.program.approvalRequired'), true);
-    assert.equal(e.run('state.programEnabled'), true); assert.equal(e.run('state.outputTemplate'), 'modern');
-  } finally { e.close(); }
+async function editor() {
+  const html=fs.readFileSync('index.html','utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,'');
+  const dom=new JSDOM(html,{runScripts:'outside-only',url:'https://lpg.test/'}),w=dom.window;
+  await new Promise(r=>w.document.addEventListener('DOMContentLoaded',r,{once:true}));
+  w.HTMLElement.prototype.scrollIntoView=()=>{};w.confirm=()=>true;
+  const run=code=>vm.runInContext(code,dom.getInternalVMContext());
+  for(const file of ['defaults','images','program-model','program-runtime','portal-templates','generator','pagehost','requirements','portal-content','variants','requirements-editor','app','projects']) run(fs.readFileSync(`js/${file}.js`,'utf8'));
+  run(`applyIndustryDefaults('generic'); editorDefaults=cloneProject(state); scheduleDraftRecovery=()=>{}; schedulePreview=updatePreview; populateFormFromState(); LPGRequirementsEditor.init();`);
+  let imageCalls=0;
+  w.LocalAI={fillMissingImages:async data=>{imageCalls++; for(const key of ['vouchers','offers','benefits','badges','clubs']) data[key].forEach((item,i)=>{if(!item.imageUrl&&!item.imageData)item.imageUrl='https://brand.test/'+key+i+'.png';});return {generated:5,total_empty:5};}};
+  const field=(id,value)=>{const node=w.document.getElementById(id);node.value=value;node.dispatchEvent(new w.Event('input',{bubbles:true}));};
+  const edit=(path,value)=>{const node=w.document.querySelector(`[data-program-path="${path}"]`);node.value=value;node.dispatchEvent(new w.Event('input',{bubbles:true}));return node;};
+  function client(ruleResponse,contentResponse) {
+    return {callLLM:async args=>{const prompt=JSON.parse(args.prompt.split('\nValidation feedback')[0]);
+      if(prompt.validatedProgram)return JSON.stringify(contentResponse?await contentResponse(prompt,args):presentation(prompt.validatedProgram));
+      const program=ruleResponse?await ruleResponse(prompt,args):w.LPGProgram.normalize({mode:prompt.author.mode,providerName:'ISACA',name:prompt.author.mode==='b2b'?'ISACA Partner Rewards':'ISACA Member Rewards'});
+      return {text:JSON.stringify({program})};
+    }};
+  }
+  return {w,run,field,edit,client,imageCalls:()=>imageCalls,close:()=>w.close()};
+}
+test('URL-only generation uses full content and image pipeline and updates preview without apply',async()=>{
+  const e=await editor();try {
+    const client=e.client();client.scrapeViaCorsProxy=async()=>'<title>ISACA</title><h1>Professional learning</h1><img src="https://brand.test/logo.png" alt="logo">';
+    await e.w.LPGRequirementsEditor.analyze(client,'https://brand.test');
+    const html=e.w.document.getElementById('preview-iframe').srcdoc;
+    assert.match(html,/ISACA Member Rewards/);assert.match(html,/CPE learning series/);assert.match(html,/Professional Journal/);assert.match(html,/vouchers0.png/);
+    assert.equal(e.imageCalls(),1);assert.equal(e.run('state.programEnabled'),true);
+    assert.equal(e.w.document.getElementById('program-enabled'),null);
+    assert.equal(e.run('state.programReview'),null);assert.equal(e.run('state.upsell.price'),'');
+  }finally{e.close();}
 });
-test('review inputs update validated rules and invalid tiers never replace the active program', async () => {
-  const e = await editor();
-  try {
-    e.w.LPGRequirementsEditor.sample();
-    const input = e.w.document.querySelector('[data-program-path="tiers.1.threshold"]'); input.value = '-1'; input.dispatchEvent(new e.w.Event('input', { bubbles: true }));
-    e.w.LPGRequirementsEditor.apply(); assert.equal(e.run('state.program.tiers[1].threshold'), 1000);
-    assert.match(e.w.document.getElementById('program-review-error').textContent, /threshold/);
-    input.value = '1500'; input.dispatchEvent(new e.w.Event('input', { bubbles: true })); e.w.LPGRequirementsEditor.apply();
-    assert.equal(e.run('state.program.tiers[1].threshold'), 1500);
-  } finally { e.close(); }
-});
-test('pending review and source references survive a saved project reload', async () => {
-  const e = await editor();
-  try {
-    e.run(`state.brief.sources=[{name:'brief.pdf',pageCount:1,warning:'',pages:[{text:'Source requirements'}]}]`);
-    e.w.LPGRequirementsEditor.sample();
-    assert.ok(e.run('state.programReview.snapshot.length') < 80);
-    e.run('hydratePortal(buildProjectPayload())'); e.w.LPGRequirementsEditor.apply();
-    assert.equal(e.run('state.programEnabled'), true);
-    assert.equal(e.run('state.brief.sources[0].pages[0].text'), 'Source requirements');
-  } finally { e.close(); }
-});
-test('late AI response cannot replace changed website or author edits', async () => {
-  const e = await editor();
-  try {
-    e.field('brief-text', 'Create a member program');
-    let resolve; const response = new Promise(r => { resolve = r; });
-    const request = e.w.LPGRequirementsEditor.analyze({ callLLM: () => response }, '');
-    e.field('quickstart-url', 'https://changed.example');
-    resolve({ text: JSON.stringify({ program: e.w.LPGProgram.normalize({ mode: 'b2c' }) }) });
-    await assert.rejects(request, /editor changed/); assert.equal(e.run('state.programReview'), null);
-  } finally { e.close(); }
-});
-test('incomplete proposal edits can be saved and reopened without losing the active portal', async () => {
-  const e = await editor();
-  try {
-    e.w.LPGRequirementsEditor.sample(); e.w.LPGRequirementsEditor.apply(); e.w.LPGRequirementsEditor.editProgram();
-    const input = e.w.document.querySelector('[data-program-path="tiers.1.threshold"]');
-    input.value = ''; input.dispatchEvent(new e.w.Event('input', { bubbles: true }));
+test('Both audiences generate once per audience, switch independently, persist and export selected content',async()=>{
+  const e=await editor();try {
+    e.field('brief-mode','both');e.field('brief-text','Professional individual and partner rewards');
+    await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+    assert.equal(e.imageCalls(),2);assert.equal(e.run('state.activeVariant'),'b2c');
+    e.run("state.outputTemplate='showcase'; state.offers[0].title='Edited B2C offer'");
+    e.w.LPGVariants.show('b2b');
+    assert.equal(e.run('state.program.mode'),'b2b');assert.equal(e.run('state.outputTemplate'),'classic');
+    e.run("state.outputTemplate='editorial';state.offers[0].title='Edited B2B offer'");
+    assert.match(e.run('generatePortalHTML(state)'),/Edited B2B offer/);
     e.run('hydratePortal(buildProjectPayload())');
-    assert.equal(e.run('state.programEnabled'), true); assert.equal(e.run('state.programReview.program.tiers[1].threshold'), null);
-    e.w.LPGRequirementsEditor.apply(); assert.match(e.w.document.getElementById('program-review-error').textContent, /threshold/);
-    assert.equal(e.run('state.program.tiers[1].threshold'), 1000);
-  } finally { e.close(); }
+    assert.equal(e.run('state.activeVariant'),'b2b');assert.equal(e.run('state.outputTemplate'),'editorial');
+    e.w.LPGVariants.show('b2c');assert.equal(e.run('state.outputTemplate'),'showcase');assert.equal(e.run('state.offers[0].title'),'Edited B2C offer');
+    assert.equal(e.run('buildProjectPayload().variants.b2b.offers[0].title'),'Edited B2B offer');
+    assert.equal(e.run('Object.hasOwn(buildProjectPayload().variants, state.activeVariant)'),false);
+  }finally{e.close();}
 });
-test('every selected AI client gets the same brief and strict review contract', async () => {
-  const e = await editor();
-  try {
-    for (const provider of ['default', 'anthropic', 'sfgateway', 'pagehost']) {
-      e.field('brief-text', `Program for ${provider}`);
-      let call;
-      await e.w.LPGRequirementsEditor.analyze({ callLLM: async args => { call = args; return { text: JSON.stringify({ program: e.w.LPGProgram.normalize({ mode: 'b2c' }) }) }; } }, '');
-      assert.match(call.system, /UNTRUSTED SOURCE DATA/); assert.match(call.prompt, new RegExp(provider));
-      assert.ok(e.run('state.programReview')); assert.equal(e.run('state.programEnabled'), true);
+test('failure in second audience keeps both original variants unchanged',async()=>{
+  const e=await editor();try {
+    e.field('brief-mode','both');e.field('brief-text','Two portals');
+    await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+    const before=e.run('JSON.stringify(state)');
+    await assert.rejects(e.w.LPGRequirementsEditor.analyze(e.client(null,p=>{if(p.validatedProgram.mode==='b2b')throw new Error('Service unavailable');return presentation(p.validatedProgram);} ),''),/Service unavailable/);
+    assert.equal(e.run('JSON.stringify(state)'),before);
+  }finally{e.close();}
+});
+test('late generation cannot overwrite edits while rich content or images are being generated',async()=>{
+  const e=await editor();try {
+    e.field('brief-text','A member program');let resume;const pending=new Promise(r=>resume=r);
+    let started;const ready=new Promise(r=>started=r);
+    const request=e.w.LPGRequirementsEditor.analyze(e.client(null,async p=>{started();await pending;return presentation(p.validatedProgram);}),'');
+    await ready;e.field('brief-text','Changed requirements');resume();
+    await assert.rejects(request,/editor changed/);assert.equal(e.run('state.program'),null);assert.equal(e.run('state.brand.name'),'');
+  }finally{e.close();}
+});
+test('invalid rules get one repair and incomplete presentation never replaces current portal',async()=>{
+  const e=await editor();try {
+    e.field('brief-text','A purchase program');let count=0;
+    await e.w.LPGRequirementsEditor.analyze(e.client(p=>{const model=e.w.LPGProgram.normalize({mode:p.author.mode});if(++count===1)model.earnRules[0].amount=0;return model;}),'');
+    assert.equal(count,2);assert.equal(e.run('state.program.earnRules[0].amount'),100);
+    const before=e.run('JSON.stringify(state)');
+    await assert.rejects(e.w.LPGRequirementsEditor.analyze(e.client(null,()=>({vouchers:[]})),''),/incomplete/);
+    assert.equal(e.run('JSON.stringify(state)'),before);
+  }finally{e.close();}
+});
+test('program details edit live while keeping focus and last valid rules for incomplete drafts',async()=>{
+  const e=await editor();try {
+    e.field('brief-text','Member rewards');await e.w.LPGRequirementsEditor.analyze(e.client(),'');e.w.LPGRequirementsEditor.editProgram();
+    const name=e.w.document.querySelector('[data-program-path="name"]');name.focus();e.edit('name','ISACA Learning Rewards');
+    assert.equal(e.w.document.activeElement,name);assert.match(e.w.document.getElementById('preview-iframe').srcdoc,/ISACA Learning Rewards/);
+    const before=e.run('state.program.tiers[1].threshold');e.edit('tiers.1.threshold','');
+    assert.equal(e.run('state.program.tiers[1].threshold'),before);assert.match(e.w.document.getElementById('program-review-error').textContent,/last valid/);
+    e.run('hydratePortal(buildProjectPayload())');assert.equal(e.run('state.programReview.program.tiers[1].threshold'),null);
+    e.edit('tiers.1.threshold','1800');assert.equal(e.run('state.program.tiers[1].threshold'),1800);
+    e.w.LPGRequirementsEditor.apply();assert.equal(e.run('state.programReview'),null);
+  }finally{e.close();}
+});
+test('legacy content edits synchronize authoritative rule names/costs, add and remove cards',async()=>{
+  const e=await editor();try {
+    e.field('brief-text','Member rewards');await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+    e.run("updateItem('vouchers',0,'title','Certification credit');updateItem('vouchers',0,'actionValue','250');");
+    assert.equal(e.run('state.program.rewards[0].name'),'Certification credit');assert.equal(e.run('state.program.rewards[0].cost'),250);
+    e.run('addVoucher()');assert.equal(e.run('state.program.rewards.length'),2);assert.equal(e.run('state.vouchers.length'),2);
+    e.run("removeItem('vouchers',0)");assert.equal(e.run('state.program.rewards.length'),1);assert.doesNotMatch(e.run('generatePortalHTML(state)'),/Certification credit/);
+    const field=e.w.document.getElementById('program-name');field.value='Renamed identity';e.w.onFieldChange({target:field});
+    assert.equal(e.run('state.program.name'),'Renamed identity');assert.match(e.run('generatePortalHTML(state)'),/Renamed identity/);
+  }finally{e.close();}
+});
+test('template switching and save/reopen preserve all rich sections and private sources stay out of exports',async()=>{
+  const e=await editor();try {
+    e.field('brief-text','Member rewards');e.run("state.brief.sources=[{name:'PRIVATE_DOC',pages:[{text:'PRIVATE_CONTENT'}]}]");
+    await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+    for(const template of ['classic','dashboard','showcase','editorial']){
+      e.run(`state.outputTemplate='${template}';hydratePortal(buildProjectPayload())`);
+      const html=e.run('generatePortalHTML(state)');assert.match(html,/CPE learning series/);assert.match(html,/vouchers0.png/);assert.match(html,/Professional Journal/);assert.doesNotMatch(html,/PRIVATE_DOC|PRIVATE_CONTENT/);
+      assert.equal(e.run('state.outputTemplate'),template);
     }
-  } finally { e.close(); }
+  }finally{e.close();}
 });
-test('late AI cannot overwrite edits made to a pending proposal', async () => {
-  const e = await editor();
-  try {
-    e.field('brief-text', 'Update this program'); e.w.LPGRequirementsEditor.sample();
-    let resolve; const response = new Promise(r => { resolve = r; });
-    const request = e.w.LPGRequirementsEditor.analyze({ callLLM: () => response }, '');
-    const input = e.w.document.querySelector('[data-program-path="tiers.1.threshold"]');
-    input.value = '1800'; input.dispatchEvent(new e.w.Event('input', { bubbles: true }));
-    resolve({ text: JSON.stringify({ program: e.w.LPGProgram.normalize({ mode: 'b2c' }) }) });
-    await assert.rejects(request, /editor changed/);
-    assert.equal(e.run('state.programReview.program.tiers[1].threshold'), 1800);
-  } finally { e.close(); }
+test('refinement preserves accepted colors and uploaded images',async()=>{
+  const e=await editor();try {
+    e.field('brief-text','Member rewards');await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+    e.run("state.colors.primary='#123456';state.vouchers[0].imageData='data:image/png;base64,custom'");
+    e.field('brief-text','Update the program name only');await e.w.LPGRequirementsEditor.analyze(e.client(p=>({...p.acceptedProgramToRefine,name:'New Rewards'})),'');
+    assert.equal(e.run('state.colors.primary'),'#123456');assert.equal(e.run('state.vouchers[0].imageData'),'data:image/png;base64,custom');
+  }finally{e.close();}
 });
-test('invalid AI rules get one correction attempt before updating the active program', async () => {
-  const e = await editor();
-  try {
-    e.field('brief-text', 'A sample purchase program');
-    const valid = JSON.parse(JSON.stringify(e.w.LPGProgram.normalize({ mode: 'b2c' })));
-    const invalid = JSON.parse(JSON.stringify(valid)); invalid.earnRules[0].amount = 0;
-    const calls = [];
-    await e.w.LPGRequirementsEditor.analyze({ callLLM: async args => { calls.push(args); return { text: JSON.stringify({ program: calls.length === 1 ? invalid : valid }) }; } }, '');
-    assert.equal(calls.length, 2); assert.match(calls[1].prompt, /earnRules\[0\].amount/);
-    assert.equal(e.run('state.program.earnRules[0].amount'), 100); assert.equal(e.run('state.programEnabled'), true);
-  } finally { e.close(); }
+test('reset clears both saved audience variants and retained documents',async()=>{
+  const e=await editor();try {
+    e.field('brief-mode','both');e.field('brief-text','Member and business');await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+    e.run('startOver()');assert.equal(e.run('state.program'),null);assert.equal(e.run('Object.keys(state.variants).length'),0);assert.equal(e.run('state.brief.text'),'');assert.equal(e.run('state.activeVariant'),'b2c');
+  }finally{e.close();}
 });
-test('reset clears requirements, candidate, program and template', async () => {
-  const e = await editor();
-  try {
-    e.field('brief-mode', 'b2b'); e.field('brief-text', 'Customer text'); e.w.LPGRequirementsEditor.sample();
-    e.w.LPGRequirementsEditor.apply(); e.run('startOver()');
-    assert.equal(e.run('state.program'), null); assert.equal(e.run('state.brief.text'), '');
-    assert.equal(e.run('state.outputTemplate'), 'classic'); assert.equal(e.run('state.programReview'), null);
-  } finally { e.close(); }
-});
-test('program refinements preserve the accepted palette and untrusted source metadata stays text', async () => {
-  const e = await editor();
-  try {
-    e.w.LPGRequirementsEditor.sample(); e.w.LPGRequirementsEditor.apply();
-    e.run("state.colors.primary='#123456'; state.colors.accent='#654321'");
-    e.field('brief-text', 'Change only the earning activity label');
-    await e.w.LPGRequirementsEditor.analyze({ callLLM: async () => ({ text: JSON.stringify({ program: e.run('state.program'), brand: { primary: '#FF0000', accent: '#00FF00' } }) }) }, '');
-    e.w.LPGRequirementsEditor.apply(); assert.equal(e.run('state.colors.primary'), '#123456'); assert.equal(e.run('state.colors.accent'), '#654321');
-    e.run(`state.brief.sources=[{name:'notes.pdf',pageCount:'<img src=x onerror=alert(1)>',pages:[{text:'Source'}]}];hydratePortal(buildProjectPayload())`);
-    assert.equal(e.w.document.querySelector('#brief-sources img'), null);
-    assert.match(e.w.document.getElementById('brief-sources').textContent, /1 page/);
-  } finally { e.close(); }
+test('old projects still open and modern selection migrates to dashboard',async()=>{
+  const e=await editor();try {
+    e.run("const legacy=buildProjectPayload(); delete legacy.variants; delete legacy.activeVariant; delete legacy.program; legacy.outputTemplate='modern'; hydratePortal(legacy)");
+    assert.equal(e.run('state.outputTemplate'),'dashboard');assert.equal(e.run('state.program'),null);assert.match(e.run('generatePortalHTML(state)'),/Monthly Challenge/);
+  }finally{e.close();}
 });
 
-// Drive the actual iframe renderer to catch the regression where only fields changed.
-test('AI generation updates the iframe immediately and valid edits flow into export and saved projects', async () => {
-  const e = await editor();
-  try {
-    e.run('schedulePreview = updatePreview');
-    e.field('brief-text', 'A professional member program');
-    e.run("state.outputTemplate = 'modern'");
-    const program = e.w.LPGProgram.normalize({ mode: 'b2c', name: 'ISACA Loyalty Program', providerName: 'ISACA', opening: { qualifying: 350, redeemable: 250 } });
-    await e.w.LPGRequirementsEditor.analyze({ callLLM: async () => ({ text: JSON.stringify({ program, brand: { primary: '#002654', accent: '#00a5d9' } }) }) }, '');
-    const frame = e.w.document.getElementById('preview-iframe');
-    assert.match(frame.srcdoc, /ISACA Loyalty Program/);
-    assert.match(frame.srcdoc, /#002654/);
-    assert.equal(e.w.document.getElementById('program-enabled').checked, true);
-    const input = e.w.document.querySelector('[data-program-path="name"]');
-    input.focus(); input.value = 'ISACA Member Rewards'; input.dispatchEvent(new e.w.Event('input', { bubbles: true }));
-    assert.equal(e.w.document.activeElement, input);
-    assert.match(frame.srcdoc, /ISACA Member Rewards/);
-    assert.equal(frame.srcdoc, e.run('generatePortalHTML(state)'));
-    assert.equal(e.run('buildProjectPayload().program.name'), 'ISACA Member Rewards');
-    e.run('hydratePortal(buildProjectPayload())');
-    assert.match(frame.srcdoc, /ISACA Member Rewards/);
-  } finally { e.close(); }
+test('starting a sample for another audience retains the original audience and shared fields stay current',async()=>{
+  const e=await editor();try {
+    e.field('brief-text','A member portal');await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+    e.run("state.offers[0].title='Keep B2C offer'");e.field('brief-mode','b2b');e.w.LPGRequirementsEditor.sample();
+    assert.equal(e.run('state.activeVariant'),'b2b');assert.equal(e.run('state.variants.b2c.offers[0].title'),'Keep B2C offer');
+    e.edit('member.name','Alex Partner');e.edit('opening.redeemable','800');e.edit('tiers.1.threshold','1900');
+    assert.equal(e.w.document.getElementById('member-name').value,'Alex Partner');assert.equal(e.w.document.getElementById('member-points').value,'800');assert.equal(e.w.document.getElementById('tier2-points').value,'1900');
+    e.w.LPGVariants.show('b2c');assert.equal(e.run('state.offers[0].title'),'Keep B2C offer');
+  }finally{e.close();}
 });
-test('invalid live edits keep the last valid preview until corrected, including added and removed rows', async () => {
-  const e = await editor();
-  try {
-    e.run('schedulePreview = updatePreview'); e.w.LPGRequirementsEditor.sample();
-    const frame = e.w.document.getElementById('preview-iframe'), before = frame.srcdoc;
-    const input = e.w.document.querySelector('[data-program-path="tiers.1.threshold"]');
-    input.value = ''; input.dispatchEvent(new e.w.Event('input', { bubbles: true }));
-    assert.equal(frame.srcdoc, before);
-    assert.match(e.w.document.getElementById('program-review-error').textContent, /last valid program/);
-    input.value = '1800'; input.dispatchEvent(new e.w.Event('input', { bubbles: true }));
-    assert.equal(e.run('state.program.tiers[1].threshold'), 1800); assert.notEqual(frame.srcdoc, before);
-    e.w.document.querySelector('[data-add-program="rewards"]').click();
-    assert.match(frame.srcdoc, /New reward/);
-    e.w.document.querySelector('[data-remove-program="rewards:1"]').click();
-    assert.doesNotMatch(frame.srcdoc, /New reward/);
-  } finally { e.close(); }
-});
-test('later program edits and closing the editor preserve colors changed in Colors and Theme', async () => {
-  const e = await editor();
-  try {
-    e.field('brief-text', 'Member rewards');
-    await e.w.LPGRequirementsEditor.analyze({ callLLM: async () => ({ text: JSON.stringify({ program: e.w.LPGProgram.normalize({}), brand: { primary: '#002654', accent: '#00a5d9' } }) }) }, '');
-    e.run("state.colors.primary = '#123456'");
-    const input = e.w.document.querySelector('[data-program-path="name"]');
-    input.value = 'Updated program'; input.dispatchEvent(new e.w.Event('input', { bubbles: true }));
-    assert.equal(e.run('state.colors.primary'), '#123456');
-    e.w.LPGRequirementsEditor.apply(); assert.equal(e.run('state.colors.primary'), '#123456');
-  } finally { e.close(); }
-});
-
-test('brand colors update even during invalid rule edits and survive correction and reload', async () => {
-  const e = await editor();
-  try {
-    e.run('schedulePreview = updatePreview'); e.field('brief-text', 'Member rewards');
-    await e.w.LPGRequirementsEditor.analyze({ callLLM: async () => ({ text: JSON.stringify({ program: e.w.LPGProgram.normalize({}), brand: { primary: '#002654' } }) }) }, '');
-    const rule = e.w.document.querySelector('[data-program-path="tiers.1.threshold"]');
-    rule.value = ''; rule.dispatchEvent(new e.w.Event('input', { bubbles: true }));
-    const color = e.w.document.querySelector('[data-review-brand="primary"]');
-    color.value = '#ff0000'; color.dispatchEvent(new e.w.Event('input', { bubbles: true }));
-    assert.equal(e.run('state.colors.primary'), '#ff0000');
-    assert.match(e.w.document.getElementById('preview-iframe').srcdoc, /#ff0000/);
-    rule.value = '1800'; rule.dispatchEvent(new e.w.Event('input', { bubbles: true }));
-    e.w.LPGRequirementsEditor.apply(); e.run('hydratePortal(buildProjectPayload())');
-    assert.equal(e.run('state.colors.primary'), '#ff0000');
-  } finally { e.close(); }
-});
-test('unrelated rule edits and closing do not overwrite newer Brand and Identity values', async () => {
-  const e = await editor();
-  try {
-    e.w.LPGRequirementsEditor.sample();
-    e.run("state.brand.name = 'New provider'; state.brand.programName = 'New identity'");
-    const input = e.w.document.querySelector('[data-program-path="opening.redeemable"]');
-    input.value = '900'; input.dispatchEvent(new e.w.Event('input', { bubbles: true }));
-    e.w.LPGRequirementsEditor.apply();
-    assert.equal(e.run('state.brand.name'), 'New provider');
-    assert.equal(e.run('state.brand.programName'), 'New identity');
-    e.w.LPGRequirementsEditor.editProgram();
-    const name = e.w.document.querySelector('[data-program-path="name"]');
-    name.value = 'Explicit program rename'; name.dispatchEvent(new e.w.Event('input', { bubbles: true }));
-    assert.equal(e.run('state.brand.programName'), 'Explicit program rename');
-  } finally { e.close(); }
+test('layout changes during generation survive and numerals in point currency do not affect reward cost',async()=>{
+  const e=await editor();try {
+    e.field('brief-text','Member rewards');let resume;const pending=new Promise(r=>resume=r);let started;const ready=new Promise(r=>started=r);
+    const request=e.w.LPGRequirementsEditor.analyze(e.client(null,async p=>{started();await pending;return presentation(p.validatedProgram);}),'');
+    await ready;e.run("state.outputTemplate='showcase'");resume();await request;
+    assert.equal(e.run('state.outputTemplate'),'showcase');
+    e.run("updateItem('vouchers',0,'actionValue','100 B2B Points')");assert.equal(e.run('state.program.rewards[0].cost'),100);
+  }finally{e.close();}
 });

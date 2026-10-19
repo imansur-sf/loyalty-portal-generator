@@ -1,47 +1,54 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
+const fs = require('node:fs');
+const { JSDOM } = require('jsdom');
 const model = require('../js/program-model');
 const runtime = require('../js/program-runtime');
 globalThis.LPGProgram = model;
-
-const html = '<!doctype html><html><head></head><body><header class="site-header">Original Brand</header><main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"><p>Original consumer card</p></main><footer>Original footer</footer></body></html>';
+const html = '<!doctype html><html><head></head><body><header class="site-header">Original Brand</header><main><p>Original consumer card</p><img src="https://brand.example/benefit.png" alt="Benefit"></main><footer>Original footer</footer></body></html>';
 function program(overrides = {}) {
   return model.normalize({ mode: 'b2b', name: 'Business rewards', providerName: 'Example Provider',
     member: { name: 'Demo Member', organization: 'Example Business', role: 'purchaser' },
     opening: { qualifying: 1000, redeemable: 500 }, approvalRequired: true, ...overrides });
 }
 function session(overrides) { return runtime.createSession(program(overrides), model); }
+function portal(overrides = {}) {
+  const context = vm.createContext({}); context.window = context;
+  for (const file of ['defaults', 'program-model', 'program-runtime', 'portal-templates', 'generator']) vm.runInContext(fs.readFileSync('js/' + file + '.js', 'utf8'), context);
+  context.state = { brand: { name: 'ISACA', programName: 'ISACA Loyalty', logoUrl: 'https://brand.example/logo.png' },
+    colors: { primary: '#002e5d', secondary: '#f7f7f7', accent: '#00a8df', dark: '#111827' }, member: { name: 'Member', points: 1, avatarUrl: 'https://brand.example/avatar.jpg' },
+    navLinks: ['Home', 'Rewards'], tiers: [{ name: 'Old', points: 0 }], sections: { vouchers:true, offers:true, earnMore:true, badges:true, clubs:true, upsell:true },
+    vouchers: [{ title:'Stale title', programRewardId:'credit', description:'Certification exam preparation package', imageUrl:'https://brand.example/exam.jpg' }],
+    earnMore:[{ programRuleId:'purchase', title:'Old activity', description:'Grow your professional knowledge', imageUrl:'https://brand.example/learning.jpg' }],
+    offers:[{ title:'CPE webinar', description:'Member learning benefit', imageUrl:'https://brand.example/webinar.jpg' }],
+    benefits:[{ name:'ISACA Journal', imageUrl:'https://brand.example/journal.jpg' }], badges:[{name:'Certified',imageUrl:'https://brand.example/badge.jpg'}],
+    clubs:[{name:'Local chapter',description:'Meet your community',imageUrl:'https://brand.example/chapter.jpg'}],
+    upsell:{title:'Professional Membership',tagline:'Develop your career',backgroundImageUrl:'https://brand.example/member.jpg'},
+    programEnabled:true, program:program(), ...overrides };
+  return vm.runInContext('generatePortalHTML(state)', context);
+}
+function loaded(output) { return new JSDOM(output, { runScripts:'dangerously' }); }
+function click(document, action, id) {
+  const control = Array.from(document.querySelectorAll('[data-lpg-action]')).find(node => node.dataset.lpgAction === action && (!id || node.dataset.id === id));
+  assert.ok(control, 'Missing action '+action+':'+id); control.click();
+}
 
 test('legacy projects retain their exact original HTML', () => {
-  assert.equal(runtime.enhance(html, {}), html);
-  assert.equal(runtime.enhance(html, { program: program() }), html);
-  assert.equal(runtime.enhance(html, { programEnabled: false, program: program() }), html);
+  for (const state of [{}, { program:program() }, { programEnabled:false,program:program() }]) assert.equal(runtime.enhance(html,state),html);
 });
-
-test('program replaces consumer main and exports private requirements separately from rules', () => {
-  const output = runtime.enhance(html, { programEnabled: true, program: program({
-    assumptions: ['PRIVATE_ASSUMPTION'], futureFeatures: ['PRIVATE_FUTURE'],
-    requirements: [{ id: 'secret', text: 'PRIVATE_REQUIREMENT', source: 'PRIVATE_SOURCE', status: 'question' }]
-  }) });
-  assert.ok(!output.includes('Original consumer card'));
-  assert.match(output, /id="lpg-program-root"/);
-  assert.match(output, /Business rewards/);
-  assert.doesNotMatch(output, /PRIVATE_(ASSUMPTION|FUTURE|REQUIREMENT|SOURCE)/);
-  assert.doesNotMatch(output, /<script[^>]*src=/);
+test('program enhances original content and excludes private requirement notes', () => {
+  const output = runtime.enhance(html, {programEnabled:true,program:program({assumptions:['PRIVATE_ASSUMPTION'],futureFeatures:['PRIVATE_FUTURE'],requirements:[{id:'secret',text:'PRIVATE_REQUIREMENT',source:'PRIVATE_SOURCE',status:'question'}]})});
+  assert.match(output,/Original consumer card/); assert.match(output,/benefit.png/); assert.match(output,/Original footer/);
+  assert.doesNotMatch(output,/PRIVATE_(ASSUMPTION|FUTURE|REQUIREMENT|SOURCE)/);
 });
-
-test('untrusted program text and brand fields cannot close scripts or inject markup', () => {
-  const attack = '</script><img src=x onerror=alert(1)>';
-  const output = runtime.enhance(html, { programEnabled: true, program: program({ name: attack }),
-    brand: { name: attack, logoUrl: 'javascript:alert(1)' }, colors: { primary: 'red;content:"evil"' } });
-  assert.ok(!output.includes(attack));
-  assert.match(output, /\\u003c\/script\\u003e/);
-  assert.match(output, /&lt;\/script&gt;/);
-  assert.doesNotMatch(output, /src="javascript:/);
-  assert.doesNotMatch(output, /content:"evil"/);
+test('untrusted program strings remain text in exported runtime', () => {
+  const attack='</script><img src=x onerror=alert(1)>';
+  const output=runtime.enhance(html,{programEnabled:true,program:program({name:attack,member:{organization:attack,name:attack,role:'purchaser'}})});
+  assert.ok(!output.includes(attack)); assert.match(output,/\\u003c\/script\\u003e/);
+  const dom=loaded(output);
+  try { assert.equal(dom.window.document.querySelectorAll('img[src="x"]').length,0); assert.ok(dom.window.document.body.textContent.includes(attack)); } finally { dom.window.close(); }
 });
-
 test('B2B request and approval share a ledger and deduct exactly once', () => {
   const demo = session(); assert.equal(demo.role().id, 'purchaser');
   const request = demo.request('credit');
@@ -94,71 +101,82 @@ test('earning and reset preserve consistent tier balances', () => {
   assert.equal(demo.summary().qualifying, 1000); assert.equal(demo.summary().redeemable, 500);
 });
 
-// Small DOM surface to run the exported code without a network or third-party browser library.
-function documentFixture() {
-  class Node {
-    constructor(tag) { this.tagName = tag; this.children = []; this.dataset = {}; this.attributes = {}; this.events = {}; this.classList = { add() {} }; this.textContent = ''; }
-    append(...children) { children.forEach(child => { child.parent = this; this.children.push(child); }); }
-    replaceChildren(...children) { this.children = []; this.append(...children); }
-    setAttribute(key, value) { this.attributes[key] = value; }
-    addEventListener(name, fn) { this.events[name] = fn; }
-    focus() { document.activeElement = this; }
-    contains(node) { return node === this || this.children.some(child => child.contains(node)); }
-    closest() { return this.dataset.action ? this : this.parent && this.parent.closest(); }
-    querySelectorAll() { const result = []; function walk(node) { if (node.dataset.action) result.push(node); node.children.forEach(walk); } walk(this); return result; }
-    get text() { return this.textContent + this.children.map(child => child.text).join(' '); }
-  }
-  const root = new Node('main'); root.id = 'lpg-program-root';
-  const document = { body: new Node('body'), createElement: tag => new Node(tag),
-    getElementById(id) { let result; function walk(node) { if (node.id === id) result = node; node.children.forEach(walk); } walk(root); return result; } };
-  return { document, root, click(type, id) { const target = root.querySelectorAll().find(node => node.dataset.action === type && (id === undefined || node.dataset.id === id)); assert.ok(target, 'Missing ' + type + ':' + id); root.events.click({ target }); } };
-}
 
-test('export runs without editor globals and supports earning, requests, role changes and approval', () => {
-  const fixture = documentFixture();
-  const output = runtime.enhance(html, { programEnabled: true, program: program() });
-  const script = output.match(/<script>([\s\S]*?)<\/script>/)[1];
-  vm.runInNewContext(script, { document: fixture.document });
-  assert.match(fixture.root.text, /Example Business/);
-  fixture.click('page', 'earn'); assert.match(fixture.root.text, /Eligible business order/);
-  const amount = fixture.document.getElementById('lpg-amount-purchase'); amount.value = '100';
-  fixture.click('earn', 'purchase'); assert.match(fixture.root.text, /Activity added/);
-  fixture.click('page', 'rewards'); fixture.click('request', 'credit');
-  const select = fixture.document.getElementById('lpg-p-role'); select.value = 'approver'; fixture.root.events.change({ target: select });
-  fixture.click('page', 'approvals'); fixture.click('approve', 'request-1');
-  assert.match(fixture.root.text, /Request approved/);
-  fixture.click('page', 'overview'); assert.match(fixture.root.text, /525/);
-  fixture.click('reset'); assert.match(fixture.root.text, /500/);
-});
-
-test('custom role names and document-derived names render as text', () => {
-  const fixture = documentFixture();
-  const demo = runtime.mount(program({ roles: [{ id: 'custom', name: '<img src=x>', canRequest: true, canApprove: true }, { id: 'review', name: 'Review', canRequest: false, canApprove: true }], member: { name: 'Demo Member', organization: '<script>Company</script>', role: 'custom' } }), model, fixture.document);
-  assert.equal(demo.role().id, 'custom'); assert.match(fixture.root.text, /<script>Company<\/script>/);
-  assert.equal(fixture.root.children.some(node => node.tagName === 'script'), false);
-});
-
- test('replacement-pattern text remains literal during export assembly', () => {
-  const name = "$` Customer $' $&";
-  const output = runtime.enhance(html, { programEnabled: true, program: program({ name }), brand: { name } });
-  assert.equal((output.match(/<!doctype html>/g) || []).length, 1);
-  const fixture = documentFixture();
-  vm.runInNewContext(output.match(/<script>([\s\S]*?)<\/script>/)[1], { document: fixture.document });
-  assert.ok(fixture.root.text.includes(name));
-});
-
-
-test('program removes legacy Tailwind and font dependencies but retains customer imagery', () => {
-  const resources = '<script src="https://cdn.tailwindcss.com/3.4.16"></script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter&amp;display=swap" rel="stylesheet">';
-  const original = html.replace('</head>', () => resources + '</head>');
-  const state = { programEnabled: true, program: program(), brand: { name: 'Customer', logoUrl: 'https://brand.example/logo.png' } };
-  const output = runtime.enhance(original, state);
-  const { JSDOM } = require('jsdom');
-  const dom = new JSDOM(output);
+test('rich exports retain all branded images, descriptions and sections while using authoritative program values', () => {
+  const output = portal(); const dom = loaded(output); const doc=dom.window.document;
   try {
-    assert.equal(dom.window.document.querySelectorAll('script[src*="cdn.tailwindcss.com"],link[href*="fonts.googleapis.com"],link[href*="fonts.gstatic.com"]').length, 0);
-    assert.equal(dom.window.document.querySelector('.site-header img').src, 'https://brand.example/logo.png');
-    assert.match(output, /font-family:system-ui/);
+    for (const text of ['Certification exam preparation package','CPE webinar','ISACA Journal','Professional Membership','Local chapter']) assert.ok(doc.body.textContent.includes(text),text);
+    assert.ok(doc.querySelectorAll('img').length >= 8);
+    assert.equal(doc.querySelectorAll('[data-lpg-section="tiers"]').length,1);
+    assert.equal(doc.querySelectorAll('[data-program-reward-id]').length,model.normalize(program()).rewards.length);
+    assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'500');
+    assert.equal(doc.querySelector('[data-lpg-balance="qualifying"]').textContent,'1,000');
+    assert.ok(!doc.body.textContent.includes('Stale title'));
+    assert.ok(!doc.body.textContent.includes('Redeem 200 pts before they expire'));
+    assert.ok(doc.querySelector('script[src*="tailwindcss"]'),'Classic styles retained');
   } finally { dom.window.close(); }
-  assert.equal(runtime.enhance(original, { ...state, programEnabled: false }), original);
+});
+test('rich export runs standalone and updates existing balances after earning, request, approval and reset', () => {
+  const dom=loaded(portal()); const doc=dom.window.document;
+  try {
+    doc.getElementById('lpg-amount-purchase').value='100'; click(doc,'earn','purchase');
+    assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625');
+    assert.equal(doc.querySelector('[data-lpg-balance="qualifying"]').textContent,'1,100');
+    click(doc,'request','credit'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625');
+    const role=doc.getElementById('lpg-p-role'); role.value='approver'; role.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+    click(doc,'approve','request-1'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'525');
+    assert.match(doc.querySelector('[data-lpg-section="team"]').textContent,/approved/);
+    assert.match(doc.querySelector('[data-lpg-section="activity"]').textContent,/Eligible business order/);
+    click(doc,'reset'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'500');
+    assert.equal(doc.querySelector('img[src="https://brand.example/exam.jpg"]').getAttribute('alt'),model.normalize(program()).rewards[0].name);
+  } finally { dom.window.close(); }
+});
+test('B2C rich reward redemption is immediate and welcome screen demonstrates sign-in without credentials', () => {
+  const p=program({mode:'b2c',approvalRequired:false,member:{name:'Alex',role:'member'}});
+  const dom=loaded(portal({program:p})); const doc=dom.window.document;
+  try {
+    assert.equal(doc.querySelector('[data-lpg-section="team"]'),null);
+    click(doc,'request','credit'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'400');
+    click(doc,'welcome'); assert.equal(doc.querySelector('.lpg-welcome').hidden,false);
+    click(doc,'signin'); assert.equal(doc.querySelector('.lpg-welcome').hidden,true);
+    assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'400');
+  } finally { dom.window.close(); }
+});
+test('projection preserves original authoring state, uses stable mapping IDs and preserves literal replacement-pattern text', () => {
+  const p=program({name:"$` Customer $' $&"});
+  const state={programEnabled:true,program:p,member:{points:3},vouchers:[{programRewardId:'credit',imageUrl:'credit.jpg',description:'Specific detail'}],earnMore:[]};
+  const before=JSON.stringify(state), view=runtime.projectState(state,model);
+  assert.equal(JSON.stringify(state),before); assert.equal(view.vouchers[0].imageUrl,'credit.jpg'); assert.equal(view.member.points,500);
+  const dom=loaded(portal({program:p}));
+  try { assert.ok(dom.window.document.title.includes(p.name)); assert.equal(dom.window.document.querySelectorAll('html').length,1); } finally { dom.window.close(); }
+});
+
+test('all alternate layouts preserve actual runtime actions after repositioning rich sections', () => {
+  for (const outputTemplate of ['dashboard', 'showcase', 'editorial']) {
+    const dom=loaded(portal({outputTemplate})); const doc=dom.window.document;
+    try {
+      doc.getElementById('lpg-amount-purchase').value='100'; click(doc,'earn','purchase');
+      assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625',outputTemplate);
+      assert.match(doc.getElementById('lpg-p-status').textContent,/Activity added/);
+      click(doc,'request','credit');
+      const role=doc.getElementById('lpg-p-role'); role.value='approver'; role.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+      click(doc,'approve','request-1'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'525',outputTemplate);
+      assert.equal(doc.querySelectorAll('[data-lpg-section="vouchers"]').length,1);
+      assert.ok(doc.querySelector('img[src="https://brand.example/exam.jpg"]'));
+    } finally { dom.window.close(); }
+  }
+});
+
+
+test('membership presentation never invents a price or billing period when they are unspecified', () => {
+  for (const programEnabled of [true, false]) {
+    const dom=loaded(portal({programEnabled,upsell:{title:'Professional Membership',price:'',period:'',tagline:'Explore member benefits'}}));
+    try {
+      const text=dom.window.document.querySelector('[data-lpg-section="upsell"]').textContent;
+      assert.ok(text.includes('Professional Membership'));
+      assert.doesNotMatch(text,/\$|29|Monthly/);
+    } finally {dom.window.close();}
+  }
+  const dom=loaded(portal({upsell:{title:'Membership',price:'$49',period:'Annual',tagline:'An explicit membership offer'}}));
+  try { assert.match(dom.window.document.querySelector('[data-lpg-section="upsell"]').textContent,/49[\s\S]*Annual/); } finally {dom.window.close();}
 });

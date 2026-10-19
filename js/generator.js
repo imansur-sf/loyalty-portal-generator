@@ -3,10 +3,16 @@
 // ============================================================
 
 function generatePortalHTML(s) {
-  let html = generateClassicPortalHTML(s);
+  const view = typeof window !== 'undefined' && window.LPGProgramRuntime && window.LPGProgram
+    ? window.LPGProgramRuntime.projectState(s, window.LPGProgram) : s;
+  let html = generateClassicPortalHTML(view);
   if (typeof window !== 'undefined' && window.LPGProgramRuntime) html = window.LPGProgramRuntime.enhance(html, s);
   if (typeof window !== 'undefined' && window.PortalTemplates) html = window.PortalTemplates.apply(html, s);
   return html;
+}
+
+function lpgEscape(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
 function generateClassicPortalHTML(s) {
@@ -165,22 +171,22 @@ function buildMemberCard(s) {
   const avatarSrc = s.member.avatarData || s.member.avatarUrl || '';
   const initials = (s.member.name||'M').split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2) || 'M';
   const avatarHTML = avatarSrc
-    ? `<img src="${avatarSrc}" alt="${(s.member.name||'Member').replace(/"/g,'&quot;')}" class="w-16 h-16 rounded-full object-cover ring-2 ring-white/50 shadow-lg" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"><div class="w-16 h-16 rounded-full items-center justify-center text-xl font-800 hidden ring-2 ring-white/40" style="background-color: ${s.colors.accent}30; color: #fff; display: none;">${initials}</div>`
-    : `<div class="w-16 h-16 rounded-full flex items-center justify-center text-xl font-800 ring-2 ring-white/40 shadow-lg" style="background-color: ${s.colors.accent}30; color: #fff;">${initials}</div>`;
+    ? `<img src="${avatarSrc}" alt="${(s.member.name||'Member').replace(/"/g,'&quot;')}" class="w-16 h-16 rounded-full object-cover ring-2 ring-white/50 shadow-lg" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"><div class="w-16 h-16 rounded-full items-center justify-center text-xl font-800 hidden ring-2 ring-white/40" style="background-color: ${s.colors.accent}30; color: #fff; display: none;">${lpgEscape(initials)}</div>`
+    : `<div class="w-16 h-16 rounded-full flex items-center justify-center text-xl font-800 ring-2 ring-white/40 shadow-lg" style="background-color: ${s.colors.accent}30; color: #fff;">${lpgEscape(initials)}</div>`;
 
-  return `<div class="member-hero rounded-2xl p-6 mb-6 flex items-center justify-between overflow-hidden shadow-lg">
+  return `<div data-lpg-section="hero" class="member-hero rounded-2xl p-6 mb-6 flex items-center justify-between overflow-hidden shadow-lg">
       <div class="flex items-center gap-4 relative z-10">
         ${avatarHTML}
         <div>
-          <div class="text-white/70 text-[11px] font-600 tracking-[0.15em] uppercase">Loyalty Member · ${s.member.number||'000000'}</div>
-          <div class="text-white text-2xl font-800 mt-1 tracking-tight">${s.member.name||'Member'}</div>
+          <div class="text-white/70 text-[11px] font-600 tracking-[0.15em] uppercase">${s._program && s._program.mode === 'b2b' ? lpgEscape(s._program.member.organization) : 'Loyalty Member'} · ${s.member.number||'000000'}</div>
+          <div class="text-white text-2xl font-800 mt-1 tracking-tight">${lpgEscape(s.member.name||'Member')}</div>
         </div>
       </div>
       <div class="flex items-center gap-6 relative z-10">
         <div class="text-right">
-          <div class="text-white/70 text-[11px] font-600 tracking-[0.15em] uppercase">Perks Points</div>
+          <div class="text-white/70 text-[11px] font-600 tracking-[0.15em] uppercase">${s._program ? lpgEscape(s._program.currencies.redeemableName) : 'Perks Points'}</div>
           <div class="flex items-baseline gap-1 justify-end mt-1">
-            <span class="text-white text-3xl font-900 tracking-tight">${(s.member.points||0).toLocaleString()}</span>
+            <span data-lpg-balance="redeemable" class="text-white text-3xl font-900 tracking-tight">${(s.member.points||0).toLocaleString()}</span>
             <span class="text-white/80 text-sm font-600">Pts</span>
           </div>
         </div>
@@ -193,6 +199,17 @@ function buildMemberCard(s) {
 
 // ---- TIER PROGRESS ----
 function buildTierProgress(s, pointsToNext) {
+  if (s._program) {
+    const p = s._program, summary = s._summary;
+    const progress = summary.nextTier ? Math.max(0, Math.min(100, (summary.qualifying-summary.tier.threshold)/(summary.nextTier.threshold-summary.tier.threshold)*100)) : 100;
+    return `<section data-lpg-section="tiers" class="card p-6 mb-8">
+      <div class="flex items-center justify-between gap-4 mb-6"><div><p class="text-xs text-muted">Your status</p><h2 data-lpg-tier class="text-2xl font-800 text-dark">${lpgEscape(summary.tier.name)}</h2></div>
+      <div class="text-right"><strong data-lpg-balance="qualifying" class="text-2xl font-800 text-dark">${summary.qualifying.toLocaleString()}</strong><p class="text-xs text-muted">${lpgEscape(p.currencies.qualifyingName)}</p></div></div>
+      <div class="flex items-center justify-between gap-4 mb-6" style="flex-wrap:wrap">${p.tiers.map((t,i) => `<div data-lpg-tier-index="${i}" class="p-3 text-center"><strong>${lpgEscape(t.name)}</strong><p class="text-xs text-muted">${t.threshold.toLocaleString()} ${lpgEscape(p.currencies.qualifyingName)}</p></div>`).join('')}</div>
+      <div class="h-2.5 bg-gray-100 rounded-full mb-3 overflow-hidden"><div data-lpg-progress class="h-full rounded-full" style="width:${progress}%;background:linear-gradient(90deg,${s.colors.accent},${s.colors.primary})"></div></div>
+      <p data-lpg-progress-text class="text-sm text-muted">${summary.nextTier ? summary.gap.toLocaleString()+' '+lpgEscape(p.currencies.qualifyingName)+' to '+lpgEscape(summary.nextTier.name) : 'Highest tier achieved'}</p>
+    </section>`;
+  }
   const tierIcons = [
     `<svg style="width: 28px; height: 28px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`,
     `<svg style="width: 28px; height: 28px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>`,
@@ -213,7 +230,7 @@ function buildTierProgress(s, pointsToNext) {
 
   const nextTierName = s.tiers[1] ? s.tiers[1].name : 'next tier';
 
-  return `<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+  return `<div data-lpg-section="tiers" class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
       <div class="lg:col-span-2 card p-6">
         <div class="flex items-start justify-between gap-8">
           <div class="flex-1">
@@ -241,7 +258,7 @@ function buildTierProgress(s, pointsToNext) {
 
 // ---- MY PROFILE (Expandable) ----
 function buildProfile(s) {
-  return `<div class="card mb-3 overflow-hidden">
+  return `<div data-lpg-section="profile" class="card mb-3 overflow-hidden">
       <button onclick="toggleSection('profile')" class="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/60 transition-colors">
         <span class="text-base font-700 text-dark">My Profile</span>
         <svg id="profile-chevron" class="w-5 h-5 text-muted chevron-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
@@ -249,7 +266,7 @@ function buildProfile(s) {
       <div id="profile-content" class="toggle-content">
         <div class="px-6 pb-6 border-t border-border pt-5">
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Name</span><p class="text-sm font-700 text-dark mt-1.5">${s.member.name||'Member'}</p></div>
+            <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Name</span><p class="text-sm font-700 text-dark mt-1.5">${lpgEscape(s.member.name||'Member')}</p></div>
             <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Join Date</span><p class="text-sm font-700 text-dark mt-1.5">${s.member.joinDate||'—'}</p></div>
             <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Phone</span><p class="text-sm font-700 text-dark mt-1.5">${s.member.phone||'—'}</p></div>
             <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Email</span><p class="text-sm font-700 text-dark mt-1.5 truncate">${s.member.email||'—'}</p></div>
@@ -274,7 +291,7 @@ function buildBenefits(s) {
             </div>`;
   }).join('');
 
-  return `<div class="card mb-8 overflow-hidden">
+  return `<div data-lpg-section="benefits" class="card mb-8 overflow-hidden">
       <button onclick="toggleSection('benefits')" class="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/60 transition-colors">
         <span class="text-base font-700 text-dark">My Benefits</span>
         <svg id="benefits-chevron" class="w-5 h-5 text-muted chevron-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
@@ -298,28 +315,30 @@ function buildVouchers(s) {
     const isExpiring = expiryText.includes('today') || expiryText.includes('expire');
     const expiryStyle = isExpiring ? 'color: #DC2626;' : 'color: #059669;';
     let actionHTML = '';
-    if (v.actionType === 'points') {
+    if (v.programRewardId) {
+      actionHTML = `<span class="text-xs font-700">${lpgEscape(v.actionValue)}</span><button type="button" data-lpg-action="request" data-id="${lpgEscape(v.programRewardId)}" class="btn-primary px-4 py-1.5 text-xs font-700 rounded-full">Redeem reward</button>`;
+    } else if (v.actionType === 'points') {
       actionHTML = `<button class="btn-primary px-4 py-1.5 text-xs font-700 rounded-full">${v.actionValue||'Redeem'}</button>`;
     } else if (v.actionType === 'code') {
       actionHTML = `<div class="px-4 py-1.5 text-xs font-700 rounded-full text-white tracking-wider" style="background-color: ${s.colors.dark};">${v.actionValue||'CODE'}</div>`;
     } else {
       actionHTML = `<button class="btn-primary px-4 py-1.5 text-xs font-700 rounded-full">QR Code</button>`;
     }
-    return `<div class="voucher-card card p-4 flex gap-4 cursor-pointer">
+    return `<div ${v.programRewardId ? `data-program-reward-id="${lpgEscape(v.programRewardId)}"` : ''} class="voucher-card card p-4 flex gap-4 cursor-pointer">
               <div class="w-20 h-20 rounded-xl bg-gradient-to-br from-${grad[0]} to-${grad[1]} flex items-center justify-center shrink-0 overflow-hidden shadow-inner">
-                ${imgSrc ? `<img src="${imgSrc}" alt="${v.title}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-3xl hidden">${v.emoji||'🎁'}</span>` : `<span class="text-3xl">${v.emoji||'🎁'}</span>`}
+                ${imgSrc ? `<img src="${imgSrc}" alt="${lpgEscape(v.title)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-3xl hidden">${v.emoji||'🎁'}</span>` : `<span class="text-3xl">${v.emoji||'🎁'}</span>`}
               </div>
               <div class="flex-1 min-w-0">
-                <div class="flex items-start justify-between"><div><h3 class="text-sm font-700 text-dark leading-tight">${v.title}</h3><p class="text-xs text-muted mt-1">${v.vendor||''}</p></div></div>
+                <div class="flex items-start justify-between"><div><h3 class="text-sm font-700 text-dark leading-tight">${lpgEscape(v.title)}</h3><p class="text-xs text-muted mt-1">${lpgEscape(v.vendor||'')}</p>${v.description ? `<p class="text-xs text-muted mt-1">${lpgEscape(v.description)}</p>` : ''}</div></div>
                 ${v.expiry ? `<p class="text-[11px] font-700 mt-2 flex items-center gap-1" style="${expiryStyle}"><svg style="width: 12px; height: 12px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.2 14.2L11 13V7h1.5v5.2l4.5 2.7-.8 1.3z"/></svg>${v.expiry}</p>` : ''}
                 <div class="flex items-center gap-2 mt-3">${actionHTML}
-                  <button class="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors" title="Copy code"><svg class="w-3.5 h-3.5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button>
+                  ${v.programRewardId ? '' : `<button class="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors" title="Copy code"><svg class="w-3.5 h-3.5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg></button>`}
                 </div>
               </div>
             </div>`;
   }).join('\n');
 
-  return `<section id="section-vouchers">
+  return `<section data-lpg-section="vouchers" id="section-vouchers">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${s.colors.primary};"></span>My Vouchers</h2>
             <a href="#" class="text-sm font-700 hover:underline transition-colors" style="color: ${s.colors.primary};">View All →</a>
@@ -353,7 +372,7 @@ function buildOffers(s) {
             </div>`;
   }).join('\n');
 
-  return `<section id="section-offers">
+  return `<section data-lpg-section="offers" id="section-offers">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${s.colors.primary};"></span>My Offers &amp; Promotions</h2>
             <a href="#" class="text-sm font-700 hover:underline" style="color: ${s.colors.primary};">View All →</a>
@@ -372,6 +391,17 @@ function buildEarnMore(s) {
     '<svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>'
   ];
   const cards = s.earnMore.map((e,i) => {
+    if (e.programRuleId && e.rule) {
+      const rule = e.rule;
+      const image = e.imageData || e.imageUrl || '';
+      const detail = rule.kind === 'spend' ? `${rule.qualifyingRate} ${s._program.currencies.qualifyingName} and ${rule.redeemableRate} base ${s._program.currencies.redeemableName} per unit spent` : `${rule.qualifyingPoints} ${s._program.currencies.qualifyingName} and ${rule.redeemablePoints} ${s._program.currencies.redeemableName}`;
+      return `<article data-program-rule-id="${lpgEscape(rule.id)}" class="earn-card card p-4">
+        ${image ? `<img src="${lpgEscape(image)}" alt="${lpgEscape(e.title)}" class="w-full h-32 rounded-xl object-cover mb-3">` : ''}
+        <h3 class="text-sm font-700 text-dark">${lpgEscape(e.title)}</h3><p class="text-xs text-muted mt-1">${lpgEscape(e.description || '')}</p>
+        <p class="text-xs text-muted mt-2">${lpgEscape(detail)}</p>
+        <div class="lpg-earn-action">${rule.kind === 'spend' ? `<label for="lpg-amount-${lpgEscape(rule.id)}">Amount <input id="lpg-amount-${lpgEscape(rule.id)}" type="number" min="0.000001" step="any" value="${rule.amount}"></label>` : ''}
+        <button type="button" class="btn-primary" data-lpg-action="earn" data-id="${lpgEscape(rule.id)}">${rule.kind === 'spend' ? 'Add purchase' : 'Complete activity'}</button></div></article>`;
+    }
     if (e.hasCodeInput) {
       return `<div class="earn-card card p-4 cursor-pointer">
               <div class="flex items-start gap-3">
@@ -391,7 +421,7 @@ function buildEarnMore(s) {
             </div>`;
   }).join('\n');
 
-  return `<section id="section-earn-more">
+  return `<section data-lpg-section="earn" id="section-earn-more">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${s.colors.primary};"></span>Earn More</h2>
           </div>
@@ -408,7 +438,7 @@ function buildProfileTasks(s) {
               <button class="btn-ghost px-4 py-1.5 text-xs font-700 rounded-full shrink-0">${t.cta}</button>
             </div>`).join('');
 
-  return `<section id="section-profile-tasks" class="card p-5">
+  return `<section data-lpg-section="profile-tasks" id="section-profile-tasks" class="card p-5">
           <h3 class="text-base font-800 text-dark mb-4 section-title">Complete Profile &amp; Earn</h3>
           <div class="mb-2">
             <div class="flex items-center justify-between text-xs text-muted mb-1.5"><span>Your profile is <span class="font-800" style="color: ${s.colors.primary};">60%</span> completed</span></div>
@@ -433,7 +463,7 @@ function buildBadges(s) {
             </div>`;
   }).join('');
 
-  return `<section id="section-badges">
+  return `<section data-lpg-section="badges" id="section-badges">
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-base font-800 text-dark section-title">My Badges (${s.badges.length})</h3>
             <a href="#" class="text-sm font-700 hover:underline" style="color: ${s.colors.primary};">View All →</a>
@@ -460,7 +490,7 @@ function buildClubs(s) {
             </div>`;
   }).join('');
 
-  return `<section id="section-clubs">
+  return `<section data-lpg-section="clubs" id="section-clubs">
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-base font-800 text-dark section-title">My Social Clubs (${s.clubs.length})</h3>
             <a href="#" class="text-sm font-700 hover:underline" style="color: ${s.colors.primary};">View All →</a>
@@ -487,14 +517,14 @@ function buildUpsell(s) {
     ? `background-image: linear-gradient(135deg, ${bgColor}CC 0%, ${bgColorDark}CC 100%), url('${bgImage.replace(/'/g, "\\'")}'); background-size: cover, cover; background-position: center, center;`
     : `background-image: linear-gradient(135deg, ${bgColor} 0%, ${bgColorDark} 100%);`;
 
-  return `<section id="section-upsell" class="card overflow-hidden">
+  return `<section data-lpg-section="upsell" id="section-upsell" class="card overflow-hidden">
           <div class="relative p-7 text-center overflow-hidden" style="${bgLayers}">
             <div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(circle at 20% 20%, rgba(255,255,255,0.2), transparent 40%), radial-gradient(circle at 80% 80%, rgba(255,255,255,0.15), transparent 40%);"></div>
             <div class="relative">
               <div class="text-2xl font-900 mb-1 italic" style="color: ${titleColor}; font-family: 'Georgia', serif; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">${u.title}</div>
               <div class="text-xs font-800 uppercase tracking-[0.2em] mt-2" style="color: ${subtitleColor};">${u.subtitle||''}</div>
-              <div class="mt-4 flex items-start justify-center gap-1" style="color: ${priceColor};"><span class="text-2xl font-700 mt-2">$</span><span class="text-6xl font-900 leading-none">${(u.price||'$29').replace(/^\$/,'')}</span></div>
-              <div class="text-[11px] mt-2 uppercase tracking-[0.15em] font-700" style="color: ${periodColor};">${u.period||'Monthly'}</div>
+              ${u.price ? `<div class="mt-4 flex items-start justify-center gap-1" style="color: ${priceColor};">${String(u.price).startsWith('$') ? '<span class="text-2xl font-700 mt-2">$</span>' : ''}<span class="text-6xl font-900 leading-none">${lpgEscape(String(u.price).replace(/^\$/,''))}</span></div>` : ''}
+              ${u.price && u.period ? `<div class="text-[11px] mt-2 uppercase tracking-[0.15em] font-700" style="color: ${periodColor};">${lpgEscape(u.period)}</div>` : ''}
             </div>
           </div>
           <div class="p-5 text-center">
@@ -571,7 +601,7 @@ function buildFooter(s, programName, brandAbbr) {
           <a href="#" class="hover:text-primary transition-colors">Privacy Policy</a><span class="text-gray-300">|</span>
           <a href="#" class="hover:text-primary transition-colors">Cookie Preferences</a>
         </div>
-        <p class="text-[10px] text-gray-400 mt-4">© ${new Date().getFullYear()} ${esc(s.brand.name || programName)}. All rights reserved.</p>
+        <p class="text-[10px] text-gray-400 mt-4">© ${new Date().getFullYear()} ${lpgEscape(s.brand.name || programName)}. All rights reserved.</p>
       </div>
       <div class="mt-4 text-center">
         <p class="text-[10px] text-gray-400 font-500">Powered by <span class="font-600 text-gray-500">Imran Mansur</span> — Inspired by <span class="font-600 text-gray-500">Miles Toolin</span> &amp; <span class="font-600 text-gray-500">Pierce Johnson</span></p>

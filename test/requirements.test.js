@@ -31,7 +31,7 @@ test('legacy saves migrate to Classic and new program briefs round trip without 
   const sources = [{ name: 'customer.txt', pageCount: 1, pages: [{ text: 'Rules' }] }];
   const original = { schemaVersion: 2, program: model.normalize({ mode: 'b2b' }), programEnabled: true, outputTemplate: 'modern', brief: { mode: 'b2b', text: '', roles: '', objective: '', sources } };
   const result = requirements.migratePayload(original, model);
-  assert.equal(result.program.mode, 'b2b'); assert.equal(result.outputTemplate, 'modern');
+  assert.equal(result.program.mode, 'b2b'); assert.equal(result.outputTemplate, 'dashboard');
   assert.deepEqual(result.brief.sources, sources);
   assert.throws(() => requirements.migratePayload({ schemaVersion: 99 }, model), /newer version/);
 });

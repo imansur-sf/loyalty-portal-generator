@@ -1,196 +1,224 @@
-// Presentation-only templates. Program data and demo interactions remain shared.
+// Presentation templates rearrange the same generated content and live controls.
 (function (root) {
   'use strict';
-
   const list = Object.freeze([
-    Object.freeze({ id: 'classic', name: 'Classic', description: 'The original loyalty dashboard with familiar cards and navigation.' }),
-    Object.freeze({ id: 'modern', name: 'Modern Brand', description: 'A spacious, brand-led portal with a statement member card and refined rewards.' })
+    Object.freeze({ id: 'classic', name: 'Classic', description: 'The original complete loyalty portal.' }),
+    Object.freeze({ id: 'dashboard', name: 'Member Dashboard', description: 'A personal command center with status, rewards, and activity at a glance.' }),
+    Object.freeze({ id: 'showcase', name: 'Rewards Showcase', description: 'A visual rewards catalogue with generous imagery and clear redemption actions.' }),
+    Object.freeze({ id: 'editorial', name: 'Brand Experience', description: 'An immersive brand story with a statement hero, benefits, and curated offers.' })
   ]);
-
-  // Only opaque hex colors enter the stylesheet. Imported projects can contain
-  // arbitrary strings, so CSS validation cannot rely on the editor color inputs.
   function color(value, fallback) {
     if (typeof value !== 'string' || !/^#(?:[a-f\d]{3}|[a-f\d]{6})$/i.test(value)) return fallback;
     return value.length === 4 ? '#' + value.slice(1).split('').map(c => c + c).join('') : value;
   }
+  function channels(hex) { return [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)); }
+  function mix(hex, target, amount) { return '#' + channels(hex).map((v, i) => Math.round(v * (1 - amount) + channels(target)[i] * amount).toString(16).padStart(2, '0')).join(''); }
+  function luminance(hex) { return channels(hex).map(v => { const c = v / 255; return c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); }).reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0); }
+  function darkSurface(hex) { let result = hex; for (let i = 0; i < 12 && luminance(result) > .09; i++) result = mix(result, '#101828', .18); return result; }
 
-  function channels(hex) {
-    return [1, 3, 5].map(start => parseInt(hex.slice(start, start + 2), 16));
-  }
-
-  function mix(hex, target, amount) {
-    return '#' + channels(hex).map((channel, i) => Math.round(channel * (1 - amount) + channels(target)[i] * amount).toString(16).padStart(2, '0')).join('');
-  }
-
-  function luminance(hex) {
-    return channels(hex).map(v => {
-      const c = v / 255;
-      return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-    }).reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
-  }
-
-  function darkSurface(hex) {
-    // White text, including 80%-opacity secondary text, stays legible even for
-    // brands whose primary color is yellow or another very light shade.
-    let result = hex;
-    for (let i = 0; i < 12 && luminance(result) > 0.09; i++) result = mix(result, '#101828', 0.18);
-    return result;
+  // Serialized into each export. Moving existing nodes preserves inline actions,
+  // attached listeners, image fallbacks, input values, and generated content.
+  function arrange() {
+    const kind = document.body.dataset.lpgTemplate;
+    const main = document.querySelector('main');
+    if (!main || !['dashboard', 'showcase', 'editorial'].includes(kind)) return;
+    const sections = Array.from(main.querySelectorAll('[data-lpg-section]')).filter(node => !node.parentElement.closest('[data-lpg-section]'));
+    if (!sections.length) return;
+    const pending = new Map(sections.map(node => [node.dataset.lpgSection, node]));
+    const layout = document.createElement('div');
+    layout.className = 'lpg-layout lpg-layout-' + kind;
+    layout.dataset.lpgLayout = kind;
+    function group(name, keys) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'lpg-layout-group lpg-' + name;
+      for (const key of keys) {
+        const node = pending.get(key);
+        if (node) { wrapper.appendChild(node); pending.delete(key); }
+      }
+      if (wrapper.children.length) layout.appendChild(wrapper);
+      return wrapper;
+    }
+    group('account', ['account']);
+    if (kind === 'dashboard') {
+      group('overview', ['hero', 'tiers']);
+      const columns = group('dashboard-columns', []);
+      const primary = group('primary', ['vouchers', 'offers', 'earn']);
+      const aside = group('secondary', ['activity', 'team', 'benefits', 'profile', 'profile-tasks', 'badges', 'clubs', 'upsell']);
+      if (primary.children.length) columns.appendChild(primary);
+      if (aside.children.length) columns.appendChild(aside);
+      if (columns.children.length) layout.appendChild(columns);
+    } else if (kind === 'showcase') {
+      group('showcase-status', ['hero', 'tiers']);
+      group('catalogue', ['vouchers']);
+      group('promotions', ['offers']);
+      group('community', ['benefits', 'earn', 'upsell']);
+      group('details', ['activity', 'team', 'profile', 'profile-tasks', 'badges', 'clubs']);
+    } else {
+      const hero = group('brand-opening', ['hero']);
+      const candidate = main.querySelector('.offer-card img') || main.querySelector('.voucher-card img');
+      if (candidate) {
+        const src = candidate.getAttribute('src') || '';
+        if (/^https?:\/\//i.test(src) || /^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(src)) {
+          const picture = document.createElement('img');
+          picture.src = src; picture.alt = ''; picture.className = 'lpg-brand-photo';
+          picture.addEventListener('error', () => { picture.remove(); hero.classList.remove('lpg-has-photo'); });
+          hero.appendChild(picture); hero.classList.add('lpg-has-photo');
+        }
+      }
+      group('brand-benefits', ['benefits', 'tiers']);
+      group('brand-stories', ['offers']);
+      group('catalogue', ['vouchers']);
+      group('brand-participate', ['earn', 'upsell']);
+      group('details', ['activity', 'team', 'profile', 'profile-tasks', 'badges', 'clubs']);
+    }
+    // New/optional sections remain visible, even if a template has no special slot.
+    for (const node of pending.values()) layout.appendChild(node);
+    const firstContent = Array.from(main.children).find(node => node.matches('[data-lpg-layout], [data-lpg-section]') || node.querySelector('[data-lpg-section]'));
+    if (firstContent) main.insertBefore(layout, firstContent); else main.appendChild(layout);
+    // Only remove empty layout scaffolding. Never discard unmarked content.
+    for (const node of Array.from(main.querySelectorAll('div')).reverse()) {
+      if (node !== layout && !node.closest('[data-lpg-section]') && !node.children.length && !node.textContent.trim()) node.remove();
+    }
+    // Benefits stay expanded in the alternate layouts, while their existing
+    // controls still allow the viewer to collapse them.
+    const benefits = main.querySelector('#benefits-content');
+    if (benefits) { benefits.classList.add('open'); }
   }
 
   function stylesheet(state) {
     const colors = state.colors || {};
     const primary = color(colors.primary, '#245c4f');
     const accent = color(colors.accent, '#b9e7cb');
-    const menu = darkSurface(color(colors.menu, primary));
     const deep = darkSurface(primary);
-    const soft = mix(primary, '#ffffff', 0.94);
-    const line = mix(primary, '#ffffff', 0.84);
-    return `<style id="lpg-modern-template">
-body[data-lpg-template="modern"] {
-  --lpg-brand: ${primary}; --lpg-brand-deep: ${deep}; --lpg-accent: ${accent};
-  --lpg-surface: ${soft}; --lpg-line: ${line}; --lpg-ink: #172b29; --lpg-muted: #52635f;
-  background: #f7f9f8; color: var(--lpg-ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  line-height: 1.6; -webkit-font-smoothing: antialiased;
+    return `<style id="lpg-layout-template">
+body[data-lpg-template] { --lpg-brand: ${primary}; --lpg-brand-deep: ${deep}; --lpg-accent: ${accent}; --lpg-soft: ${mix(primary, '#ffffff', .95)}; --lpg-line: ${mix(primary, '#ffffff', .84)}; background: #f5f6f8; color: #18202f; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+body[data-lpg-template] *, body[data-lpg-template] *::before, body[data-lpg-template] *::after { box-sizing: border-box; }
+body[data-lpg-template] main { max-width: 1440px; padding: 36px clamp(18px, 3.2vw, 48px) 64px; }
+body[data-lpg-template] :is(button, a, input, select, textarea, summary):focus-visible { outline: 3px solid var(--lpg-brand-deep); outline-offset: 4px; box-shadow: 0 0 0 7px #fff; }
+body[data-lpg-template] :is(h1,h2,h3,p,a,button) { overflow-wrap: anywhere; }
+body[data-lpg-template] :is(input,select,textarea) { max-width: 100%; }
+body[data-lpg-template] [hidden] { display: none !important; }
+body[data-lpg-template] .site-header { background: #fff !important; color: #18202f !important; border-bottom: 1px solid var(--lpg-line); box-shadow: none; }
+body[data-lpg-template] .site-header :is(.nav-link,.text-white) { color: #18202f; }
+body[data-lpg-template] .site-header > div { max-width: 1440px; }
+body[data-lpg-template] .site-header > div > div { min-height: 78px; }
+body[data-lpg-template] .site-header .nav-link { min-height: 44px; display: inline-flex; align-items: center; font-weight: 600; }
+body[data-lpg-template] .site-header .nav-link::after { background: var(--lpg-brand-deep); }
+body[data-lpg-template] :is(.section-title,h1) { letter-spacing: -.035em; }
+body[data-lpg-template] main > div > h1 { font-size: clamp(1.7rem,3vw,2.5rem); }
+body[data-lpg-template] .text-muted { color: #586273; }
+.lpg-layout { display: grid; gap: 32px; }
+.lpg-layout-group { min-width: 0; display: grid; gap: 28px; align-content: start; }
+.lpg-layout [data-lpg-section] { min-width: 0; margin: 0; }
+.lpg-layout :is(.card,.lpg-p-card) { border: 1px solid #e2e6ea; background: #fff; border-radius: 16px; box-shadow: 0 4px 18px -14px #172b4244; }
+.lpg-layout .section-title { font-size: 1.13rem; line-height: 1.35; }
+.lpg-layout .member-hero { min-height: 230px; padding: 32px; border-radius: 20px; gap: 28px; background: linear-gradient(125deg, ${deep}, ${mix(deep, '#101828', .35)}); box-shadow: none; }
+.lpg-layout .member-hero::before { background: radial-gradient(ellipse at 95% 0%, #ffffff22, transparent 60%); }
+.lpg-layout .member-hero .text-white\\/70 { color: #ffffffd9; }
+.lpg-layout .member-hero .text-3xl { font-size: clamp(2.5rem,4vw,4rem); font-weight: 600; }
+.lpg-layout .member-hero .text-2xl { font-size: clamp(1.4rem,2.6vw,2rem); font-weight: 600; }
+.lpg-layout :is(.btn-primary,.btn-ghost) { min-height: 44px; padding: 10px 20px; border-radius: 8px; font-weight: 650; text-transform: none; letter-spacing: 0; box-shadow: none; }
+.lpg-layout .btn-primary { background: var(--lpg-brand-deep); color: #fff; }
+.lpg-layout .btn-ghost { border-color: var(--lpg-brand-deep); color: var(--lpg-brand-deep); }
+.lpg-layout :is(.voucher-card,.offer-card,.earn-card) { transition: box-shadow .2s ease, transform .2s ease; }
+.lpg-layout :is(.voucher-card,.offer-card,.earn-card):hover { box-shadow: 0 12px 28px -18px #172b4266; transform: translateY(-2px); }
+.lpg-layout .offer-card img { object-fit: cover; }
+.lpg-layout .voucher-card h3 { font-size: 1rem; line-height: 1.4; }
+.lpg-layout .voucher-card { padding: 20px; }
+.lpg-layout .earn-card { padding: 22px; }
+.lpg-layout [data-lpg-section="tiers"] { padding: 26px; }
+.lpg-layout [data-lpg-section="tiers"] > .grid { gap: 16px; }
+.lpg-layout #benefits-content.open { max-height: none; }
+body[data-lpg-template] footer { background: #fff; border-top: 1px solid var(--lpg-line); margin-top: 0; }
+body[data-lpg-template] footer > div { max-width: 1440px; }
+/* Dashboard: split status overview, a broad rewards feed, and an account rail. */
+.lpg-overview { grid-template-columns: minmax(0,1fr) minmax(0,1.2fr); align-items: stretch; }
+.lpg-overview .member-hero { flex-direction: column; align-items: flex-start; justify-content: space-between; }
+.lpg-dashboard-columns { grid-template-columns: minmax(0,1.9fr) minmax(280px,1fr); align-items: start; }
+.lpg-secondary { padding: 22px; background: #eaf0f2; border-radius: 20px; gap: 22px; }
+.lpg-secondary [data-lpg-section] { background: #fff; border-radius: 14px; }
+.lpg-secondary .section-title { font-size: 1rem; }
+.lpg-secondary [data-lpg-section="activity"] { padding: 20px; }
+/* Showcase: full-width catalogue and campaigns, with large image-led cards. */
+body[data-lpg-template="showcase"] { background: #fff; }
+body[data-lpg-template="showcase"] main { max-width: 1520px; }
+.lpg-showcase-status { grid-template-columns: minmax(0,1fr) minmax(0,1.25fr); border-bottom: 1px solid var(--lpg-line); padding-bottom: 32px; }
+.lpg-showcase-status .member-hero { border-radius: 4px; }
+.lpg-showcase-status [data-lpg-section="tiers"] { border: none; box-shadow: none; background: var(--lpg-soft); border-radius: 4px; }
+.lpg-catalogue [data-lpg-section="vouchers"] > .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,240px),1fr)); gap: 22px; }
+:is(.lpg-catalogue,.lpg-promotions) :is(.voucher-card,.offer-card) { display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden; border-radius: 10px; }
+.lpg-catalogue .voucher-card > div:first-child { width: 100%; height: auto; aspect-ratio: 1.35; border-radius: 0; background-color: var(--lpg-soft); box-shadow: none; }
+.lpg-catalogue .voucher-card > div:last-child { padding: 24px; width: 100%; }
+.lpg-catalogue .voucher-card > div:last-child > div:last-child { margin-top: 24px; }
+.lpg-catalogue .voucher-card .btn-primary { flex: 1; }
+.lpg-promotions [data-lpg-section="offers"] > div:last-child { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,320px),1fr)); gap: 24px; }
+.lpg-promotions .offer-card { margin: 0 !important; }
+.lpg-promotions .offer-card > div:first-child { width: 100%; height: auto; aspect-ratio: 1.65; }
+.lpg-community { grid-template-columns: repeat(auto-fit,minmax(min(100%,320px),1fr)); padding: 32px; background: var(--lpg-soft); border-radius: 12px; }
+.lpg-details { grid-template-columns: repeat(auto-fit,minmax(min(100%,300px),1fr)); }
+/* Editorial: a photographic opening, benefits story, and staggered campaigns. */
+body[data-lpg-template="editorial"] { background: #faf9f6; }
+body[data-lpg-template="editorial"] .site-header { border-bottom: 3px solid var(--lpg-brand-deep); }
+body[data-lpg-template="editorial"] main { max-width: 1560px; padding-top: 22px; }
+body[data-lpg-template="editorial"] main > div > h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: 500; font-size: clamp(2rem,4vw,3.4rem); }
+.lpg-layout-editorial { gap: 52px; }
+.lpg-brand-opening { position: relative; isolation: isolate; overflow: hidden; border-radius: 4px; min-height: 360px; background: var(--lpg-brand-deep); }
+.lpg-brand-opening .member-hero { background: transparent; position: relative; z-index: 1; min-height: 360px; border-radius: 0; padding: clamp(28px,5vw,72px); align-items: flex-start; flex-direction: column; justify-content: center; gap: 42px; }
+.lpg-brand-opening .member-hero::before { display: none; }
+.lpg-brand-opening.lpg-has-photo { grid-template-columns: 1fr 1.05fr; gap: 0; }
+.lpg-brand-photo { width: 100%; height: 100%; min-height: 360px; object-fit: cover; }
+.lpg-brand-opening .member-hero .text-2xl { font-family: Georgia, 'Times New Roman', serif; font-size: clamp(2rem,3vw,3rem); font-weight: 500; }
+.lpg-brand-benefits { grid-template-columns: 1fr 1fr; align-items: stretch; padding: 32px; background: #fff; border-top: 1px solid var(--lpg-line); border-bottom: 1px solid var(--lpg-line); }
+.lpg-brand-benefits [data-lpg-section] { border: 0; box-shadow: none; border-radius: 0; }
+.lpg-brand-stories .offer-card { display: grid; grid-template-columns: 1.1fr 1fr; min-height: 320px; border: 0; background: #fff; border-radius: 4px; margin-top: 28px !important; }
+.lpg-brand-stories .offer-card:nth-child(even) { grid-template-columns: 1fr 1.1fr; }
+.lpg-brand-stories .offer-card:nth-child(even) > div:first-child { order: 2; }
+.lpg-brand-stories .offer-card > div:first-child { width: 100%; height: 100%; min-height: 320px; }
+.lpg-brand-stories .offer-card > div:last-child { padding: clamp(24px,4vw,60px); }
+.lpg-brand-stories .offer-card h3 { font-family: Georgia, 'Times New Roman', serif; font-size: clamp(1.5rem,2.5vw,2.25rem); font-weight: 500; line-height: 1.2; }
+.lpg-brand-participate { grid-template-columns: 1.6fr 1fr; align-items: start; }
+body[data-lpg-template="editorial"] .lpg-layout .section-title { font-family: Georgia, 'Times New Roman', serif; font-size: 1.65rem; font-weight: 500; }
+@media(max-width:1000px) {
+ .lpg-dashboard-columns { grid-template-columns: minmax(0,1.6fr) minmax(250px,1fr); }
+ .lpg-overview,.lpg-showcase-status { grid-template-columns: 1fr; }
+ .lpg-overview .member-hero { flex-direction: row; align-items: center; }
+ .lpg-secondary { padding: 14px; }
+ .lpg-primary [data-lpg-section="vouchers"] > .grid { grid-template-columns: 1fr; }
 }
-body[data-lpg-template="modern"] *, body[data-lpg-template="modern"] *::before, body[data-lpg-template="modern"] *::after { box-sizing: border-box; }
-body[data-lpg-template="modern"] :is(a, button, input, select, textarea, summary):focus-visible { outline: 3px solid var(--lpg-brand-deep); outline-offset: 4px; box-shadow: 0 0 0 7px #fff; }
-body[data-lpg-template="modern"] :is(button, a, input, select, textarea) { -webkit-tap-highlight-color: transparent; }
-body[data-lpg-template="modern"] :is(button, input, select, textarea) { font: inherit; }
-body[data-lpg-template="modern"] main { max-width: 1320px; padding-top: 42px; padding-bottom: 48px; }
-body[data-lpg-template="modern"] main > :first-child .section-title { font-size: clamp(1.65rem, 3.1vw, 2.5rem); font-weight: 700; letter-spacing: -0.045em; line-height: 1.15; }
-body[data-lpg-template="modern"] .section-title { letter-spacing: -0.025em; }
-body[data-lpg-template="modern"] .text-muted { color: var(--lpg-muted); }
-body[data-lpg-template="modern"] .site-header {
-  background: ${menu} !important; border-bottom: 3px solid var(--lpg-accent); box-shadow: none;
+@media(max-width:767px) {
+ body[data-lpg-template] main { padding: 24px 16px 40px; }
+ .lpg-layout { gap: 28px; }
+ .lpg-dashboard-columns,.lpg-brand-benefits,.lpg-brand-participate,.lpg-brand-opening.lpg-has-photo { grid-template-columns: 1fr; }
+ .lpg-layout .member-hero,.lpg-overview .member-hero { flex-direction: column; align-items: flex-start; padding: 24px; }
+ .lpg-layout .member-hero > div { min-width: 0; max-width: 100%; }
+ .lpg-layout .member-hero .text-right { text-align: left; }
+ .lpg-layout .member-hero .justify-end { justify-content: flex-start; }
+ .lpg-brand-opening,.lpg-brand-opening .member-hero { min-height: 280px; }
+ .lpg-brand-photo { min-height: 0; height: 240px; }
+ .lpg-brand-benefits,.lpg-community { padding: 20px; }
+ .lpg-brand-stories .offer-card,.lpg-brand-stories .offer-card:nth-child(even) { grid-template-columns: 1fr; }
+ .lpg-brand-stories .offer-card:nth-child(even) > div:first-child { order: 0; }
+ .lpg-brand-stories .offer-card > div:first-child { min-height: 0; height: 240px; }
+ .lpg-primary .offer-card { flex-direction: column; }
+ .lpg-primary .offer-card > div:first-child { width: 100%; height: 210px; }
+ .lpg-layout [data-lpg-section="tiers"] { padding: 20px 14px; }
+ .lpg-layout [data-lpg-section="tiers"] .w-16 { width: 48px; height: 48px; }
 }
-body[data-lpg-template="modern"] .site-header > div { max-width: 1320px; }
-body[data-lpg-template="modern"] .site-header > div > div { min-height: 80px; }
-body[data-lpg-template="modern"] .site-header :is(a, button) { min-height: 44px; }
-body[data-lpg-template="modern"] .site-header .nav-link { display: inline-flex; align-items: center; font-weight: 500; color: #fff; }
-body[data-lpg-template="modern"] .site-header .nav-link::after { bottom: 2px; background: var(--lpg-accent); }
-body[data-lpg-template="modern"] .member-hero {
-  isolation: isolate; min-height: 208px; padding: clamp(24px, 4vw, 48px); border-radius: 28px;
-  background: linear-gradient(115deg, ${deep} 0%, ${mix(deep, '#101828', 0.25)} 100%);
-  box-shadow: 0 18px 42px -28px ${deep}; margin-bottom: 28px; gap: 24px;
-}
-body[data-lpg-template="modern"] .member-hero::before {
-  inset: -150% -45% -150% 48%; transform: rotate(-30deg); border: 1px solid #ffffff22; border-radius: 50%;
-  background: none; box-shadow: 0 0 0 42px #ffffff05, 0 0 0 84px #ffffff05, 0 0 0 126px #ffffff04;
-}
-body[data-lpg-template="modern"] .member-hero .text-white\\/70 { color: #ffffffd9; }
-body[data-lpg-template="modern"] .member-hero .text-2xl { font-size: clamp(1.4rem, 2.6vw, 2rem); font-weight: 600; }
-body[data-lpg-template="modern"] .member-hero .text-3xl { font-size: clamp(2rem, 4vw, 3.4rem); font-weight: 600; }
-body[data-lpg-template="modern"] :is(.card, .lpg-program-card) {
-  background: #fff; border: 1px solid #e1e8e5; border-radius: 22px; box-shadow: 0 4px 24px -18px #193b3529;
-}
-body[data-lpg-template="modern"] :is(.card-hover, .voucher-card, .offer-card, .earn-card) { transition: border-color .18s ease, box-shadow .18s ease; }
-body[data-lpg-template="modern"] :is(.card-hover, .voucher-card, .offer-card, .earn-card):hover {
-  transform: none; border-color: var(--lpg-line); box-shadow: 0 12px 32px -20px #193b3540;
-}
-body[data-lpg-template="modern"] .voucher-card { padding: 22px; gap: 18px; }
-body[data-lpg-template="modern"] .voucher-card h3 { font-size: 1rem; line-height: 1.4; }
-body[data-lpg-template="modern"] .offer-card { overflow: hidden; }
-body[data-lpg-template="modern"] .offer-card img { transition: none; }
-body[data-lpg-template="modern"] .earn-card { border-radius: 16px; padding: 20px; }
-body[data-lpg-template="modern"] :is(.btn-primary, .btn-ghost) {
-  min-height: 44px; border-radius: 12px; padding-inline: 20px; font-weight: 650; letter-spacing: .01em;
-  text-transform: none; box-shadow: none; transition: filter .18s ease;
-}
-body[data-lpg-template="modern"] .btn-primary { background: var(--lpg-brand-deep); color: #fff; }
-body[data-lpg-template="modern"] .btn-ghost { border-color: var(--lpg-brand-deep); color: var(--lpg-brand-deep); }
-body[data-lpg-template="modern"] .btn-primary:hover { background: var(--lpg-brand-deep); filter: brightness(1.12); transform: none; box-shadow: none; }
-body[data-lpg-template="modern"] .btn-ghost:hover { background: var(--lpg-brand-deep); color: #fff; }
-body[data-lpg-template="modern"] footer { background: #edf2ef; border-color: #dce5df; margin-top: 48px; }
-body[data-lpg-template="modern"] footer > div { max-width: 1320px; }
-body[data-lpg-template="modern"] .lpg-program { margin-block: 32px; color: var(--lpg-ink); }
-body[data-lpg-template="modern"] .lpg-program :is(h1, h2, h3) { letter-spacing: -.025em; line-height: 1.25; }
-body[data-lpg-template="modern"] .lpg-program-nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; margin-bottom: 24px; background: #eaf0ec; border-radius: 16px; }
-body[data-lpg-template="modern"] .lpg-program-nav :is(a, button) { min-height: 44px; padding: 10px 18px; border: 0; border-radius: 10px; background: transparent; color: var(--lpg-ink); font-weight: 600; text-decoration: none; }
-body[data-lpg-template="modern"] .lpg-program-nav :is([aria-selected="true"], [aria-current="page"], .active) { background: #fff; color: var(--lpg-brand-deep); box-shadow: 0 2px 8px #193b3510; }
-body[data-lpg-template="modern"] .lpg-program-panel { padding: clamp(16px, 2.5vw, 28px); border: 1px solid #e1e8e5; border-radius: 22px; background: #fff; }
-body[data-lpg-template="modern"] .lpg-program-grid { gap: 20px; }
-body[data-lpg-template="modern"] .lpg-program-card { padding: 24px; min-width: 0; }
-body[data-lpg-template="modern"] .lpg-program :is(input, select, textarea) { min-height: 44px; max-width: 100%; border: 1px solid #9eaea6; border-radius: 10px; padding: 10px 12px; background: #fff; color: var(--lpg-ink); }
-body[data-lpg-template="modern"] .lpg-program button { min-height: 44px; }
-body[data-lpg-template="modern"] .lpg-program-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-body[data-lpg-template="modern"] .lpg-program-table :is(th, td) { padding: 14px 16px; border-bottom: 1px solid #e1e8e5; text-align: left; vertical-align: top; }
-body[data-lpg-template="modern"] .lpg-program-table th { background: var(--lpg-surface); font-size: .78rem; font-weight: 650; }
-/* Program runtime styles are emitted near </body>. ID-qualified selectors keep
-   this theme authoritative without depending on stylesheet insertion order. */
-body[data-lpg-template="modern"].lpg-program-mode { background: #f7f9f8; color: var(--lpg-ink); }
-body[data-lpg-template="modern"].lpg-program-mode .site-header { padding: 22px 32px; color: #fff !important; }
-body[data-lpg-template="modern"] .lpg-program-header-inner { max-width: 1256px; font-weight: 650; letter-spacing: -.025em; }
-body[data-lpg-template="modern"] #lpg-program-root { max-width: 1320px; padding: 40px 32px 64px; }
-body[data-lpg-template="modern"] #lpg-program-root h1 { font-size: clamp(1.8rem, 4vw, 3.1rem); font-weight: 600; letter-spacing: -.045em; }
-body[data-lpg-template="modern"] #lpg-program-root h2 { font-weight: 650; }
-body[data-lpg-template="modern"] #lpg-program-root h3 { font-weight: 650; }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-intro {
-  position: relative; isolation: isolate; overflow: hidden; min-height: 208px; padding: clamp(24px, 4vw, 44px);
-  border-radius: 26px; background: linear-gradient(115deg, ${deep}, ${mix(deep, '#101828', 0.25)});
-  color: #fff; align-items: center; box-shadow: 0 18px 42px -28px ${deep};
-}
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-intro::before {
-  content: ''; position: absolute; z-index: -1; inset: -180% -55% -180% 55%; border: 1px solid #ffffff20;
-  border-radius: 50%; transform: rotate(-30deg); pointer-events: none; box-shadow: 0 0 0 42px #ffffff05, 0 0 0 84px #ffffff05;
-}
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-intro :is(.lpg-p-muted, .lpg-p-eyebrow) { color: #ffffffd9; }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-intro label { color: #fff; margin-bottom: 8px; }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-nav { border: 0; padding: 8px; background: #eaf0ec; border-radius: 16px; }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-nav button { background: transparent; border-color: transparent; color: var(--lpg-ink); }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-nav [aria-current="page"] { background: #fff; border-color: #fff; color: var(--lpg-brand-deep); box-shadow: 0 2px 8px #193b3510; }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-grid { gap: 20px; }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-card { padding: 26px; border-radius: 20px; border-color: #e1e8e5; box-shadow: 0 4px 24px -18px #193b3529; }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-stat { font-size: clamp(2rem, 3vw, 2.65rem); font-weight: 600; color: var(--lpg-brand-deep); }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-muted { color: var(--lpg-muted); }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-notice { color: var(--lpg-muted); }
-body[data-lpg-template="modern"] #lpg-program-root button { min-height: 44px; border-radius: 11px; border-color: #b4c5bb; padding: 11px 18px; color: var(--lpg-brand-deep); }
-body[data-lpg-template="modern"] #lpg-program-root button:hover { background: var(--lpg-surface); }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-primary { background: var(--lpg-brand-deep); border-color: var(--lpg-brand-deep); color: #fff; }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-primary:hover { background: var(--lpg-brand-deep); filter: brightness(1.12); }
-body[data-lpg-template="modern"] #lpg-program-root :is(input, select) { min-height: 44px; border-color: #9eaea6; border-radius: 10px; padding: 10px 12px; }
-body[data-lpg-template="modern"] #lpg-program-root :is(button, input, select):focus-visible { outline: 3px solid var(--lpg-brand-deep); outline-offset: 4px; box-shadow: 0 0 0 7px #fff; }
-body[data-lpg-template="modern"] #lpg-program-root progress { height: 12px; accent-color: var(--lpg-brand-deep); }
-body[data-lpg-template="modern"] #lpg-program-root .lpg-p-list li { border-color: #e1e8e5; padding: 18px 0; }
-body[data-lpg-template="modern"] .lpg-program-footer { background: #edf2ef; border-color: #dce5df; color: var(--lpg-muted); }
-body[data-lpg-template="modern"] [hidden] { display: none !important; }
-@media (max-width: 767px) {
-  body[data-lpg-template="modern"] main { padding-top: 24px; }
-  body[data-lpg-template="modern"] .site-header > div > div { min-height: 68px; }
-  body[data-lpg-template="modern"] .member-hero { align-items: flex-start; flex-direction: column; min-height: 0; border-radius: 20px; }
-  body[data-lpg-template="modern"] .member-hero > div { min-width: 0; max-width: 100%; }
-  body[data-lpg-template="modern"] .member-hero > div:last-child { width: 100%; padding-top: 20px; border-top: 1px solid #ffffff2b; }
-  body[data-lpg-template="modern"] .member-hero .text-right { text-align: left; }
-  body[data-lpg-template="modern"] .member-hero .justify-end { justify-content: flex-start; }
-  body[data-lpg-template="modern"] .member-hero .text-2xl { overflow-wrap: anywhere; }
-  body[data-lpg-template="modern"] .lpg-program-nav { gap: 4px; }
-  body[data-lpg-template="modern"] .lpg-program-nav :is(a, button) { flex: 1 1 auto; padding-inline: 12px; text-align: center; }
-  body[data-lpg-template="modern"] .lpg-program-panel { overflow-x: auto; }
-  body[data-lpg-template="modern"] .voucher-card { padding: 16px; gap: 12px; }
-  body[data-lpg-template="modern"].lpg-program-mode .site-header { padding: 18px 20px; }
-  body[data-lpg-template="modern"] #lpg-program-root { padding: 24px 16px 40px; }
-  body[data-lpg-template="modern"] #lpg-program-root .lpg-p-intro { padding: 24px; min-height: 0; border-radius: 20px; }
-  body[data-lpg-template="modern"] #lpg-program-root .lpg-p-intro > div { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-  body[data-lpg-template="modern"] #lpg-program-root .lpg-p-card { padding: 20px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  body[data-lpg-template="modern"] *, body[data-lpg-template="modern"] *::before, body[data-lpg-template="modern"] *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
-}
-@media print {
-  body[data-lpg-template="modern"] .site-header { position: static; }
-  body[data-lpg-template="modern"] :is(.card, .lpg-program-card) { break-inside: avoid; box-shadow: none; }
-}
+@media(prefers-reduced-motion:reduce) { body[data-lpg-template] *,body[data-lpg-template] *::before,body[data-lpg-template] *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+@media print { body[data-lpg-template] .site-header { position: static; } .lpg-layout :is(.card,.offer-card,.voucher-card) { break-inside: avoid; } }
 </style>`;
   }
-
   function apply(html, state) {
-    if (!state || state.outputTemplate !== 'modern' || typeof html !== 'string') return html;
-    if (!/<\/head\s*>/i.test(html) || !/<body\b/i.test(html)) return html;
-    const clean = html.replace(/<style id="lpg-modern-template">[\s\S]*?<\/style>/g, '');
-    return clean.replace(/<body\b([^>]*)>/i, (_match, attributes) => {
-      const attrs = attributes.replace(/\sdata-lpg-template=(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-      return `<body${attrs} data-lpg-template="modern">`;
-    }).replace(/<\/head\s*>/i, () => stylesheet(state) + '\n</head>');
+    const id = state && (state.outputTemplate === 'modern' ? 'dashboard' : state.outputTemplate);
+    if (!['dashboard','showcase','editorial'].includes(id) || typeof html !== 'string' || !/<\/head\s*>/i.test(html) || !/<body\b/i.test(html)) return html;
+    const clean = html.replace(/<style id="(?:lpg-modern-template|lpg-layout-template)">[\s\S]*?<\/style>/g, '').replace(/<script id="lpg-template-layout">[\s\S]*?<\/script>/g, '');
+    const prepared = clean.replace(/<body\b([^>]*)>/i, (_m, attrs) => `<body${attrs.replace(/\sdata-lpg-template=(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')} data-lpg-template="${id}">`)
+      .replace(/<\/head\s*>/i, () => stylesheet(state) + '\n</head>');
+    // Exported runtime source may contain literal closing-body strings. Insert
+    // before the document's final closing tag, never inside an existing script.
+    const closingBody = Array.from(prepared.matchAll(/<\/body\s*>/gi)).pop();
+    if (!closingBody) return html;
+    return prepared.slice(0, closingBody.index) + `<script id="lpg-template-layout">(${arrange.toString()})();</script>\n` + prepared.slice(closingBody.index);
   }
-
   root.PortalTemplates = Object.freeze({ list, apply });
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -67,252 +67,132 @@
     };
   }
 
+
+  // Project validated rules into the original, richly populated portal content.
+  // Never mutate the saved authoring state or discard imagery and descriptive copy.
+  function projectState(state, model) {
+    if (!state || !state.programEnabled || !state.program) return state;
+    const p = model.normalize(state.program), summary = model.summarize(p);
+    const result = { ...state, brand: { ...state.brand, programName: p.name },
+      member: { ...state.member, name: p.member.name, points: summary.redeemable },
+      tiers: p.tiers.map(t => ({ name: t.name, points: t.threshold })),
+      _program: p, _summary: summary };
+    result.vouchers = p.rewards.map(reward => {
+      const rich = (state.vouchers || []).find(v => v.programRewardId === reward.id) || {};
+      return { ...rich, title: reward.name, programRewardId: reward.id, actionType: 'points', actionValue: reward.cost.toLocaleString('en-US') + ' ' + p.currencies.redeemableName };
+    });
+    result.earnMore = p.earnRules.map(rule => {
+      const rich = (state.earnMore || []).find(e => e.programRuleId === rule.id) || {};
+      return { ...rich, title: rule.name, programRuleId: rule.id, hasCodeInput: false, rule };
+    });
+    return result;
+  }
+
   const styles = `
-    body.lpg-program-mode{margin:0;background:#f5f6f8;color:#172033;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-    .lpg-program-mode .site-header{padding:14px 24px;background:var(--brand-menu,#172554);color:white}
-    .lpg-program-mode .site-header nav,.lpg-program-mode .site-header button,.lpg-program-mode .site-header [title="Account"]{display:none!important}
-    .lpg-program-mode .site-header img{max-height:40px;max-width:220px}
-    .lpg-program-mode .site-header a{color:inherit;text-decoration:none}
-    .lpg-program-header-inner{max-width:1132px;margin:auto;display:flex;align-items:center;gap:14px;font-size:1.15rem;font-weight:750}
-    .lpg-program-footer{border-top:1px solid #dce1e8;padding:28px 24px;text-align:center;background:white;color:#526071;font-size:.85rem}
-    #lpg-program-root{max-width:1180px;margin:auto;padding:32px 24px 64px;line-height:1.5}
-    #lpg-program-root *{box-sizing:border-box}
-    #lpg-program-root h1{font-size:clamp(1.8rem,4vw,2.6rem);line-height:1.15;margin:6px 0 14px;font-weight:800}
-    #lpg-program-root h2{font-size:1.45rem;margin:0 0 20px;font-weight:750}
-    #lpg-program-root h3{font-size:1.08rem;margin:0 0 8px;font-weight:700}
-    #lpg-program-root p{margin:8px 0}
-    #lpg-program-root button,#lpg-program-root input,#lpg-program-root select{font:inherit}
-    #lpg-program-root button{cursor:pointer;border:1px solid #c9ced8;background:white;color:#172033;border-radius:9px;padding:10px 16px;font-weight:650}
-    #lpg-program-root button:hover{background:#eef1f6}
-    #lpg-program-root button:disabled{cursor:not-allowed;opacity:.55}
-    #lpg-program-root button:focus-visible,#lpg-program-root select:focus-visible,#lpg-program-root input:focus-visible{outline:3px solid #2563eb;outline-offset:3px}
-    #lpg-program-root input,#lpg-program-root select{border:1px solid #aeb7c5;border-radius:8px;background:white;color:#172033;padding:10px;max-width:100%}
-    #lpg-program-root input{width:150px;display:block;margin:5px 0 12px}
-    #lpg-program-root label{display:block;font-weight:600;font-size:.9rem}
-    .lpg-p-intro{display:flex;justify-content:space-between;align-items:start;gap:24px;flex-wrap:wrap;margin-bottom:26px}
-    .lpg-p-eyebrow{font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4b5563}
-    .lpg-p-muted{font-size:.9rem;color:#526071}
-    .lpg-p-notice{font-size:.85rem;color:#526071;padding:12px 0}
-    .lpg-p-nav{display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid #dce1e8;padding-bottom:16px;margin-bottom:24px}
-    #lpg-program-root .lpg-p-nav [aria-current="page"]{background:#172554;color:white;border-color:#172554}
-    .lpg-p-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:18px;margin:18px 0 24px}
-    .lpg-p-card{background:white;border:1px solid #e1e5ec;border-radius:15px;padding:24px;box-shadow:0 2px 8px #17203305}
-    .lpg-p-stat{display:block;font-size:2rem;font-weight:800;letter-spacing:-.04em;margin:6px 0}
-    .lpg-p-list{display:grid;gap:12px;padding:0;list-style:none}
-    .lpg-p-list li{padding:15px 0;border-bottom:1px solid #e1e5ec}
-    .lpg-p-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
-    #lpg-program-root .lpg-p-primary{background:#172554;border-color:#172554;color:white}
-    #lpg-program-root .lpg-p-primary:hover{background:#233972}
-    #lpg-p-status{min-height:28px;padding:8px 0;color:#14532d;font-weight:600}
-    #lpg-p-status[data-error="true"]{color:#991b1b}
-    #lpg-program-root progress{width:100%;height:14px;accent-color:#172554;margin:14px 0}
-    @media(max-width:600px){#lpg-program-root{padding:24px 16px}.lpg-p-card{padding:18px}.lpg-p-nav button{flex:1}.lpg-p-intro{gap:14px}}
+    .lpg-demo-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 24px;font-size:.85rem}
+    .lpg-demo-toolbar label{display:flex;align-items:center;gap:8px}
+    .lpg-demo-toolbar select,.lpg-demo-toolbar button,.lpg-demo-panel button,.lpg-earn-action button{border:1px solid #cbd5e1;border-radius:9px;padding:8px 13px;background:white;color:#172033;font:inherit;cursor:pointer}
+    .lpg-demo-toolbar button:focus-visible,.lpg-demo-toolbar select:focus-visible,.lpg-demo-panel button:focus-visible,[data-lpg-action]:focus-visible{outline:3px solid #2563eb;outline-offset:3px}
+    [data-lpg-action]:disabled{opacity:.5;cursor:not-allowed}
+    .lpg-demo-panel{margin-top:24px;padding:24px}.lpg-demo-panel h2{font-size:1.2rem;font-weight:750;margin-bottom:12px}
+    .lpg-demo-panel ul{list-style:none;padding:0}.lpg-demo-panel li{padding:14px 0;border-bottom:1px solid #e2e8f0;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .lpg-demo-panel li strong{flex:1;min-width:160px}.lpg-demo-panel li span{font-size:.85rem;color:#475569}
+    .lpg-earn-action{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}.lpg-earn-action input{width:100px;border:1px solid #cbd5e1;border-radius:8px;padding:7px}
+    #lpg-p-status{min-height:24px;font-size:.9rem;color:#166534}#lpg-p-status[data-error="true"]{color:#b91c1c}
+    [data-lpg-current-tier="true"]{outline:2px solid var(--brand-primary,#2563eb);outline-offset:8px;border-radius:10px}
+    .lpg-welcome{position:fixed;inset:0;z-index:1000;background:#0f172acc;display:grid;place-items:center;padding:24px}.lpg-welcome[hidden]{display:none}.lpg-welcome article{background:white;color:#172033;padding:40px;border-radius:24px;max-width:480px;text-align:center;box-shadow:0 25px 100px #0004}.lpg-welcome h2{font-size:2rem;font-weight:800;margin-bottom:12px}.lpg-welcome button{margin-top:24px;padding:12px 22px}
   `;
 
   function mount(program, model, document) {
-    const root = document.getElementById('lpg-program-root');
+    const root = document.querySelector('main');
     if (!root) return;
-    const session = createSession(program, model);
-    let page = 'overview';
-    let message = '';
-    let error = false;
-    const names = { overview: 'Overview', earn: 'Earn', rewards: 'Rewards', activity: 'Activity', team: 'Team', approvals: 'Approvals' };
+    const session = createSession(program, model), p = session.program;
     const number = value => Number(value).toLocaleString('en-US', { maximumFractionDigits: 6 });
-    const p = session.program;
-    // Keep the live region connected while page content is rebuilt so announcements are reliable.
-    const live = el('div'); live.id = 'lpg-p-status'; live.setAttribute('role', 'status'); live.setAttribute('aria-live', 'polite');
-    const body = el('div'); root.replaceChildren(live, body);
     function el(tag, text, className) {
       const node = document.createElement(tag);
-      if (text !== undefined && text !== null) node.textContent = String(text);
+      if (text != null) node.textContent = String(text);
       if (className) node.className = className;
       return node;
     }
-    function button(text, action, id, className) {
-      const node = el('button', text, className);
-      node.type = 'button'; node.dataset.action = action;
+    function button(label, action, id) {
+      const node = el('button', label); node.type = 'button'; node.dataset.lpgAction = action;
       if (id) node.dataset.id = id;
       return node;
     }
-    function card(title, description) {
-      const node = el('article', null, 'lpg-p-card lpg-program-card'); node.append(el('h3', title));
-      if (description) node.append(el('p', description, 'lpg-p-muted'));
-      return node;
+    const toolbar = el('div', null, 'lpg-demo-toolbar'); toolbar.dataset.lpgSection = 'account';
+    toolbar.append(el('span', p.mode === 'b2b' ? p.member.organization : 'Welcome back, ' + p.member.name));
+    if (p.roles.length > 1) {
+      const label = el('label', 'View as');
+      const select = el('select'); select.id = 'lpg-p-role';
+      p.roles.forEach(role => { const option = el('option', role.name); option.value = role.id; option.selected = role.id === session.role().id; select.append(option); });
+      label.append(select); toolbar.append(label);
     }
-    function stats(content, summary) {
-      const grid = el('div', null, 'lpg-p-grid lpg-program-grid');
-      [[p.currencies.qualifyingName, summary.qualifying, 'Determines your tier'],
-        [p.currencies.redeemableName, summary.redeemable, 'Available for rewards'],
-        ['Current tier', summary.tier.name, summary.nextTier ? number(summary.gap) + ' to ' + summary.nextTier.name : 'Highest tier achieved']]
-        .forEach(([title, value, description]) => {
-          const item = card(title); item.append(el('strong', typeof value === 'number' ? number(value) : value, 'lpg-p-stat'));
-          item.append(el('p', description, 'lpg-p-muted')); grid.append(item);
+    toolbar.append(button('Reset demo', 'reset'), button('Show welcome screen', 'welcome'));
+    root.prepend(toolbar);
+    const live = el('div'); live.id = 'lpg-p-status'; live.setAttribute('role', 'status'); live.setAttribute('aria-live', 'polite'); live.style.flexBasis = '100%'; toolbar.append(live);
+    const activity = el('section', null, 'card lpg-demo-panel'); activity.dataset.lpgSection = 'activity';
+    activity.append(el('h2', 'Recent activity')); const events = el('ul'); activity.append(events); root.append(activity);
+    let requests;
+    if (p.mode === 'b2b' && p.approvalRequired) {
+      const approvals = el('section', null, 'card lpg-demo-panel'); approvals.dataset.lpgSection = 'team';
+      approvals.append(el('h2', 'Team reward requests'), el('p', 'Requests are reviewed by another authorized member of your organization.'));
+      requests = el('ul'); approvals.append(requests); root.append(approvals);
+    }
+    const welcome = el('div', null, 'lpg-welcome'); welcome.hidden = true; welcome.setAttribute('role', 'dialog'); welcome.setAttribute('aria-modal', 'true'); welcome.setAttribute('aria-label', 'Welcome to ' + p.name);
+    const welcomeCard = el('article'); welcomeCard.append(el('h2', p.name), el('p', 'Your rewards. Your benefits. All in one place.'), el('p', 'Preview the signed-in experience with sample member data.'));
+    const signin = button('Continue as ' + p.member.name, 'signin'); signin.className = 'btn-primary'; welcomeCard.append(signin); welcome.append(welcomeCard); document.body.append(welcome);
+    function refresh() {
+      const summary = session.summary();
+      document.querySelectorAll('[data-lpg-balance]').forEach(node => { node.textContent = number(summary[node.dataset.lpgBalance]); });
+      document.querySelectorAll('[data-lpg-tier]').forEach(node => { node.textContent = summary.tier.name; });
+      document.querySelectorAll('[data-lpg-tier-index]').forEach(node => { node.dataset.lpgCurrentTier = String(p.tiers[Number(node.dataset.lpgTierIndex)].name === summary.tier.name); });
+      document.querySelectorAll('[data-lpg-progress-text]').forEach(node => { node.textContent = summary.nextTier ? number(summary.gap) + ' ' + p.currencies.qualifyingName + ' to ' + summary.nextTier.name : 'Highest tier achieved'; });
+      const progress = summary.nextTier ? Math.max(0, Math.min(100, (summary.qualifying-summary.tier.threshold)/(summary.nextTier.threshold-summary.tier.threshold)*100)) : 100;
+      document.querySelectorAll('[data-lpg-progress]').forEach(node => { node.style.width = progress + '%'; });
+      document.querySelectorAll('[data-lpg-action="earn"]').forEach(node => { node.disabled = !session.can('earn'); });
+      document.querySelectorAll('[data-lpg-action="request"]').forEach(node => {
+        const reward = p.rewards.find(item => item.id === node.dataset.id);
+        const pending = session.requests.some(item => item.rewardId === node.dataset.id && item.requestedBy === session.role().id && item.status === 'pending');
+        node.disabled = !reward || !session.can('redeem') || reward.cost > summary.redeemable || pending;
+        node.textContent = pending ? 'Awaiting approval' : p.mode === 'b2b' && p.approvalRequired ? 'Request reward' : 'Redeem reward';
+      });
+      events.replaceChildren();
+      const opening = el('li'); opening.append(el('strong', 'Opening balance'), el('span', number(p.opening.redeemable) + ' ' + p.currencies.redeemableName)); events.append(opening);
+      session.events.slice().reverse().forEach(event => { const row = el('li'); row.append(el('strong', event.label), el('span', (event.redeemable >= 0 ? '+' : '') + number(event.redeemable) + ' ' + p.currencies.redeemableName), el('span', event.date.slice(0, 10))); events.append(row); });
+      if (requests) {
+        requests.replaceChildren();
+        if (!session.requests.length) requests.append(el('li', 'No reward requests yet.'));
+        session.requests.forEach(request => {
+          const row = el('li'); row.append(el('strong', request.label), el('span', request.status + ' · ' + number(request.cost) + ' ' + p.currencies.redeemableName));
+          if (request.status === 'pending') ['approve', 'decline'].forEach(action => { const control = button(action === 'approve' ? 'Approve' : 'Decline', action, request.id); control.disabled = !session.can('approve') || request.requestedBy === session.role().id; row.append(control); });
+          requests.append(row);
         });
-      content.append(grid);
-    }
-    function overview(content) {
-      const summary = session.summary(); stats(content, summary);
-      const progress = card('Your progress', summary.nextTier ? 'Every qualifying activity brings you closer to ' + summary.nextTier.name + '.' : 'You have reached the highest program tier.');
-      if (summary.nextTier) {
-        const bar = el('progress'); bar.max = summary.nextTier.threshold; bar.value = summary.qualifying;
-        bar.setAttribute('aria-label', 'Qualifying points toward ' + summary.nextTier.name); progress.append(bar);
-      }
-      progress.append(el('p', 'Your ' + summary.tier.name + ' earning multiplier is ' + summary.tier.multiplier + '× on eligible purchase redeemable points.'));
-      content.append(progress);
-      const grid = el('div', null, 'lpg-p-grid lpg-program-grid');
-      const earnCard = card('Keep earning', 'Explore activities that grow your balances.');
-      earnCard.append(button('View earning activities', 'page', 'earn')); grid.append(earnCard);
-      const rewardCard = card('Make your points count', 'Choose a reward from your program.');
-      rewardCard.append(button('Explore rewards', 'page', 'rewards')); grid.append(rewardCard); content.append(grid);
-    }
-    function earning(content) {
-      const grid = el('div', null, 'lpg-p-grid lpg-program-grid');
-      p.earnRules.forEach(rule => {
-        const item = card(rule.name);
-        const detail = rule.kind === 'spend' ? number(rule.qualifyingRate) + ' qualifying and ' + number(rule.redeemableRate) + ' base redeemable points per unit spent.' : number(rule.qualifyingPoints) + ' qualifying and ' + number(rule.redeemablePoints) + ' redeemable points per activity.';
-        item.append(el('p', detail, 'lpg-p-muted'));
-        if (rule.monthlyCap !== null) item.append(el('p', 'Monthly qualifying points cap: ' + number(rule.monthlyCap) + '.', 'lpg-p-muted'));
-        if (rule.kind === 'spend') {
-          const label = el('label', 'Eligible purchase amount');
-          const input = el('input'); input.type = 'number'; input.min = '0.000001'; input.step = 'any'; input.value = String(rule.amount);
-          input.id = 'lpg-amount-' + rule.id; label.htmlFor = input.id; item.append(label, input);
-        }
-        const action = button('Simulate ' + rule.name, 'earn', rule.id, 'lpg-p-primary');
-        action.disabled = !session.can('earn'); item.append(action); grid.append(item);
-      });
-      content.append(grid);
-      if (!p.earnRules.length) content.append(el('p', 'No earning activities have been configured.'));
-      if (!session.can('earn')) content.append(el('p', 'Switch to a purchasing or member view to simulate earning.', 'lpg-p-notice'));
-      if (p.freeContentMonthlyCap !== null) {
-        const month = new Date().toISOString().slice(0, 7);
-        const fixedIds = new Set(p.earnRules.filter(rule => rule.kind === 'fixed').map(rule => rule.id));
-        const used = session.events.filter(event => event.type === 'earn' && fixedIds.has(event.ruleId) && event.date.slice(0, 7) === month).reduce((total, event) => total + event.qualifying, 0);
-        content.append(el('p', 'Shared monthly activity cap: ' + number(used) + ' of ' + number(p.freeContentMonthlyCap) + ' qualifying points used this month (UTC).', 'lpg-p-notice'));
       }
     }
-    function rewards(content) {
-      content.append(el('p', number(session.summary().redeemable) + ' ' + p.currencies.redeemableName + ' available.', 'lpg-p-muted'));
-      const grid = el('div', null, 'lpg-p-grid lpg-program-grid');
-      p.rewards.forEach(reward => {
-        const item = card(reward.name, reward.description);
-        item.append(el('strong', number(reward.cost) + ' ' + p.currencies.redeemableName, 'lpg-p-stat'));
-        const action = button(p.mode === 'b2b' && p.approvalRequired ? 'Request reward' : 'Redeem reward', 'request', reward.id, 'lpg-p-primary');
-        action.disabled = !session.can('redeem'); item.append(action); grid.append(item);
+    function report(action) {
+      try { action(); live.dataset.error = 'false'; }
+      catch (error) { live.textContent = error.message; live.dataset.error = 'true'; }
+      refresh();
+    }
+    document.addEventListener('change', event => { if (event.target.id === 'lpg-p-role') report(() => { session.switchRole(event.target.value); live.textContent = 'Viewing as ' + session.role().name; }); });
+    document.addEventListener('click', event => {
+      const control = event.target.closest('[data-lpg-action]'); if (!control || control.disabled) return;
+      report(() => {
+        const action = control.dataset.lpgAction, id = control.dataset.id;
+        if (action === 'reset') { session.reset(); live.textContent = 'Demo reset to opening balances.'; }
+        if (action === 'earn') { const amount = document.getElementById('lpg-amount-' + id); session.earn(id, amount ? Number(amount.value) : undefined); live.textContent = 'Activity added. Your points and status are up to date.'; }
+        if (action === 'request') { const result = session.request(id); live.textContent = result.status === 'pending' ? 'Reward requested. Awaiting approval.' : 'Reward redeemed. Enjoy your benefit!'; }
+        if (action === 'approve' || action === 'decline') { session.decide(id, action === 'approve'); live.textContent = action === 'approve' ? 'Request approved.' : 'Request declined.'; }
+        if (action === 'welcome') { welcome.hidden = false; root.inert = true; signin.focus(); }
+        if (action === 'signin') { welcome.hidden = true; root.inert = false; root.querySelector('[data-lpg-action="welcome"]').focus(); }
       });
-      content.append(grid);
-      if (!p.rewards.length) content.append(el('p', 'No rewards have been configured.'));
-      if (p.mode === 'b2b' && p.approvalRequired) content.append(el('p', 'Requests require review by a different approver. Points are deducted only on approval.', 'lpg-p-notice'));
-      if (session.requests.length) renderRequests(content, false);
-    }
-    function activity(content) {
-      stats(content, session.summary());
-      const list = el('ul', null, 'lpg-p-list');
-      const opening = el('li'); opening.append(el('h3', 'Opening balance'), el('p', number(p.opening.qualifying) + ' ' + p.currencies.qualifyingName + ' · ' + number(p.opening.redeemable) + ' ' + p.currencies.redeemableName));
-      list.append(opening);
-      session.events.forEach(event => {
-        const item = el('li'); item.append(el('h3', event.label), el('p', event.date.slice(0, 10), 'lpg-p-muted'));
-        item.append(el('p', (event.qualifying >= 0 ? '+' : '') + number(event.qualifying) + ' ' + p.currencies.qualifyingName + ' · ' + (event.redeemable >= 0 ? '+' : '') + number(event.redeemable) + ' ' + p.currencies.redeemableName));
-        list.append(item);
-      });
-      content.append(list);
-    }
-    function renderRequests(content, controls) {
-      const list = el('ul', null, 'lpg-p-list');
-      if (!session.requests.length) content.append(el('p', 'No reward requests yet. Use a purchasing view to request a reward.'));
-      session.requests.forEach(request => {
-        const item = el('li'); const requester = p.roles.find(role => role.id === request.requestedBy);
-        item.append(el('h3', request.label), el('p', number(request.cost) + ' ' + p.currencies.redeemableName + ' · ' + request.status + ' · Requested by ' + requester.name));
-        if (controls && request.status === 'pending') {
-          const actions = el('div', null, 'lpg-p-actions');
-          const approve = button('Approve', 'approve', request.id, 'lpg-p-primary');
-          const decline = button('Decline', 'decline', request.id);
-          approve.disabled = decline.disabled = !session.can('approve') || request.requestedBy === session.role().id;
-          actions.append(approve, decline); item.append(actions);
-        }
-        list.append(item);
-      });
-      content.append(list);
-    }
-    function actor(role) {
-      if (role.id === p.member.role) return p.member.name;
-      return ['Alex Morgan', 'Sam Taylor', 'Jordan Lee'][p.roles.findIndex(item => item.id === role.id) % 3];
-    }
-    function team(content) {
-      content.append(el('p', 'All views share this organization’s balances and activity.', 'lpg-p-muted'));
-      const grid = el('div', null, 'lpg-p-grid lpg-program-grid');
-      p.roles.forEach(role => {
-        const item = card(actor(role), role.name);
-        item.append(el('p', 'Demo team member · ' + p.member.organization, 'lpg-p-muted')); grid.append(item);
-      });
-      content.append(grid);
-    }
-    function render(focusHeading) {
-      body.replaceChildren();
-      const intro = el('div', null, 'lpg-p-intro');
-      const title = el('div'); title.append(el('p', p.mode === 'b2b' ? 'Business loyalty account' : 'Member loyalty account', 'lpg-p-eyebrow'));
-      title.append(el('h1', p.mode === 'b2b' ? (p.member.organization || 'Example Business') : (p.member.name || 'Demo Member')));
-      title.append(el('p', [p.providerName, p.name].filter(Boolean).join(' · '), 'lpg-p-muted'));
-      if (p.mode === 'b2b') title.append(el('p', actor(session.role()) + ' · ' + session.role().name, 'lpg-p-muted'));
-      intro.append(title);
-      if (p.roles.length > 1) {
-        const switcher = el('div'); const label = el('label', 'View as'); label.htmlFor = 'lpg-p-role';
-        const select = el('select'); select.id = 'lpg-p-role';
-        p.roles.forEach(role => { const option = el('option', role.name); option.value = role.id; option.selected = role.id === session.role().id; select.append(option); });
-        switcher.append(label, select); intro.append(switcher);
-      }
-      body.append(intro, el('p', 'Interactive prototype · Actions use sample data in this page. Views demonstrate permissions; they do not sign in real users.', 'lpg-p-notice'));
-      body.append(button('Reset demo', 'reset'));
-      const nav = el('nav', null, 'lpg-p-nav lpg-program-nav'); nav.setAttribute('aria-label', 'Loyalty portal');
-      const pages = ['overview', 'earn', 'rewards', 'activity'];
-      if (p.mode === 'b2b') pages.push('team');
-      if (p.mode === 'b2b' && p.approvalRequired) pages.push('approvals');
-      pages.forEach(id => { const item = button(names[id], 'page', id); if (page === id) item.setAttribute('aria-current', 'page'); nav.append(item); });
-      body.append(nav);
-      live.dataset.error = String(error); live.textContent = message;
-      const content = el('section', null, 'lpg-program-panel'); const heading = el('h2', names[page]); heading.tabIndex = -1; content.append(heading);
-      if (page === 'overview') overview(content);
-      if (page === 'earn') earning(content);
-      if (page === 'rewards') rewards(content);
-      if (page === 'activity') activity(content);
-      if (page === 'team') team(content);
-      if (page === 'approvals') {
-        if (!session.can('approve')) content.append(el('p', 'Switch to an approver view to review requests.', 'lpg-p-notice'));
-        renderRequests(content, true);
-      }
-      body.append(content);
-      if (focusHeading) heading.focus();
-    }
-    root.addEventListener('change', event => {
-      if (event.target.id !== 'lpg-p-role') return;
-      try { session.switchRole(event.target.value); message = 'Viewing as ' + session.role().name + '. Shared balances are unchanged.'; error = false; }
-      catch (failure) { message = failure.message; error = true; }
-      render(); document.getElementById('lpg-p-role').focus();
     });
-    root.addEventListener('click', event => {
-      const action = event.target.closest('button[data-action]');
-      if (!action || !root.contains(action) || action.disabled) return;
-      const type = action.dataset.action; const id = action.dataset.id;
-      message = ''; error = false;
-      try {
-        if (type === 'reset') { session.reset(); message = 'Demo reset to opening balances.'; }
-        if (type === 'page') { if (!Object.prototype.hasOwnProperty.call(names, id)) return; page = id; }
-        if (type === 'earn') {
-          const amount = document.getElementById('lpg-amount-' + id);
-          const earned = session.earn(id, amount ? Number(amount.value) : undefined);
-          message = 'Activity added: +' + number(earned.qualifying) + ' ' + p.currencies.qualifyingName + ', +' + number(earned.redeemable) + ' ' + p.currencies.redeemableName + '.';
-        }
-        if (type === 'request') { const result = session.request(id); message = result.status === 'pending' ? 'Reward requested. Switch to an approver view to review it.' : 'Reward redeemed. Your balance and activity have been updated.'; }
-        if (type === 'approve' || type === 'decline') { session.decide(id, type === 'approve'); message = type === 'approve' ? 'Request approved. Points deducted once; activity updated.' : 'Request declined. Your points are unchanged.'; }
-      } catch (failure) { message = failure.message; error = true; }
-      render(type === 'page');
-      if (type !== 'page') {
-        const next = Array.from(root.querySelectorAll('button[data-action]')).find(node => node.dataset.action === type && node.dataset.id === id && !node.disabled);
-        if (next) next.focus();
-        else { const status = document.getElementById('lpg-p-status'); status.tabIndex = -1; status.focus(); }
-      }
+    document.addEventListener('keydown', event => {
+      if (welcome.hidden) return;
+      if (event.key === 'Tab') { event.preventDefault(); signin.focus(); }
+      if (event.key === 'Escape') { welcome.hidden = true; root.inert = false; root.querySelector('[data-lpg-action="welcome"]').focus(); }
     });
-    document.body.classList.add('lpg-program-mode');
-    render();
+    refresh();
     return session;
   }
 
@@ -322,26 +202,9 @@
     if (!model || typeof model.factory !== 'function') throw new Error('Loyalty program model is unavailable.');
     const program = model.normalize(state.program);
     delete program.assumptions; delete program.requirements; delete program.futureFeatures;
-    const main = /<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">[\s\S]*?<\/main>/;
-    if (!main.test(html)) throw new Error('Generated portal main region was not found.');
-    // The program supplies its own CSS and uses system fonts. Retain customer
-    // image URLs, but remove only the classic generator's external UI assets.
-    html = html.replace(/<script\b[^>]*\bsrc=["']https:\/\/cdn\.tailwindcss\.com(?:\/[^"']*)?["'][^>]*>[\s\S]*?<\/script\s*>/gi, '')
-      .replace(/<link\b[^>]*\bhref=["']https:\/\/fonts\.(?:googleapis|gstatic)\.com(?:\/[^"']*)?["'][^>]*>/gi, '');
-    const escape = value => String(value || '').replace(/[&<>\"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;' })[character]);
-    const brand = state.brand || {};
-    const brandName = brand.name || program.providerName || program.name;
-    const logo = brand.logoData || brand.logoUrl || '';
-    const safeLogo = /^(https?:\/\/|data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(logo) ? '<img src="' + escape(logo) + '" alt="' + escape(brandName) + '">' : '';
-    const color = state.colors && /^#[a-f0-9]{6}$/i.test(state.colors.menu || state.colors.primary) ? (state.colors.menu || state.colors.primary) : '#172554';
-    const rgb = [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16) / 255).map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
-    const ink = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722 > 0.179 ? '#111827' : '#ffffff';
-    const header = '<header class="site-header" style="background:' + color + ';color:' + ink + '"><div class="lpg-program-header-inner">' + safeLogo + '<span>' + escape(brandName) + '</span></div></header>';
-    const footer = '<footer class="lpg-program-footer">' + escape(brandName) + ' · Interactive loyalty prototype</footer>';
-    const shell = '<main id="lpg-program-root" class="lpg-program"><noscript>Enable JavaScript to use this interactive loyalty prototype.</noscript></main>';
-    const script = '<style>' + styles + '</style><script>\n(function(){const model=(' + model.factory.toString() + ')();const runtime=(' + createProgramRuntime.toString() + ')();runtime.mount(' + serialize(program) + ',model,document);})();\n<\/script>';
-    return html.replace(main, () => shell).replace(/<title>[\s\S]*?<\/title>/, () => '<title>' + escape(program.name) + ' — Loyalty Portal</title>').replace(/<header\b[\s\S]*?<\/header>/, () => header).replace(/<footer\b[\s\S]*?<\/footer>/, () => footer).replace('</body>', () => script + '\n</body>');
+    const script = '<style>' + styles + '</style><script>\n(function(){const model=(' + model.factory.toString() + ')();const createSession=(' + createSession.toString() + ');const mount=(' + mount.toString() + ');mount(' + serialize(program) + ',model,document);})();\n<\/script>';
+    return html.replace('</body>', () => script + '\n</body>');
   }
 
-  return { enhance, mount, createSession, factory: createProgramRuntime };
+  return { enhance, projectState, mount, createSession, factory: createProgramRuntime };
 });

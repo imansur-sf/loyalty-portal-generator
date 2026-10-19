@@ -18,7 +18,7 @@ PROGRAM schema (all numeric values must be finite nonnegative numbers):
 "approvalRequired":boolean,
 "assumptions":[string],"futureFeatures":[string],
 "requirements":[{"id":string,"text":string,"source":string,"status":"interactive"|"displayed"|"future"|"question"|"unsupported","module":string}]}
-Use a first tier threshold of 0; ascending distinct thresholds, up to 12 tiers. pointsPerUnit is RP per one monetary unit (e.g.100 points=$1). A spend rule earns amount*qualifyingRate TP and round(amount*redeemableRate*CURRENT tier multiplier) RP. Fixed rules earn fixed points without tier multipliers, amount=1 and rates=0; spend rules have fixed points=0. freeContentMonthlyCap is a combined monthly TP cap across fixed activities. null means unlimited; 0 means no qualifying earning. Use null caps when unknown and note the assumption. Explicitly flag unsupported rules rather than approximate them silently. Rewards require a positive RP cost; use empty arrays when no rewards/activities are justified. member.role must match a roles[].id. IDs must contain letters/numbers/underscore/hyphen only.
+Use a first tier threshold of 0; ascending distinct thresholds, up to 12 tiers. pointsPerUnit is RP per one monetary unit (e.g.100 points=$1). A spend rule earns amount*qualifyingRate TP and round(amount*redeemableRate*CURRENT tier multiplier) RP. Fixed rules earn fixed points without tier multipliers, amount=1 and rates=0; spend rules have fixed points=0. freeContentMonthlyCap is a combined monthly TP cap across fixed activities. null means unlimited; 0 means no qualifying earning. Use null caps when unknown and note the assumption. Explicitly flag unsupported rules rather than approximate them silently. Rewards require a positive RP cost. This is a visual sales demo: when policies are unspecified, propose 4 relevant rewards and 3-4 earning activities as clearly labeled demo assumptions, using the brand and industry. Use empty arrays only when the author or source explicitly excludes rewards/activities. Never override supplied policy. member.role must match a roles[].id. IDs must contain letters/numbers/underscore/hyphen only.
 For spend rules, amount is a POSITIVE sample transaction amount, not a balance or rate. Use an actual sample product price if available, otherwise 100 with a demo assumption. Never use zero for amount. All unused rate/point fields must be 0. Text labels must be nonempty.
 Separate provider from participating business and person. B2B balances belong to the business; use synthetic account/contact names. Roles are configurable demo views, not actual authorization. For B2B with approvals include requester and approver roles. For B2C use a member role. Do not infer organizational membership from professional individual membership.
 Only implemented modules: overview (balances/tiers), earn (spend/fixed earn), rewards (fixed points redemption), activity (ledger), team (demo people/roles), approvals (request/approve). These are simulated, not integrated to Salesforce. Mark integrations, real invitations, referral tracking, annual rollover, expiry processing, advanced account hierarchy and other unsupported behavior as unsupported/future/question. Do not claim interactive coverage for them. Referrals are future when the document says later phase. Internal financial/governance plans do not become public portal content.
@@ -73,16 +73,16 @@ Keep the complete JSON under 6000 output tokens. Group related source requiremen
     return { program: result.model, brand };
   }
 
-  function migratePayload(payload, model) {
+  function migratePayload(payload, model, nested = false) {
     if (payload.schemaVersion !== undefined && ![1, 2].includes(payload.schemaVersion)) throw new Error('This project needs a newer version of LPG.');
     const copy = JSON.parse(JSON.stringify(payload));
     copy.schemaVersion = 2;
-    copy.outputTemplate = copy.outputTemplate === 'modern' ? 'modern' : 'classic';
+    copy.outputTemplate = copy.outputTemplate === 'modern' ? 'dashboard' : ['dashboard', 'showcase', 'editorial'].includes(copy.outputTemplate) ? copy.outputTemplate : 'classic';
     copy.programEnabled = copy.programEnabled === true;
-    if (copy.program != null) copy.program = model.normalize(copy.program);
+    if (copy.program != null) { copy.program = model.normalize(copy.program); copy.programEnabled = true; }
     else { copy.program = null; copy.programEnabled = false; }
     const brief = copy.brief || {};
-    copy.brief = { mode: brief.mode === 'b2b' ? 'b2b' : 'b2c', text: '', objective: '', roles: '', sources: [] };
+    copy.brief = { mode: ['b2b', 'both'].includes(brief.mode) ? brief.mode : 'b2c', text: '', objective: '', roles: '', sources: [] };
     for (const [key, limit] of [['text', 16000], ['objective', 2000], ['roles', 1000]]) {
       if (brief[key] !== undefined && (typeof brief[key] !== 'string' || brief[key].length > limit)) throw new Error('Invalid saved program brief.');
       copy.brief[key] = brief[key] || '';
@@ -105,6 +105,22 @@ Keep the complete JSON under 6000 output tokens. Group related source requiremen
       for (const key of ['primary', 'accent']) if (/^#[0-9a-f]{6}$/i.test(brand[key] || '')) copy.programReview.brand[key] = brand[key];
       if (typeof copy.programReview.snapshot !== 'string') copy.programReview.snapshot = '';
     } else copy.programReview = null;
+    copy.activeVariant = copy.program?.mode || (copy.activeVariant === 'b2b' ? 'b2b' : 'b2c');
+    const variants = copy.variants || {};
+    if (!variants || typeof variants !== 'object' || Array.isArray(variants) || Object.keys(variants).some(key => !['b2c', 'b2b'].includes(key))) throw new Error('Invalid saved portal audiences.');
+    copy.variants = {};
+    if (nested && Object.keys(variants).length) throw new Error('Nested portal audiences are not supported.');
+    for (const [mode, portal] of Object.entries(variants)) {
+      if (mode === copy.activeVariant) continue;
+      if (!portal || typeof portal !== 'object' || !portal.brand || !portal.colors || !portal.member || !portal.sections || !Array.isArray(portal.tiers)) throw new Error('Incomplete saved portal audience.');
+      for (const key of ['vouchers', 'offers', 'benefits', 'badges', 'clubs', 'earnMore', 'profileTasks', 'navLinks']) {
+        if (!Array.isArray(portal[key])) throw new Error('Invalid saved portal audience content.');
+      }
+      const restored = migratePayload({ ...portal, activeVariant: mode }, model, true);
+      if (restored.program && restored.program.mode !== mode) throw new Error('Saved portal audience does not match its program.');
+      delete restored.brief; delete restored.variants; delete restored.activeVariant; delete restored.schemaVersion;
+      copy.variants[mode] = restored;
+    }
     return copy;
   }
 
