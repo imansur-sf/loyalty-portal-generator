@@ -137,8 +137,25 @@ These checks bypass the external SSO gateway; user browser retest still needed.
 ## Incomplete program JSON repair
 - [x] Identify malformed JSON bypassing automatic correction and8000-token cap.
 - [x] Add structured output, larger bounded budget and bounded recovery in both AI stages.
-- [ ] Verify approved22-pagePDF reproduction, regressions and hosted release.
+- [x] Verify approved22-pagePDF reproduction, regressions and hosted release.
 
 133tests passed, including response metadata, boundedretries, complete22page
 source preservation and both-audience atomicity. PDF replay authorized byuser.
 Revisedconfig producedvalidprogram11.3s; fullwebsite+PDF validation pending.
+
+Deployed0f9d590 / Heroku v31 succeeded; web-69c6dd7d8-w9wlk is up.
+Approved full22-pagePDF + actualISACAwebsite extraction(25imagecandidates) passed
+both deployed AI text stages through LocalAI job polling in19.6s,2AIcalls and
+no repair needed. Program:5earningrules/10groupedcoverageentries. Presentation:
+4vouchers,2offers,5benefits,5earningcards. Image enrichment wasstubbed forthis
+text-validation check; browser rendering/OTP flow were nottested inthisrun.
+
+## Customer-facing portal and expanded-preview repair
+- [x] Inspect presenter toolbar and hidden iframe/network-dependent rendering.
+- [x] Move presenter controls to builder and embed portal styling.
+- [ ] Verify all four templates and preview lifecycle, then deploy.
+
+141tests passed; standalone17scripts parse; embedded96319-byteCSS checkpassed.
+Presenter controls removedfromexports and movedtobuilder; allfourtemplates
+render without externalheadresources inDOMtests. Browseroriginblockedbyadmin
+policy; no visualverification. Deployment pending.

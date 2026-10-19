@@ -61,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initQuickStart();
   window.LPGRequirementsEditor?.init();
   initializeProjects();
+  document.getElementById('portal-preview-dialog')?.addEventListener('close', () => clearTimeout(expandedPreviewTimer));
 });
 
 // ---- QUICK START (AI URL analysis) ----
@@ -1150,22 +1151,82 @@ function schedulePreview() {
   previewTimer = setTimeout(updatePreview, 300);
 }
 
-function updatePreview() {
-  const iframe = document.getElementById('preview-iframe');
-  if (!iframe) return;
-  try {
-    const html = generatePortalHTML(state);
-    iframe.srcdoc = html;
-    if (document.getElementById('portal-preview-dialog')?.open) document.getElementById('expanded-preview-iframe').srcdoc = html;
-  } catch (err) {
-    console.error('Preview error:', err);
+let portalPreviewSequence = 0, expandedPreviewTimer = null, presenterRoleId = null;
+function previewStatus(message, retry = false) {
+  const status = document.getElementById('expanded-preview-status');
+  if (status) { status.textContent = message; status.hidden = !message; }
+  const button = document.getElementById('expanded-preview-retry');
+  if (button) button.hidden = !retry;
+}
+function loadPortalPreview(frame, html) {
+  if (!frame) return;
+  const token = String(++portalPreviewSequence);
+  frame.dataset.previewToken = token;
+  // Sandboxed srcdoc frames have opaque origins. Only this frame and its latest
+  // token can acknowledge readiness; no access to its DOM is required.
+  const ready = '<script>parent.postMessage({type:"lpg-preview-ready",token:' + JSON.stringify(token) + '},"*");<\/script>';
+  frame.srcdoc = html.replace(/<\/body>\s*<\/html>\s*$/i, ready + '</body></html>');
+  if (frame.id === 'expanded-preview-iframe') {
+    clearTimeout(expandedPreviewTimer);
+    previewStatus('Loading portal…');
+    expandedPreviewTimer = setTimeout(() => previewStatus('The preview is taking longer to load. Reload it to try again.', true), 12000);
   }
 }
-
+window.addEventListener('message', event => {
+  if (event.data?.type !== 'lpg-preview-ready') return;
+  const frame = ['preview-iframe', 'expanded-preview-iframe'].map(id => document.getElementById(id)).find(node => node && event.source === node.contentWindow);
+  if (!frame || event.data.token !== frame.dataset.previewToken) return;
+  if (state.programEnabled && state.program?.roles?.some(role => role.id === presenterRoleId)) frame.contentWindow.postMessage({type:'lpg-preview-control',action:'role',roleId:presenterRoleId}, '*');
+  if (frame.id === 'expanded-preview-iframe') { clearTimeout(expandedPreviewTimer); previewStatus(''); }
+});
+function refreshPresenterTools() {
+  const program = state.programEnabled ? state.program : null;
+  if (!program?.roles?.some(role => role.id === presenterRoleId)) presenterRoleId = program?.member?.role || null;
+  document.querySelectorAll('[data-presenter-action]').forEach(button => { button.disabled = !program; });
+  document.querySelectorAll('[data-presenter-role-label]').forEach(label => { label.hidden = !program || program.roles.length < 2; });
+  document.querySelectorAll('[data-presenter-role]').forEach(select => {
+    select.replaceChildren();
+    (program?.roles || []).forEach(role => {
+      const option = document.createElement('option'); option.value = role.id; option.textContent = role.name;
+      option.selected = role.id === presenterRoleId; select.append(option);
+    });
+  });
+}
+function controlPortalPreview(action, roleId) {
+  if (!['reset', 'welcome', 'role'].includes(action) || !state.programEnabled || !state.program) return;
+  if (action === 'role' && !state.program.roles.some(role => role.id === roleId)) return;
+  if (action === 'role') presenterRoleId = roleId;
+  for (const id of ['preview-iframe', 'expanded-preview-iframe']) {
+    const frame = document.getElementById(id);
+    if (frame?.srcdoc) frame.contentWindow?.postMessage({ type: 'lpg-preview-control', action, roleId }, '*');
+  }
+  if (action === 'role') document.querySelectorAll('[data-presenter-role]').forEach(select => { select.value = roleId; });
+}
+function updatePreview() {
+  presenterRoleId = state.program?.member?.role || null;
+  refreshPresenterTools();
+  try {
+    const html = generatePortalHTML(state);
+    loadPortalPreview(document.getElementById('preview-iframe'), html);
+    if (document.getElementById('portal-preview-dialog')?.open) loadPortalPreview(document.getElementById('expanded-preview-iframe'), html);
+  } catch (err) {
+    console.error('Preview error:', err);
+    if (document.getElementById('portal-preview-dialog')?.open) previewStatus('The portal could not be rendered. Your work is kept; reload the preview to try again.', true);
+  }
+}
+function closePortalPreview() {
+  clearTimeout(expandedPreviewTimer);
+  document.getElementById('portal-preview-dialog')?.close();
+}
 function openPortalPreview() {
   const dialog = document.getElementById('portal-preview-dialog');
-  document.getElementById('expanded-preview-iframe').srcdoc = generatePortalHTML(state);
+  if (!dialog) return;
+  // Establish the visible grid before navigating the iframe. A hidden iframe
+  // with a percentage height can retain an unusable initial viewport.
   if (!dialog.open) dialog.showModal();
+  refreshPresenterTools();
+  try { loadPortalPreview(document.getElementById('expanded-preview-iframe'), generatePortalHTML(state)); }
+  catch (error) { console.error('Expanded preview error:', error); previewStatus('The portal could not be rendered. Your work is kept; reload the preview to try again.', true); }
 }
 
 // ---- EXPORT ----

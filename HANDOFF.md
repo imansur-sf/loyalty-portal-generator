@@ -2,7 +2,30 @@
 
 Last updated: 2026-10-18. **Read this first.** `git log` records shipped changes; PROGRESS.md records the current sign-in/save rollout. `CLAUDE.md` in this repo is stale (still describes a Page Host zip-bundle deployment that was abandoned); its two-build-outputs instructions still apply.
 
-## Incomplete AI response repair (2026-10-18)
+## Customer-facing controls and full-size preview (2026-10-18)
+
+Removed Reset demo, Show welcome screen, View as and sample-data instructions
+from the generated portal. Customer account menu supports Sign out / Sign in.
+Presenter reset/welcome/roles now live in collapsed builder-only controls,
+including modal chrome. Parent-only messages control sandboxed previews;
+selected roles carry into newly opened frames and never change saved defaults.
+
+All four portal templates now embed96319bytes of precompiled Tailwind3 utilities
+plus ordinary theme CSS. No blocking CDN compiler or Google font stylesheet in
+exports. Build-time theme variables support opacity, gradients and numeric
+font weights. Run npm run build:portal-css after changing generated classes;
+check:portal-css verifies reproducibility. Tailwind/PostCSS are dev dependencies.
+Standalone rebuild remains required. Portal font uses system fallbacks.
+
+Expanded dialog uses an explicit viewport-height grid and is opened before
+iframe loading. Current-frame/token readiness messages clear loading status;
+render failures/timeouts expose a reload action rather than silent blank output.
+141tests pass including generated CSS without external resources, all layouts,
+preview lifecycle, stale messages, role synchronization and older projects.
+17standalone scripts parse. Browser access to production is admin-policy blocked;
+no visual browser confirmation. Production verification follows deployment.
+
+## Incomplete AI response repair (2026-10-18, deployed0f9d590 / v31)
 
 The program JSON parser threw an unclassified error for malformed/truncated
 output, bypassing the editor's automatic correction branch. Both rules and
@@ -19,7 +42,9 @@ Logging includes finish/token counts only, never source content.
 User explicitly approved replay through existing Gemini backend. Baseline
 replay happened to succeed; original malformed response is not available.
 Revised JSON/low-thinking config passed with complete valid program in11.3s.
-Fullwebsite+PDF, both-stage production verification follows deployment.
+Fullwebsite+PDF production verification passed bothtextstages in19.6s via
+deployedLocalAI polling:2AIcalls,4vouchers,2offers,5benefits,5earningcards.
+Image enrichment wasstubbed for this text-validationcheck; no browserrender check.
 
 ## Generation timeout repair (2026-10-18, deployed5a02418 / v30)
 

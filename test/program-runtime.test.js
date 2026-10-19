@@ -34,6 +34,14 @@ function click(document, action, id) {
   assert.ok(control, 'Missing action '+action+':'+id); control.click();
 }
 
+function presenter(view, action, extra = {}) {
+  if (!view.__presenter) {
+    view.__presenter = {};
+    Object.defineProperty(view, 'parent', { value: view.__presenter, configurable: true });
+  }
+  view.dispatchEvent(new view.MessageEvent('message', { source: view.__presenter, data: { type: 'lpg-preview-control', action, ...extra } }));
+}
+
 test('legacy projects retain their exact original HTML', () => {
   for (const state of [{}, { program:program() }, { programEnabled:false,program:program() }]) assert.equal(runtime.enhance(html,state),html);
 });
@@ -66,9 +74,9 @@ test('demo handlers enforce permissions even when buttons are bypassed', () => {
   demo.switchRole('approver');
   assert.throws(() => demo.request('credit'), /does not permit/);
   assert.throws(() => demo.earn('purchase', 20), /does not permit/);
-  assert.throws(() => demo.switchRole('invented'), /Unknown demo role/);
+  assert.throws(() => demo.switchRole('invented'), /Unknown account role/);
   demo.switchRole('administrator'); const own = demo.request('credit');
-  assert.throws(() => demo.decide(own.id, true), /different approver/);
+  assert.throws(() => demo.decide(own.id, true), /Another authorized team member/);
 });
 
 test('duplicate pending requests are rejected; decline does not deduct points', () => {
@@ -113,7 +121,8 @@ test('rich exports retain all branded images, descriptions and sections while us
     assert.equal(doc.querySelector('[data-lpg-balance="qualifying"]').textContent,'1,000');
     assert.ok(!doc.body.textContent.includes('Stale title'));
     assert.ok(!doc.body.textContent.includes('Redeem 200 pts before they expire'));
-    assert.ok(doc.querySelector('script[src*="tailwindcss"]'),'Classic styles retained');
+    assert.ok(doc.querySelector('style#lpg-portal-utilities'),'Compiled Classic styles retained');
+    assert.equal(doc.querySelector('script[src*="tailwindcss"]'),null,'No runtime CSS compiler required');
   } finally { dom.window.close(); }
 });
 test('rich export runs standalone and updates existing balances after earning, request, approval and reset', () => {
@@ -123,21 +132,22 @@ test('rich export runs standalone and updates existing balances after earning, r
     assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625');
     assert.equal(doc.querySelector('[data-lpg-balance="qualifying"]').textContent,'1,100');
     click(doc,'request','credit'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625');
-    const role=doc.getElementById('lpg-p-role'); role.value='approver'; role.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+    presenter(dom.window,'role',{roleId:'approver'});
     click(doc,'approve','request-1'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'525');
     assert.match(doc.querySelector('[data-lpg-section="team"]').textContent,/approved/);
     assert.match(doc.querySelector('[data-lpg-section="activity"]').textContent,/Eligible business order/);
-    click(doc,'reset'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'500');
+    presenter(dom.window,'reset'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'500');
     assert.equal(doc.querySelector('img[src="https://brand.example/exam.jpg"]').getAttribute('alt'),model.normalize(program()).rewards[0].name);
   } finally { dom.window.close(); }
 });
-test('B2C rich reward redemption is immediate and welcome screen demonstrates sign-in without credentials', () => {
+test('B2C rewards redeem immediately and the customer account menu supports sign-out and sign-in', () => {
   const p=program({mode:'b2c',approvalRequired:false,member:{name:'Alex',role:'member'}});
   const dom=loaded(portal({program:p})); const doc=dom.window.document;
   try {
     assert.equal(doc.querySelector('[data-lpg-section="team"]'),null);
     click(doc,'request','credit'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'400');
-    click(doc,'welcome'); assert.equal(doc.querySelector('.lpg-welcome').hidden,false);
+    click(doc,'account'); assert.equal(doc.getElementById('lpg-account-menu').hidden,false);
+    click(doc,'signout'); assert.equal(doc.querySelector('.lpg-welcome').hidden,false);
     click(doc,'signin'); assert.equal(doc.querySelector('.lpg-welcome').hidden,true);
     assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'400');
   } finally { dom.window.close(); }
@@ -159,7 +169,7 @@ test('all alternate layouts preserve actual runtime actions after repositioning 
       assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625',outputTemplate);
       assert.match(doc.getElementById('lpg-p-status').textContent,/Activity added/);
       click(doc,'request','credit');
-      const role=doc.getElementById('lpg-p-role'); role.value='approver'; role.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+      presenter(dom.window,'role',{roleId:'approver'});
       click(doc,'approve','request-1'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'525',outputTemplate);
       assert.equal(doc.querySelectorAll('[data-lpg-section="vouchers"]').length,1);
       assert.ok(doc.querySelector('img[src="https://brand.example/exam.jpg"]'));
@@ -179,4 +189,34 @@ test('membership presentation never invents a price or billing period when they 
   }
   const dom=loaded(portal({upsell:{title:'Membership',price:'$49',period:'Annual',tagline:'An explicit membership offer'}}));
   try { assert.match(dom.window.document.querySelector('[data-lpg-section="upsell"]').textContent,/49[\s\S]*Annual/); } finally {dom.window.close();}
+});
+
+
+test('customer-facing exports contain no presenter toolbar or presentation instructions in any layout', () => {
+  for (const outputTemplate of ['classic','dashboard','showcase','editorial']) {
+    const output=portal({outputTemplate});
+    assert.doesNotMatch(output,/Reset demo|Show welcome screen|Preview the signed-in experience with sample member data|authorized demo role/);
+    const dom=loaded(output), doc=dom.window.document;
+    try {
+      assert.equal(doc.querySelector('.lpg-demo-toolbar'),null);
+      assert.equal(doc.getElementById('lpg-p-role'),null);
+      assert.equal(doc.querySelector('[data-lpg-action="reset"],[data-lpg-action="welcome"]'),null);
+      assert.ok(doc.querySelector('[data-lpg-action="account"][aria-label="My account"]'));
+      assert.ok(doc.querySelector('[data-lpg-action="request"]'));
+    } finally {dom.window.close();}
+  }
+});
+
+test('presenter bridge accepts only the embedding parent and standalone exports ignore control messages', () => {
+  const dom=loaded(portal()), doc=dom.window.document, view=dom.window;
+  try {
+    doc.getElementById('lpg-amount-purchase').value='100'; click(doc,'earn','purchase');
+    const send = source => view.dispatchEvent(new view.MessageEvent('message',{source,data:{type:'lpg-preview-control',action:'reset'}}));
+    send(view); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625');
+    presenter(view,'role',{roleId:'approver'});
+    send({}); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'625');
+    presenter(view,'welcome'); assert.equal(doc.querySelector('.lpg-welcome').hidden,false);
+    click(doc,'signin'); presenter(view,'reset'); assert.equal(doc.querySelector('[data-lpg-balance="redeemable"]').textContent,'500');
+    assert.equal(doc.getElementById('lpg-p-status').textContent,'');
+  } finally {dom.window.close();}
 });

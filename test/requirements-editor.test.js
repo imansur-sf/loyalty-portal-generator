@@ -223,3 +223,62 @@ test('layout changes during generation survive and numerals in point currency do
     e.run("updateItem('vouchers',0,'actionValue','100 B2B Points')");assert.equal(e.run('state.program.rewards[0].cost'),100);
   }finally{e.close();}
 });
+
+test('full-size preview opens before loading and refreshes every layout with the selected portal',async()=>{
+  const e=await editor();try{
+    const d=e.w.document.getElementById('portal-preview-dialog'), f=e.w.document.getElementById('expanded-preview-iframe');
+    let opens=0;d.showModal=()=>{assert.equal(f.srcdoc,'');d.open=true;opens++;};d.close=()=>{d.open=false;};
+    e.run("state.brand.name='Preview brand'; state.program=LPGProgram.normalize({providerName:'Preview brand',name:'Preview Rewards'});state.programEnabled=true;");
+    for(const template of ['classic','dashboard','showcase','editorial']){
+      e.run(`state.outputTemplate=${JSON.stringify(template)}`);
+      e.w.openPortalPreview();
+      assert.ok(d.open);assert.match(f.srcdoc,/Preview Rewards/);assert.match(f.srcdoc,/lpg-preview-ready/);
+      if(template!=='classic')assert.match(f.srcdoc,new RegExp('data-lpg-template="'+template+'"'));
+      assert.equal(e.w.document.getElementById('expanded-preview-status').textContent,'Loading portal…');
+      e.w.dispatchEvent(new e.w.MessageEvent('message',{source:f.contentWindow,data:{type:'lpg-preview-ready',token:f.dataset.previewToken}}));
+      assert.equal(e.w.document.getElementById('expanded-preview-status').hidden,true);
+      e.run("state.brand.programName='Updated portal';updatePreview()");
+      assert.match(f.srcdoc,/Preview Rewards/);
+    }
+    assert.equal(opens,1);e.w.closePortalPreview();assert.equal(d.open,false);
+    const exported=e.run('generatePortalHTML(state)');assert.doesNotMatch(exported,/lpg-preview-ready|Restart interactions|Show welcome screen|Reset demo/);
+  }finally{e.close();}
+});
+
+test('expanded preview ignores stale/unrelated ready messages and exposes rendering failures',async()=>{
+  const e=await editor();try{
+    const d=e.w.document.getElementById('portal-preview-dialog'),f=e.w.document.getElementById('expanded-preview-iframe');
+    d.showModal=()=>{d.open=true;};e.w.openPortalPreview();const old=f.dataset.previewToken;e.w.openPortalPreview();
+    const status=e.w.document.getElementById('expanded-preview-status');
+    e.w.dispatchEvent(new e.w.MessageEvent('message',{source:f.contentWindow,data:{type:'lpg-preview-ready',token:old}}));assert.equal(status.hidden,false);
+    e.w.dispatchEvent(new e.w.MessageEvent('message',{source:e.w,data:{type:'lpg-preview-ready',token:f.dataset.previewToken}}));assert.equal(status.hidden,false);
+    e.w.dispatchEvent(new e.w.MessageEvent('message',{source:f.contentWindow,data:{type:'lpg-preview-ready',token:f.dataset.previewToken}}));assert.equal(status.hidden,true);
+    e.w.console.error=()=>{};e.run("generatePortalHTML=()=>{throw new Error('render failure')}");e.w.openPortalPreview();
+    assert.match(status.textContent,/could not be rendered/);assert.equal(e.w.document.getElementById('expanded-preview-retry').hidden,false);
+  }finally{e.close();}
+});
+
+test('presentation controls live in builder chrome and target preview frames without changing saved roles',async()=>{
+  const e=await editor();try{
+    e.run("state.program=LPGProgram.normalize({mode:'b2b',providerName:'Preview brand'});state.programEnabled=true;updatePreview();");
+    const calls=[];const f=e.w.document.getElementById('preview-iframe');f.contentWindow.postMessage=(message)=>calls.push(message);
+    const roles=e.run('state.program.roles'),selected=roles[1].id,original=e.run('state.program.member.role');
+    e.w.controlPortalPreview('role',selected);e.w.controlPortalPreview('reset');e.w.controlPortalPreview('welcome');e.w.controlPortalPreview('role','invalid');
+    assert.deepEqual(calls.map(m=>m.action),['role','reset','welcome']);assert.equal(calls[0].roleId,selected);assert.equal(e.run('state.program.member.role'),original);
+    assert.equal(e.w.document.querySelector('[data-presenter-role-label]').hidden,false);
+  }finally{e.close();}
+});
+
+test('expanding a portal preserves the selected presenter role and applies it after the new frame is ready',async()=>{
+  const e=await editor();try{
+    e.run("state.program=LPGProgram.normalize({mode:'b2b',providerName:'Preview brand'});state.programEnabled=true;updatePreview();");
+    const role=e.run('state.program.roles[1].id');e.w.controlPortalPreview('role',role);
+    const d=e.w.document.getElementById('portal-preview-dialog'),f=e.w.document.getElementById('expanded-preview-iframe');d.showModal=()=>{d.open=true;};
+    const delivered=[];f.contentWindow.postMessage=message=>delivered.push(message);
+    e.w.openPortalPreview();
+    assert.ok([...e.w.document.querySelectorAll('[data-presenter-role]')].every(select=>select.value===role));
+    e.w.dispatchEvent(new e.w.MessageEvent('message',{source:f.contentWindow,data:{type:'lpg-preview-ready',token:f.dataset.previewToken}}));
+    assert.equal(delivered.at(-1).action,'role');assert.equal(delivered.at(-1).roleId,role);
+    e.w.controlPortalPreview('reset');assert.ok([...e.w.document.querySelectorAll('[data-presenter-role]')].every(select=>select.value===role));
+  }finally{e.close();}
+});
