@@ -1387,7 +1387,8 @@ function debounce(fn, ms) {
     { id: 'progress', label: 'Status and progress', fields: [
       ['progressEyebrow', 'Status – Intro line', 'THE WAY FORWARD'],
       ['progressTitle', 'Status – Heading', 'A little closer. A little more yours.'],
-      ['progressDescription', 'Status – Closer', 'Your status today, and the milestones ahead.']
+      ['progressDescription', 'Status – Closer', 'Your status today, and the milestones ahead.'],
+      ['progressSummary', 'Next tier – Member message (header and status)', 'Explore eligible activities to move toward your next membership tier.']
     ] },
     { id: 'possibility', label: 'Rewards', fields: [
       ['possibilityEyebrow', 'Rewards – Intro line', 'POSSIBILITY BECOMES REALITY'],
@@ -2194,6 +2195,13 @@ function debounce(fn, ms) {
     const tierName = tierSource?.querySelector('[data-lpg-tier]')?.textContent || options.initialTier || 'Member';
     const memberName = heroSource?.querySelector('.text-2xl')?.textContent || options.memberName || 'Member';
     const progressText = tierSource?.querySelector('[data-lpg-progress-text]');
+    const progressMessage = copy('progressSummary', 'Explore eligible activities to move toward your next membership tier.');
+    if (progressText) {
+      progressText.removeAttribute('data-lpg-progress-text');
+      progressText.classList.add('cj-progress-message');
+      progressText.textContent = progressMessage;
+      progressText.hidden = !progressMessage;
+    }
     const nav = make('nav', 'cj-nav'); nav.setAttribute('aria-label', 'Your loyalty journey');
     layout.appendChild(nav);
     const scenes = [];
@@ -2245,8 +2253,8 @@ function debounce(fn, ms) {
       }
       stage.appendChild(card);
       const content = arrival.querySelector('.cj-content');
-      if (progressText) {
-        const summary = make('p', 'cj-status-summary', progressText.textContent); summary.dataset.lpgProgressText = ''; content.appendChild(summary);
+      if (progressText && progressMessage) {
+        const summary = make('p', 'cj-status-summary', progressMessage); content.appendChild(summary);
       }
       stage.appendChild(content);
       const actions = make('div', 'cj-arrival-actions');
@@ -2315,7 +2323,7 @@ function debounce(fn, ms) {
     const longSceneCopy = [
       ['arrivalEyebrow',80,2], ['arrivalTitle',90,3], ['arrivalDescription',220,4],
       ['statusEyebrow',80,2], ['statusTitle',90,3], ['possibilityEyebrow',80,2],
-      ['possibilityTitle',120,3], ['possibilityDescription',220,4], ['arrivalAction',80,2], ['scrollNote',180,3]
+      ['possibilityTitle',120,3], ['possibilityDescription',220,4], ['arrivalAction',80,2], ['scrollNote',180,3], ['progressSummary',220,4]
     ].some(([key, length, lines]) => {
       const text = options.copy?.[key] || '';
       return text.length > length || text.split('\n').length > lines;
@@ -2505,7 +2513,7 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-heading { position: relative; min-width: 0; z-index: 2; }
 .cj-eyebrow { color: #526073; font-size: 11px; letter-spacing: .18em; font-weight: 600; margin: 0 0 22px; }
 .cj-title { font-size: clamp(2.8rem,5.5vw,6rem); line-height: 1.02; letter-spacing: -.065em; font-weight: 500; text-wrap: balance; margin: 0; max-width: 850px; }
-.cj-heading :is(.cj-title,.cj-eyebrow,.cj-description),.cj-arrival-status p,.cj-scroll-note { white-space: pre-wrap; }
+.cj-heading :is(.cj-title,.cj-eyebrow,.cj-description),.cj-arrival-status p,.cj-scroll-note,.cj-status-summary,.cj-progress-message { white-space: pre-wrap; }
 .cj-description { color: #526073; max-width: 460px; font-size: 16px; line-height: 1.65; margin: 24px 0 0; }
 .cj-content { position: relative; min-width: 0; z-index: 1; }
 .cj-arrival { background: var(--lpg-soft); padding: 0; }
@@ -3020,6 +3028,14 @@ should be empty strings. For B2B use business/account language and preserve sepa
 participating business and contact. For B2C use individual member language.
 Use only supplied image candidate URLs, never invent image URLs. Leave missing images empty;
 the existing image generation service will fill them. No imageData/base64 in your response, including coverImageData. For cinematic benefits you may supply coverImageUrl only from supplied image candidates: a full photographic scene, never an icon. Keep the existing benefit icon imageUrl separate from its coverImageUrl.
+For presentationPreferences.outputTemplate="cinematic", also return cinematic.copy.progressSummary:
+a short plain-text sentence explaining the member's next tier goal and the eligible activities
+that help reach it. Use only the actual tier names, qualification currency and earning activities
+in validatedProgram and the author requirements. Do not confuse redeemable points, qualifying
+points, learning hours or lifetime balances. State the remaining amount only when the supplied
+rules and member balance establish it; otherwise use nonnumeric wording without inventing a
+qualification policy. If the member is at the highest tier, describe maintaining or enjoying
+that status only as supported. This sentence is editable presentation copy, never a live formula.
 If website data is absent, use the author brief and validatedProgram to personalize content.
 Keep brandName/programName/member/tiers consistent with validatedProgram. Keep JSON complete.
 For a refinement, use existingPresentation as the starting copy. Change the sections relevant
@@ -3263,12 +3279,23 @@ complete every required section and exact reward/earning mapping before closing 
       item.coverImageUrl = key === 'benefits' && candidates.has(item.coverImageUrl) && item.coverImageUrl !== item.imageUrl ? item.coverImageUrl : '';
       delete item.coverImageData;
     }
+    const generatedProgressMessage = typeof parsed.cinematic?.copy?.progressSummary === 'string' ? parsed.cinematic.copy.progressSummary.slice(0, 8000) : undefined;
     delete parsed.cinematic;
     parsed.brand = { logoUrl: candidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl : '' };
     parsed.upsell.bgImageUrl = candidates.has(parsed.upsell.bgImageUrl) ? parsed.upsell.bgImageUrl : '';
     delete parsed.upsell.bgImageData;
     const data = reconcile(parsed, validated, { existing, refreshCopy: true });
-    if (cinematic) data.cinematic = clone(cinematic);
+    const savedCinematic = existing?.cinematic || cinematic;
+    if (savedCinematic) data.cinematic = clone(savedCinematic);
+    if (outputTemplate === 'cinematic') {
+      data.cinematic = data.cinematic || {};
+      data.cinematic.copy = data.cinematic.copy || {};
+      const savedMessage = data.cinematic.copy.progressSummary;
+      const defaultMessage = 'Explore eligible activities to move toward your next membership tier.';
+      if (generatedProgressMessage !== undefined && (savedMessage === undefined || (!isRefinement(existing) && savedMessage === defaultMessage))) {
+        data.cinematic.copy.progressSummary = generatedProgressMessage;
+      }
+    }
     // Existing user-selected/uploaded assets survive even initial generation.
     if (existing?.brand?.logoData || existing?.brand?.logoUrl) data.brand = { ...data.brand, logoData: existing.brand.logoData || '', logoUrl: existing.brand.logoUrl || '' };
     const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus, outputTemplate });

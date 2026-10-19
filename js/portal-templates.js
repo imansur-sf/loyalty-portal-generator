@@ -111,6 +111,13 @@
     const tierName = tierSource?.querySelector('[data-lpg-tier]')?.textContent || options.initialTier || 'Member';
     const memberName = heroSource?.querySelector('.text-2xl')?.textContent || options.memberName || 'Member';
     const progressText = tierSource?.querySelector('[data-lpg-progress-text]');
+    const progressMessage = copy('progressSummary', 'Explore eligible activities to move toward your next membership tier.');
+    if (progressText) {
+      progressText.removeAttribute('data-lpg-progress-text');
+      progressText.classList.add('cj-progress-message');
+      progressText.textContent = progressMessage;
+      progressText.hidden = !progressMessage;
+    }
     const nav = make('nav', 'cj-nav'); nav.setAttribute('aria-label', 'Your loyalty journey');
     layout.appendChild(nav);
     const scenes = [];
@@ -162,8 +169,8 @@
       }
       stage.appendChild(card);
       const content = arrival.querySelector('.cj-content');
-      if (progressText) {
-        const summary = make('p', 'cj-status-summary', progressText.textContent); summary.dataset.lpgProgressText = ''; content.appendChild(summary);
+      if (progressText && progressMessage) {
+        const summary = make('p', 'cj-status-summary', progressMessage); content.appendChild(summary);
       }
       stage.appendChild(content);
       const actions = make('div', 'cj-arrival-actions');
@@ -232,7 +239,7 @@
     const longSceneCopy = [
       ['arrivalEyebrow',80,2], ['arrivalTitle',90,3], ['arrivalDescription',220,4],
       ['statusEyebrow',80,2], ['statusTitle',90,3], ['possibilityEyebrow',80,2],
-      ['possibilityTitle',120,3], ['possibilityDescription',220,4], ['arrivalAction',80,2], ['scrollNote',180,3]
+      ['possibilityTitle',120,3], ['possibilityDescription',220,4], ['arrivalAction',80,2], ['scrollNote',180,3], ['progressSummary',220,4]
     ].some(([key, length, lines]) => {
       const text = options.copy?.[key] || '';
       return text.length > length || text.split('\n').length > lines;
@@ -422,7 +429,7 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-heading { position: relative; min-width: 0; z-index: 2; }
 .cj-eyebrow { color: #526073; font-size: 11px; letter-spacing: .18em; font-weight: 600; margin: 0 0 22px; }
 .cj-title { font-size: clamp(2.8rem,5.5vw,6rem); line-height: 1.02; letter-spacing: -.065em; font-weight: 500; text-wrap: balance; margin: 0; max-width: 850px; }
-.cj-heading :is(.cj-title,.cj-eyebrow,.cj-description),.cj-arrival-status p,.cj-scroll-note { white-space: pre-wrap; }
+.cj-heading :is(.cj-title,.cj-eyebrow,.cj-description),.cj-arrival-status p,.cj-scroll-note,.cj-status-summary,.cj-progress-message { white-space: pre-wrap; }
 .cj-description { color: #526073; max-width: 460px; font-size: 16px; line-height: 1.65; margin: 24px 0 0; }
 .cj-content { position: relative; min-width: 0; z-index: 1; }
 .cj-arrival { background: var(--lpg-soft); padding: 0; }

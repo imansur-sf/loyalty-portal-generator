@@ -280,3 +280,21 @@ test('cinematic reward affordability, membership card and sticky balance follow 
     assert.equal(toggle.getAttribute('aria-expanded'),'false');
   } finally { dom.window.close(); }
 });
+
+
+test('cinematic next-tier message is editable copy and survives live balance updates', async () => {
+  for (const message of ['Earn lifetime points through eligible activities.\nYour next chapter awaits.', '']) {
+    const dom = loaded(portal({ outputTemplate: 'cinematic', cinematic: { copy: { progressSummary: message } } }));
+    try {
+      const doc = dom.window.document;
+      assert.equal(doc.querySelector('.cj-progress-message').textContent, message);
+      assert.equal(doc.querySelector('.cj-progress-message').hidden, !message);
+      assert.equal(doc.querySelector('.cj-status-summary')?.textContent || '', message);
+      assert.equal(doc.querySelectorAll('[data-lpg-progress-text]').length, 0);
+      presenter(dom.window, 'reset');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(doc.querySelector('.cj-progress-message').textContent, message);
+      assert.equal(doc.querySelector('.cj-status-summary')?.textContent || '', message);
+    } finally { dom.window.close(); }
+  }
+});

@@ -14,7 +14,8 @@
     { id: 'progress', label: 'Status and progress', fields: [
       ['progressEyebrow', 'Status – Intro line', 'THE WAY FORWARD'],
       ['progressTitle', 'Status – Heading', 'A little closer. A little more yours.'],
-      ['progressDescription', 'Status – Closer', 'Your status today, and the milestones ahead.']
+      ['progressDescription', 'Status – Closer', 'Your status today, and the milestones ahead.'],
+      ['progressSummary', 'Next tier – Member message (header and status)', 'Explore eligible activities to move toward your next membership tier.']
     ] },
     { id: 'possibility', label: 'Rewards', fields: [
       ['possibilityEyebrow', 'Rewards – Intro line', 'POSSIBILITY BECOMES REALITY'],

@@ -133,3 +133,16 @@ test('a newer request wins when image generations finish out of order', async ()
     assert.equal(f.w.document.getElementById('status-benefit-cover-0').textContent, 'Image generated.');
   } finally { f.close(); }
 });
+
+
+test('next-tier member message has a multiline textarea and preserves deliberate clearing', () => {
+  const f = fixture();
+  try {
+    const input = f.w.document.getElementById('cinematic-copy-progressSummary');
+    assert.equal(input.tagName, 'TEXTAREA');
+    for (const value of ['Earn lifetime points.\nMove toward your next tier.', '']) {
+      input.value = value; input.dispatchEvent(new f.w.Event('input'));
+      assert.equal(f.api.normalize(f.w.state.cinematic).copy.progressSummary, value);
+    }
+  } finally { f.close(); }
+});

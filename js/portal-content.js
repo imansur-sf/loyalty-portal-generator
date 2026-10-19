@@ -43,6 +43,14 @@ should be empty strings. For B2B use business/account language and preserve sepa
 participating business and contact. For B2C use individual member language.
 Use only supplied image candidate URLs, never invent image URLs. Leave missing images empty;
 the existing image generation service will fill them. No imageData/base64 in your response, including coverImageData. For cinematic benefits you may supply coverImageUrl only from supplied image candidates: a full photographic scene, never an icon. Keep the existing benefit icon imageUrl separate from its coverImageUrl.
+For presentationPreferences.outputTemplate="cinematic", also return cinematic.copy.progressSummary:
+a short plain-text sentence explaining the member's next tier goal and the eligible activities
+that help reach it. Use only the actual tier names, qualification currency and earning activities
+in validatedProgram and the author requirements. Do not confuse redeemable points, qualifying
+points, learning hours or lifetime balances. State the remaining amount only when the supplied
+rules and member balance establish it; otherwise use nonnumeric wording without inventing a
+qualification policy. If the member is at the highest tier, describe maintaining or enjoying
+that status only as supported. This sentence is editable presentation copy, never a live formula.
 If website data is absent, use the author brief and validatedProgram to personalize content.
 Keep brandName/programName/member/tiers consistent with validatedProgram. Keep JSON complete.
 For a refinement, use existingPresentation as the starting copy. Change the sections relevant
@@ -286,12 +294,23 @@ complete every required section and exact reward/earning mapping before closing 
       item.coverImageUrl = key === 'benefits' && candidates.has(item.coverImageUrl) && item.coverImageUrl !== item.imageUrl ? item.coverImageUrl : '';
       delete item.coverImageData;
     }
+    const generatedProgressMessage = typeof parsed.cinematic?.copy?.progressSummary === 'string' ? parsed.cinematic.copy.progressSummary.slice(0, 8000) : undefined;
     delete parsed.cinematic;
     parsed.brand = { logoUrl: candidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl : '' };
     parsed.upsell.bgImageUrl = candidates.has(parsed.upsell.bgImageUrl) ? parsed.upsell.bgImageUrl : '';
     delete parsed.upsell.bgImageData;
     const data = reconcile(parsed, validated, { existing, refreshCopy: true });
-    if (cinematic) data.cinematic = clone(cinematic);
+    const savedCinematic = existing?.cinematic || cinematic;
+    if (savedCinematic) data.cinematic = clone(savedCinematic);
+    if (outputTemplate === 'cinematic') {
+      data.cinematic = data.cinematic || {};
+      data.cinematic.copy = data.cinematic.copy || {};
+      const savedMessage = data.cinematic.copy.progressSummary;
+      const defaultMessage = 'Explore eligible activities to move toward your next membership tier.';
+      if (generatedProgressMessage !== undefined && (savedMessage === undefined || (!isRefinement(existing) && savedMessage === defaultMessage))) {
+        data.cinematic.copy.progressSummary = generatedProgressMessage;
+      }
+    }
     // Existing user-selected/uploaded assets survive even initial generation.
     if (existing?.brand?.logoData || existing?.brand?.logoUrl) data.brand = { ...data.brand, logoData: existing.brand.logoData || '', logoUrl: existing.brand.logoUrl || '' };
     const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus, outputTemplate });

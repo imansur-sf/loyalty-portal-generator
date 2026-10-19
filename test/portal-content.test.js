@@ -474,3 +474,24 @@ test('cinematic generation sanitizes cover candidates and preserves authored cov
   assert.equal(output.benefits[1].coverImageData, 'data:image/png;base64,uploaded');
   assert.equal(output.cinematic.introLine, 'My custom intro');
 });
+
+
+test('cinematic AI drafts a rule-grounded tier message while preserving author edits and intentional blanks', async () => {
+  const program = makeProgram();
+  for (const saved of [undefined, 'Earn lifetime points.\nReach your next tier.', '']) {
+    const context = harness(async () => ({ generated: 0 }));
+    const reply = content(program);
+    reply.cinematic = { copy: { progressSummary: 'Earn 500 status points through eligible purchases to reach Gold.' } };
+    let request;
+    const output = await context.LPGPortalContent.generate({
+      outputTemplate: 'cinematic', program,
+      cinematic: { copy: { arrivalTitle: 'Keep this heading' } },
+      existing: saved === undefined ? undefined : { programEnabled: true, program, cinematic: { copy: { progressSummary: saved } } },
+      client: { callLLM: async args => { request = args; return JSON.stringify(reply); } }
+    });
+    assert.equal(output.cinematic.copy.progressSummary, saved === undefined ? reply.cinematic.copy.progressSummary : saved);
+    assert.match(request.system, /Do not confuse redeemable points, qualifying/);
+    assert.match(request.system, /remaining amount only when/);
+    if (saved === undefined) assert.equal(output.cinematic.copy.arrivalTitle, 'Keep this heading');
+  }
+});
