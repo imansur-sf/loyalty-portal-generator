@@ -296,6 +296,7 @@
         const q = focused ? 1 : clamp((navHeight - filmRect.top) / Math.max(1, filmRect.height - screen));
         const reveal = ease((q - .08) / .64), copy = ease((q - .43) / .36);
         set(film, { 'mask-y': 27 * (1 - reveal) + '%', 'mask-x': 29 * (1 - reveal) + '%', 'mask-radius': 160 - 138 * reveal + 'px',
+          'film-y': Math.max(64, Math.min(96, screen * .1)) * (1 - reveal) + 'px',
           'film-scale': .91 + .09 * reveal, 'landscape-scale': 1 + .18 * (1 - reveal), 'film-opacity': .4 + .6 * reveal,
           'film-copy': copy, 'film-copy-y': (1 - copy) * 30 + 'px', 'film-heading': 1 - ease((q - .22) / .27), 'film-heading-y': -35 * ease(q / .5) + 'px' });
       }
@@ -563,8 +564,8 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-motion .cj-reward-stage { position: sticky; top: var(--cj-nav-height); height: var(--cj-screen-height); padding: 0; }
 .cj-motion .cj-film-intro { position: absolute; top: 7%; left: 10%; right: 10%; z-index: 4; opacity: var(--cj-film-heading,1); transform: translateY(var(--cj-film-heading-y,0px)); pointer-events: none; }
 .cj-motion .cj-film-intro .cj-title { font-size: clamp(2.5rem,4.8vw,5rem); }
-.cj-motion .cj-featured-reward { display: block; position: absolute; inset: 7% 4%; clip-path: inset(var(--cj-mask-y,27%) var(--cj-mask-x,29%) round var(--cj-mask-radius,160px)); transform: scale(var(--cj-film-scale,.91)); opacity: var(--cj-film-opacity,.4); }
-.cj-motion .cj-featured-reward,.cj-motion .cj-featured-reward:hover { transition: none; box-shadow: none; transform: scale(var(--cj-film-scale,.91)); }
+.cj-motion .cj-featured-reward { display: block; position: absolute; inset: 7% 4%; clip-path: inset(var(--cj-mask-y,27%) var(--cj-mask-x,29%) round var(--cj-mask-radius,160px)); transform: translateY(var(--cj-film-y,80px)) scale(var(--cj-film-scale,.91)); opacity: var(--cj-film-opacity,.4); }
+.cj-motion .cj-featured-reward,.cj-motion .cj-featured-reward:hover { transition: none; box-shadow: none; transform: translateY(var(--cj-film-y,80px)) scale(var(--cj-film-scale,.91)); }
 .cj-motion .cj-featured-reward > .cj-reward-visual { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; min-height: 0; border-radius: 0; }
 .cj-motion .cj-reward-visual > :is(img,span) { transform: scale(var(--cj-landscape-scale,1.18)); }
 .cj-motion .cj-reward-visual::after { content: ''; position: absolute; z-index: 2; inset: 0; background: linear-gradient(180deg,#1018280a 10%,#101828b8 65%,#101828ed 100%); pointer-events: none; }
