@@ -7,6 +7,7 @@ const state = {
   schemaVersion: 2,
   brief: { mode: 'b2c', objective: '', text: '', roles: '', sources: [] },
   program: null, programReview: null, programEnabled: false, outputTemplate: 'classic',
+  cinematic: window.LPGCinematic?.normalize(),
   activeVariant: 'b2c', variants: {},
   brand: { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' },
   colors: { primary: '#2D3748', secondary: '#F7FAFC', accent: '#4299E1', dark: '#1A202C', menu: '#2D3748' },
@@ -38,6 +39,7 @@ let previewTimer = null;
 // ---- INIT ----
 document.addEventListener('DOMContentLoaded', () => {
   applyIndustryDefaults('generic');
+  window.LPGCinematic?.init();
   populateFormFromState();
   renderPaletteButtons();
   renderDynamicSections();
@@ -260,6 +262,8 @@ async function onQuickStartAnalyze() {
 function applyAnalysis(d, target = state, { render = true } = {}) {
   if (!d || typeof d !== 'object') return;
 
+  if (d.cinematic && window.LPGCinematic) target.cinematic = window.LPGCinematic.normalize(d.cinematic);
+
   // Brand
   if (d.brandName) target.brand.name = d.brandName;
   if (d.industry && ['carwash','restaurant','retail','fitness','healthcare','generic'].includes(d.industry)) {
@@ -411,7 +415,9 @@ function cleanBenefit(b) {
     name: str(b.name, 40),
     emoji: str(b.emoji, 4) || '✨',
     imageUrl: isSafeUrl(b.imageUrl) ? b.imageUrl : '',
-    imageData: b.imageData || ''
+    imageData: b.imageData || '',
+    coverImageUrl: isSafeUrl(b.coverImageUrl) ? b.coverImageUrl : '',
+    coverImageData: typeof b.coverImageData === 'string' && b.coverImageData.startsWith('data:image/') ? b.coverImageData : ''
   };
 }
 function cleanEarnMore(e) {
@@ -470,6 +476,7 @@ function applyIndustryDefaults(industry) {
 }
 
 function populateFormFromState() {
+  window.LPGCinematic?.sync();
   window.LPGRequirementsEditor?.sync();
   // Brand
   setVal('brand-name', state.brand.name);
@@ -795,6 +802,7 @@ function renderPaletteButtons() {
 
 // ---- DYNAMIC SECTION RENDERING ----
 function renderDynamicSections() {
+  window.LPGCinematic?.sync();
   for (const section of ['vouchers', 'earnMore']) {
     const button = document.querySelector(`button[onclick="autoGenerate('${section}')"]`);
     if (button) button.textContent = state.program ? (section === 'vouchers' ? 'Edit reward rules' : 'Edit earning rules') : '⚡ Auto-generate from industry';
@@ -934,13 +942,14 @@ function renderBenefits() {
         <input type="text" value="${esc(b.name)}" onchange="updateItem('benefits',${i},'name',this.value)" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="Benefit name">
       </div>
       ${imageUploadHTML('benefit-'+i, 'Icon Image (optional — replaces emoji)', b.imageData||b.imageUrl||'')}
+      ${state.outputTemplate === 'cinematic' ? (window.LPGCinematic?.renderBenefitCover(i,b) || '') : ''}
     </div>
   `).join('');
   reinitDynamicImageUploads();
 }
 
 function addBenefit() {
-  state.benefits.push({ name: '', emoji: '✨', imageUrl: '', imageData: '' });
+  state.benefits.push({ name: '', emoji: '✨', imageUrl: '', imageData: '', coverImageUrl: '', coverImageData: '' });
   renderBenefits();
 }
 
@@ -1097,6 +1106,7 @@ function autoGenerate(section) {
 
 // ---- IMAGE UPLOAD RE-INIT ----
 function reinitDynamicImageUploads() {
+  window.LPGCinematic?.initBenefitCoverUploads();
   // Voucher images
   state.vouchers.forEach((v, i) => {
     initImageUpload('drop-voucher-'+i, 'preview-voucher-'+i, 'url-voucher-'+i, (data) => {
@@ -1312,6 +1322,7 @@ function startOver() {
   state.brand = { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' };
   state.member = { name: 'Avery Morgan', number: '234567', points: 1200, email: '', phone: '', joinDate: '', avatarUrl: '', avatarData: '' };
   state.tierProgress = 30;
+  state.cinematic = window.LPGCinematic?.normalize();
   state.sections = { vouchers: true, offers: true, badges: true, clubs: true, earnMore: true, profileTasks: true, upsell: true };
   state.menuColorCustom = false;
   applyIndustryDefaults('generic');

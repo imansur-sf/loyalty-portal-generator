@@ -6,7 +6,7 @@
   const safe = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   let importSequence = 0, generationSequence = 0, importing = false;
   function fingerprint() {
-    const copy = clone(state); delete copy.programReview; delete copy.outputTemplate;
+    const copy = clone(state); delete copy.programReview;
     const text = JSON.stringify({ portal: copy, website: el('quickstart-url')?.value || '' });
     // Compact, non-security edit fingerprint; never duplicate source documents
     // and uploaded image data in the persisted pending proposal.
@@ -89,8 +89,10 @@
       const audienceBrief = { ...brief, mode };
       const existing = root.LPGVariants.get(mode);
       const current = existing?.program ? clone(existing.program) : null;
+      const cinematic = clone(existing?.cinematic || state.cinematic || {});
+      const outputTemplate = mode === state.activeVariant ? state.outputTemplate || 'classic' : existing?.outputTemplate || state.outputTemplate || 'classic';
       setQuickStartStatus(`Designing the ${mode.toUpperCase()} loyalty experience…`, true);
-      const prompt = LPGRequirements.buildPrompt(audienceBrief, website, current);
+      const prompt = LPGRequirements.buildPrompt(audienceBrief, website, current, { outputTemplate });
       let result = await client.callLLM({ system: LPGRequirements.SYSTEM, prompt, maxTokens: 12000, tier: 'balanced', responseFormat: 'json' });
       checkCurrent();
       let proposal;
@@ -109,7 +111,7 @@
       }
       setQuickStartStatus(`Creating ${mode.toUpperCase()} offers, rewards and branded imagery…`, true);
       const content = await root.LPGPortalContent.generate({ client, brief: audienceBrief, program: proposal.program,
-        website, rawURL, existing: current ? existing : null,
+        website, rawURL, outputTemplate, cinematic, existing: current ? existing : null,
         onStatus: phase => { checkCurrent(); setQuickStartStatus(phase === 'generating_images' ? `Creating ${mode.toUpperCase()} portal imagery…` : `Personalizing ${mode.toUpperCase()} portal content…`, true); } });
       checkCurrent();
       if (content._meta?.content_warning) warnings.push(`${mode.toUpperCase()}: ${content._meta.content_warning}`);
@@ -122,7 +124,7 @@
       portal.member.name = mode === 'b2b' ? proposal.program.member.organization : proposal.program.member.name;
       portal.member.points = proposal.program.opening.redeemable;
       portal.tiers = proposal.program.tiers.map(tier => ({ name: tier.name, points: tier.threshold }));
-      portal.outputTemplate = mode === state.activeVariant ? state.outputTemplate : existing?.outputTemplate || state.outputTemplate || 'classic';
+      portal.outputTemplate = outputTemplate;
       generated[mode] = portal;
     }
     checkCurrent();
@@ -279,7 +281,7 @@
     el('program-sample').addEventListener('click', sample); el('program-edit').addEventListener('click', editProgram);
     el('program-apply').addEventListener('click', apply);
     el('program-discard').addEventListener('click', () => { generationSequence++; state.programReview = null; renderReview(); scheduleDraftRecovery(); });
-    el('output-template').addEventListener('change', event => { state.outputTemplate = event.target.value; schedulePreview(); });
+    el('output-template').addEventListener('change', event => { state.outputTemplate = event.target.value; root.LPGCinematic?.sync(); renderBenefits(); schedulePreview(); });
     root.LPGVariants?.init();
   }
   root.LPGRequirementsEditor = { init, sync, reset, wantsProgram, analyze, fingerprint, apply, sample, editProgram, isImporting: () => importing };

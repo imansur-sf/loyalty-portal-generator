@@ -106,3 +106,16 @@ test('Cinematic Journey survives project and variant migrations', () => {
   assert.equal(migrated.outputTemplate, 'cinematic');
   assert.equal(migrated.variants.b2b.outputTemplate, 'cinematic');
 });
+
+test('reward defaults follow the selected template without overriding accepted or explicit policies', () => {
+  const accepted = model.normalize({ rewards: [{ id: 'one', name: 'Authored reward', cost: 10 }] });
+  for (const [outputTemplate, count] of [['cinematic', 5], ['classic', 4], ['editorial', 4]]) {
+    const prompt = JSON.parse(requirements.buildPrompt({ text: 'Exactly two rewards' }, null, accepted, { outputTemplate }));
+    assert.equal(prompt.presentationPreferences.defaultRewardCount, count);
+    assert.equal(prompt.presentationPreferences.outputTemplate, outputTemplate);
+    assert.equal(prompt.acceptedProgramToRefine.rewards.length, 1);
+    assert.equal(prompt.author.request, 'Exactly two rewards');
+  }
+  assert.match(requirements.SYSTEM, /explicit author\/source counts and accepted-program rewards take precedence/);
+  assert.doesNotMatch(requirements.SYSTEM, /propose 4 relevant rewards/);
+});

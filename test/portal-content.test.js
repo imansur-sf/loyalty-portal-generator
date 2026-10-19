@@ -458,3 +458,19 @@ test('image enrichment stores compressed results, leaves uploads alone and repor
   assert.equal(omitted.benefits[0].imageData, undefined); assert.equal(failed.generated, 0);
   assert.match(failed.warning, /keep the project saveable/);
 });
+
+test('cinematic generation sanitizes cover candidates and preserves authored covers by benefit identity', async () => {
+  const program = makeProgram(); let imageOptions;
+  const context = harness(async (data, options) => { imageOptions = options; return { generated: 0, total_empty: 0 }; });
+  const proposed = content(program);
+  proposed.benefits = [{ name: 'New benefit', coverImageData: 'data:image/png;base64,forbidden', coverImageUrl: 'https://invented.test/cover.png' },
+    { name: 'Member learning resources', coverImageUrl: 'https://brand.test/scene.png' }];
+  const existing = { ...content(program), program, programEnabled: true, cinematic: { introLine: 'My custom intro' } };
+  existing.benefits[0].coverImageData = 'data:image/png;base64,uploaded';
+  const output = await context.LPGPortalContent.generate({ client: { callLLM: async () => JSON.stringify(proposed) },
+    program, existing, outputTemplate: 'cinematic', website: { images: [{ url: 'https://brand.test/scene.png' }] } });
+  assert.equal(imageOptions.outputTemplate, 'cinematic');
+  assert.equal(output.benefits[0].coverImageUrl, ''); assert.equal(output.benefits[0].coverImageData, undefined);
+  assert.equal(output.benefits[1].coverImageData, 'data:image/png;base64,uploaded');
+  assert.equal(output.cinematic.introLine, 'My custom intro');
+});

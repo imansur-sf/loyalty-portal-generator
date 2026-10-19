@@ -453,6 +453,12 @@
         return `Lifestyle promotional image for a ${industry} special offer: "${item.title || 'Special Offer'}" — ${item.description || ''}. Brand: ${brandName}. ${colorHint} Aspirational, inviting mood. No text or words in the image.`;
       case 'badge':
         return `A single clean achievement badge icon for "${item.name || 'Achievement'}" in a ${industry} loyalty program. ${colorHint} Minimal, modern flat design. Centered on a subtle background. No text.`;
+      case 'benefit-cover':
+        return `Full-bleed editorial photograph or environmental scene illustrating the member benefit "${item.name || 'Member benefit'}" for ${brandName}, ${industry}. ${colorHint} Rich cinematic lighting, edge-to-edge scene for a large tile, space for readable text overlay. No icons, badges, typography, text or words.`;
+      case 'card-mark':
+        return `A refined emblem or logo symbol for the ${industry} brand ${brandName}, suitable for a metallic loyalty card. ${colorHint} Simple distinctive graphic, no text or words.`;
+      case 'card-artwork':
+        return `Full loyalty card artwork for ${brandName}, a ${industry} brand. ${colorHint} Premium cinematic visual, balanced composition, no text, words or numbers; member text is added separately.`;
       case 'benefit':
         return `A polished illustrated benefit icon representing "${item.name || 'Member benefit'}" for ${brandName}. ${colorHint} Clean, modern, consistent flat illustration. Centered on a subtle background. No text or words.`;
       case 'club':
@@ -515,7 +521,7 @@
     }
   }
 
-  async function fillMissingImages(parsed, { onStatus } = {}) {
+  async function fillMissingImages(parsed, { onStatus, outputTemplate = parsed.outputTemplate, onlySlots, prompt } = {}) {
     // Only use default backend (server-side Gemini) for image generation
     const base = getScraperEndpoint(); // empty = same origin
 
@@ -546,6 +552,31 @@
           });
         }
       });
+    }
+
+    if (outputTemplate === 'cinematic') {
+      (Array.isArray(parsed.benefits) ? parsed.benefits : []).forEach((item, i) => {
+        if (!item.coverImageUrl && !item.coverImageData) slots.push({
+          slot: `benefit-cover-${i}`, prompt: buildImagePrompt('benefit-cover', item, parsed), priority: 1 + i,
+          customPrompt: item.coverPrompt,
+          apply: dataUri => { item.coverImageData = dataUri; }
+        });
+      });
+      const card = parsed.cinematic?.card;
+      if (card?.markMode === 'custom' && !card.markImageUrl && !card.markImageData) slots.push({
+        slot: 'card-mark', prompt: buildImagePrompt('card-mark', card, parsed), priority: 1, customPrompt: card.markPrompt,
+        apply: dataUri => { card.markImageData = dataUri; }
+      });
+      if (card?.mode === 'image' && !card.artworkImageUrl && !card.artworkImageData) slots.push({
+        slot: 'card-artwork', prompt: buildImagePrompt('card-artwork', card, parsed), priority: 1, customPrompt: card.artworkPrompt,
+        apply: dataUri => { card.artworkImageData = dataUri; }
+      });
+    }
+    const allowed = Array.isArray(onlySlots) ? new Set(onlySlots) : null;
+    for (let i = slots.length - 1; i >= 0; i--) {
+      if (allowed && !allowed.has(slots[i].slot)) { slots.splice(i, 1); continue; }
+      const custom = allowed && (typeof prompt === 'string' ? prompt : slots[i].customPrompt || parsed._cinematicImagePrompt);
+      slots[i].prompt = (slots[i].prompt + (typeof custom === 'string' && custom.trim() ? ` Author visual direction: ${custom.trim().slice(0, 1200)}` : '')).slice(0, 2000);
     }
 
     if (slots.length === 0) {

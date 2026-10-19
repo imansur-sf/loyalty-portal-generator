@@ -28,7 +28,7 @@ const LPGImageUploads = (() => {
   }
   return { entries, context, same, dispose, invalidate, cancel };
 })();
-if (typeof window !== 'undefined') window.LPGImages = { invalidate: LPGImageUploads.invalidate };
+if (typeof window !== 'undefined') window.LPGImages = { invalidate: LPGImageUploads.invalidate, captureContext: LPGImageUploads.context, isContextCurrent: LPGImageUploads.same, cancel: LPGImageUploads.cancel };
 
 /** Attach one set of image handlers to a rendered upload widget. */
 function initImageUpload(dropZoneId, previewId, urlInputId, onImageSet) {
@@ -71,6 +71,9 @@ function initImageUpload(dropZoneId, previewId, urlInputId, onImageSet) {
     };
     input.click();
   });
+  listen(dropZone, 'keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); dropZone.click(); }
+  });
   if (urlInput) listen(urlInput, 'input', () => {
     const valid = begin(), url = urlInput.value.trim();
     entry.timer = setTimeout(() => {
@@ -108,11 +111,11 @@ function imageUploadHTML(id, label, currentValue) {
   return `
     <div class="space-y-2">
       <label class="block text-xs font-600 text-gray-700">${escape(label)}</label>
-      <div id="drop-${escape(id)}" class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all">
-        <img id="preview-${escape(id)}" src="${hasImage ? escape(currentValue) : ''}" class="${hasImage ? '' : 'hidden'} w-16 h-16 object-cover rounded mx-auto mb-2">
+      <div id="drop-${escape(id)}" role="button" tabindex="0" aria-label="Upload ${escape(label)}" class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all">
+        <img id="preview-${escape(id)}" alt="" src="${hasImage ? escape(currentValue) : ''}" class="${hasImage ? '' : 'hidden'} w-16 h-16 object-cover rounded mx-auto mb-2">
         <p class="text-xs text-gray-500">Drop image or click to upload</p>
       </div>
-      <input type="text" id="url-${escape(id)}" value="${currentValue && !currentValue.startsWith('data:') ? escape(currentValue) : ''}" placeholder="Or paste image URL" class="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none">
+      <input type="text" id="url-${escape(id)}" aria-label="${escape(label)} URL" value="${currentValue && !currentValue.startsWith('data:') ? escape(currentValue) : ''}" placeholder="Or paste image URL" class="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none">
       ${hasImage ? `<button type="button" onclick="clearImage(${escape(JSON.stringify(id))})" class="text-xs text-red-500 hover:text-red-700">✕ Remove image</button>` : ''}
     </div>
   `;

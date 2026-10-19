@@ -370,3 +370,64 @@ test('metal membership surfaces have readable brand text across contrasting pale
     assert.ok((lum(metal)+.05)/(lum(deep)+.05)>=4.5,primary);
   }
 });
+
+test('cinematic chapter copy is editable, preserves line breaks and remains inert text in exported portals', () => {
+  const copy={arrivalEyebrow:'A place\nto belong',arrivalTitle:'Your world.\nOpening up.',arrivalDescription:'A closer\nwith another line',statusTitle:'Next\nchapter',benefitsTitle:'Your benefits,\nyour way.',detailsTitle:'</script><img src=x onerror=alert(1)>',arrivalAction:''};
+  const dom=new JSDOM(cinematicProductionFixture({cinematic:{copy}}),{runScripts:'dangerously'}); const doc=dom.window.document;
+  assert.equal(doc.querySelector('.cj-arrival .cj-heading .cj-title').textContent,copy.arrivalTitle);
+  assert.equal(doc.querySelector('.cj-arrival-status .cj-title').textContent,copy.statusTitle);
+  assert.equal(doc.querySelector('.cj-benefits .cj-title').textContent,copy.benefitsTitle);
+  assert.equal(doc.querySelector('.cj-details .cj-title').textContent,copy.detailsTitle);
+  assert.equal(doc.querySelector('img[src="x"]'),null);
+  assert.equal(doc.querySelector('.cj-arrival .cj-cta'),null);
+  assert.equal(dom.window.getComputedStyle(doc.querySelector('.cj-arrival .cj-heading .cj-title')).whiteSpace,'pre-wrap');
+  dom.window.close();
+});
+
+test('cinematic benefit covers fill tiles while other templates keep their original icons', () => {
+  for(const outputTemplate of ['cinematic','classic','dashboard','showcase','editorial']){
+    const output=cinematicProductionFixture({outputTemplate,benefits:[{name:'Early access',imageUrl:'https://brand.example/icon.png',coverImageUrl:'https://brand.example/cover.jpg'}]});
+    const dom=new JSDOM(output,{runScripts:'dangerously'});const doc=dom.window.document;
+    assert.ok(doc.querySelector('.benefit-card img[src="https://brand.example/icon.png"]'));
+    if(outputTemplate==='cinematic'){
+      const image=doc.querySelector('.lpg-benefit-cover');assert.ok(image);assert.equal(image.alt,'');
+      assert.ok(image.parentElement.classList.contains('cj-benefit-has-cover'));
+      image.dispatchEvent(new dom.window.Event('error'));
+      assert.equal(doc.querySelector('.lpg-benefit-cover'),null);
+      assert.equal(doc.querySelector('.benefit-card').classList.contains('cj-benefit-has-cover'),false);
+      assert.ok(doc.querySelector('.benefit-copy'));
+    }else assert.equal(doc.querySelector('.lpg-benefit-cover'),null);
+    dom.window.close();
+  }
+});
+
+test('card emblem and full artwork can be replaced without losing live tier data, with default fallbacks', () => {
+  const dom=new JSDOM(cinematicProductionFixture({brand:{name:'Northstar',programName:'Rewards',logoUrl:'https://brand.example/logo.png'},cinematic:{card:{markMode:'brand',mode:'image',artworkImageUrl:'https://brand.example/card.jpg',showDetails:false}}}),{runScripts:'dangerously'});const doc=dom.window.document;
+  const card=doc.querySelector('.cj-membership');
+  assert.equal(card.querySelector('.cj-card-logo').src,'https://brand.example/logo.png');
+  assert.equal(card.querySelector('.cj-card-artwork').src,'https://brand.example/card.jpg');
+  assert.ok(card.classList.contains('cj-hide-details'));
+  assert.ok(card.querySelector('[data-lpg-tier]'));
+  card.querySelector('.cj-card-artwork').dispatchEvent(new dom.window.Event('error'));
+  assert.equal(card.classList.contains('cj-has-artwork'),false);
+  assert.equal(card.classList.contains('cj-hide-details'),false);
+  card.querySelector('.cj-card-logo').dispatchEvent(new dom.window.Event('error'));
+  assert.equal(card.classList.contains('cj-has-mark'),false);
+  assert.ok(card.querySelector('.cj-card-sculpture'));
+  dom.window.close();
+  const custom=new JSDOM(cinematicProductionFixture({cinematic:{card:{markMode:'custom',markImageUrl:'https://brand.example/crest.png'}}}),{runScripts:'dangerously'});
+  assert.equal(custom.window.document.querySelector('.cj-card-logo').src,'https://brand.example/crest.png');
+  assert.equal(custom.window.document.querySelector('.cj-card-artwork'),null);
+  custom.window.close();
+});
+
+test('multiline editable headings use flowing scenes when too tall for pinned compositions',()=>{
+  for(const key of ['arrivalEyebrow','statusEyebrow','statusTitle','possibilityTitle','possibilityDescription']){
+    let frame;
+    const dom=new JSDOM(cinematicProductionFixture({cinematic:{copy:{[key]:'One\nTwo\nThree\nFour\nFive\nSix'}}}),{runScripts:'dangerously',beforeParse(win){win.requestAnimationFrame=cb=>{frame=cb;return 1;};win.matchMedia=()=>({matches:false,addEventListener(){}});}});
+    frame();
+    assert.equal(dom.window.document.querySelector('.lpg-layout-cinematic').classList.contains('cj-motion'),false,key);
+    assert.ok(dom.window.document.querySelector('.cj-featured-copy [data-lpg-action="request"]'));
+    dom.window.close();
+  }
+});

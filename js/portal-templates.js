@@ -17,6 +17,10 @@
   function luminance(hex) { return channels(hex).map(v => { const c = v / 255; return c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); }).reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0); }
   function darkSurface(hex) { let result = hex; for (let i = 0; i < 12 && luminance(result) > .09; i++) result = mix(result, '#101828', .18); return result; }
 
+  function imageSource(value) {
+    return typeof value === 'string' && /^(?:https?:\/\/|data:image\/(?:png|jpe?g|webp|gif|avif|svg\+xml)(?:;base64)?,)/i.test(value) ? value : '';
+  }
+
   // Serialized into each export. Moving existing nodes preserves inline actions,
   // attached listeners, image fallbacks, input values, and generated content.
   function arrange(cinematic, options) {
@@ -100,6 +104,7 @@
       if (text) node.textContent = text;
       return node;
     };
+    const copy = (key, fallback) => typeof options.copy?.[key] === 'string' ? options.copy[key] : fallback;
     const heroSource = pending.get('hero');
     const tierSource = pending.get('tiers');
     const balanceSource = heroSource?.querySelector('[data-lpg-balance="redeemable"]');
@@ -113,10 +118,10 @@
       if (!keys.some(key => pending.has(key))) return null;
       const wrapper = make('section', 'cj-scene cj-' + id); wrapper.id = 'cj-' + id;
       const heading = make('div', 'cj-heading');
-      heading.appendChild(make('p', 'cj-eyebrow', eyebrow));
-      const h = make('h2', 'cj-title', title); h.id = 'cj-title-' + id;
-      heading.appendChild(h); heading.appendChild(make('p', 'cj-description', description));
-      wrapper.setAttribute('aria-labelledby', h.id); wrapper.appendChild(heading);
+      const eyebrowNode = make('p', 'cj-eyebrow', copy(id + 'Eyebrow', eyebrow)); eyebrowNode.hidden = !eyebrowNode.textContent.trim(); heading.appendChild(eyebrowNode);
+      const h = make('h2', 'cj-title', copy(id + 'Title', title)); h.id = 'cj-title-' + id;
+      heading.appendChild(h); const closer = make('p', 'cj-description', copy(id + 'Description', description)); closer.hidden = !closer.textContent.trim(); heading.appendChild(closer);
+      if (h.textContent.trim()) wrapper.setAttribute('aria-labelledby', h.id); else { h.hidden = true; wrapper.setAttribute('aria-label', label); } wrapper.appendChild(heading);
       const content = make('div', 'cj-content');
       for (const key of keys) if (pending.has(key)) { content.appendChild(pending.get(key)); pending.delete(key); }
       wrapper.appendChild(content); layout.appendChild(wrapper); scenes.push(wrapper);
@@ -133,15 +138,29 @@
       const orbit = make('i', 'cj-orbit'); orbit.setAttribute('aria-hidden', 'true'); stage.appendChild(orbit);
       stage.appendChild(heading);
       const status = make('div', 'cj-arrival-status');
-      status.appendChild(make('p', 'cj-eyebrow', 'YOUR NEXT CHAPTER'));
-      status.appendChild(make('p', 'cj-title', 'Good things. Already in motion.')); stage.appendChild(status);
+      status.appendChild(make('p', 'cj-eyebrow', copy('statusEyebrow','YOUR NEXT CHAPTER')));
+      status.appendChild(make('p', 'cj-title', copy('statusTitle','Good things. Already in motion.'))); stage.appendChild(status);
       const card = make('div', 'cj-membership');
       card.appendChild(make('p', 'cj-card-brand', options.brandName || 'MEMBERSHIP'));
       const sculpture = make('i', 'cj-card-sculpture'); sculpture.setAttribute('aria-hidden', 'true');
       sculpture.appendChild(make('i', '')); sculpture.appendChild(make('i', '')); card.appendChild(sculpture);
       const tier = make('p', 'cj-status-tier', tierName);
       if (tierSource?.querySelector('[data-lpg-tier]')) tier.dataset.lpgTier = '';
-      card.appendChild(tier); card.appendChild(make('p', 'cj-card-member', memberName)); stage.appendChild(card);
+      card.appendChild(tier); card.appendChild(make('p', 'cj-card-member', memberName));
+      const settings = options.card || {};
+      const mark = settings.markMode === 'brand' ? options.brandLogo : settings.markMode === 'custom' ? options.markImage : '';
+      if (mark) {
+        const logo = make('img','cj-card-logo'); logo.src = mark; logo.alt = '';
+        card.classList.add('cj-has-mark');
+        logo.addEventListener('error',()=>{ card.classList.remove('cj-has-mark'); logo.remove(); }); card.appendChild(logo);
+      }
+      if (settings.mode === 'image' && options.cardImage) {
+        const artwork = make('img','cj-card-artwork'); artwork.src = options.cardImage; artwork.alt = '';
+        card.classList.add('cj-has-artwork');
+        if (settings.showDetails === false) card.classList.add('cj-hide-details');
+        artwork.addEventListener('error',()=>{ card.classList.remove('cj-has-artwork','cj-hide-details'); artwork.remove(); }); card.prepend(artwork);
+      }
+      stage.appendChild(card);
       const content = arrival.querySelector('.cj-content');
       if (progressText) {
         const summary = make('p', 'cj-status-summary', progressText.textContent); summary.dataset.lpgProgressText = ''; content.appendChild(summary);
@@ -149,8 +168,8 @@
       stage.appendChild(content);
       const actions = make('div', 'cj-arrival-actions');
       const target = pending.has('vouchers') ? ['possibility', 'Explore your rewards'] : pending.has('tiers') ? ['progress', 'Explore your status'] : pending.has('offers') || pending.has('earn') || pending.has('upsell') ? ['discovery', 'Discover more'] : pending.has('benefits') ? ['benefits', 'Explore your benefits'] : null;
-      actions.appendChild(make('p', 'cj-scroll-note', 'Scroll to see what’s ahead ↓'));
-      if (target) { const action = make('a', 'cj-cta', target[1] + ' ↗'); action.href = '#cj-' + target[0]; actions.appendChild(action); }
+      actions.appendChild(make('p', 'cj-scroll-note', copy('scrollNote','Scroll to see what’s ahead ↓')));
+      if (target && copy('arrivalAction',target[1])) { const label = copy('arrivalAction',target[1]); const action = make('a', 'cj-cta', (label === 'Explore your rewards' && target[0] !== 'possibility' ? target[1] : label) + ' ↗'); action.href = '#cj-' + target[0]; actions.appendChild(action); }
       stage.appendChild(actions); arrival.appendChild(stage);
     }
     scene('progress', ['tiers'], 'THE WAY FORWARD', 'A little closer. A little more yours.', 'Your status today, and the milestones ahead.', 'Your status');
@@ -210,7 +229,15 @@
     const compact = window.matchMedia('(max-width: 900px), (max-height: 740px)');
     // Long customer copy must grow naturally rather than being clipped inside
     // the fixed-height compositions. The same aesthetic stays in normal flow.
-    const crowded = tierName.length > 24 || memberName.length > 50 || (options.brandName || '').length > 40 ||
+    const longSceneCopy = [
+      ['arrivalEyebrow',80,2], ['arrivalTitle',90,3], ['arrivalDescription',220,4],
+      ['statusEyebrow',80,2], ['statusTitle',90,3], ['possibilityEyebrow',80,2],
+      ['possibilityTitle',120,3], ['possibilityDescription',220,4], ['arrivalAction',80,2], ['scrollNote',180,3]
+    ].some(([key, length, lines]) => {
+      const text = options.copy?.[key] || '';
+      return text.length > length || text.split('\n').length > lines;
+    });
+    const crowded = longSceneCopy || tierName.length > 24 || memberName.length > 50 || (options.brandName || '').length > 40 ||
       (film?.querySelector('.cj-featured-copy')?.textContent.length || 0) > 550;
     const clamp = value => Math.max(0, Math.min(1, value));
     const ease = value => { value = clamp(value); return value * value * (3 - 2 * value); };
@@ -395,6 +422,7 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-heading { position: relative; min-width: 0; z-index: 2; }
 .cj-eyebrow { color: #526073; font-size: 11px; letter-spacing: .18em; font-weight: 600; margin: 0 0 22px; }
 .cj-title { font-size: clamp(2.8rem,5.5vw,6rem); line-height: 1.02; letter-spacing: -.065em; font-weight: 500; text-wrap: balance; margin: 0; max-width: 850px; }
+.cj-heading :is(.cj-title,.cj-eyebrow,.cj-description),.cj-arrival-status p,.cj-scroll-note { white-space: pre-wrap; }
 .cj-description { color: #526073; max-width: 460px; font-size: 16px; line-height: 1.65; margin: 24px 0 0; }
 .cj-content { position: relative; min-width: 0; z-index: 1; }
 .cj-arrival { background: var(--lpg-soft); padding: 0; }
@@ -407,6 +435,13 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-membership::before { content: ''; position: absolute; inset: -90% -60%; background: linear-gradient(115deg,transparent 40%,#ffffff90 50%,transparent 60%); pointer-events: none; }
 .cj-card-brand { position: relative; font-size: 11px; letter-spacing: .17em; font-weight: 650; max-width: calc(100% - 80px); }
 .cj-status-tier { position: relative; margin-top: 56px; font-size: clamp(1.6rem,3vw,2.5rem); line-height: 1.1; letter-spacing: -.04em; font-weight: 500; }
+.cj-card-logo { position: absolute; width: 76px; height: 76px; object-fit: contain; right: 22px; top: 20px; z-index: 3; }
+.cj-has-mark .cj-card-sculpture { visibility: hidden; }
+.cj-membership.cj-has-artwork { color: #fff; background: #18202f; }
+.cj-card-artwork { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+.cj-has-artwork::before { inset: 0; z-index: 1; background: linear-gradient(180deg,#10182840,#101828b8); transform: none !important; }
+.cj-has-artwork :is(.cj-card-brand,.cj-status-tier,.cj-card-member,.cj-card-sculpture) { z-index: 2; }
+.cj-hide-details :is(.cj-card-brand,.cj-status-tier,.cj-card-member,.cj-card-sculpture,.cj-card-logo),.cj-hide-details::before { display: none; }
 .cj-card-member { position: relative; margin-top: 12px; font-size: 11px; letter-spacing: .1em; }
 .cj-card-sculpture { position: absolute; top: 20px; right: 22px; width: 76px; height: 76px; border: 1px solid #ffffffc0; border-radius: 50%; transform: rotate(-25deg); }
 .cj-card-sculpture i { position: absolute; inset: 12px 0; border: 1px solid #ffffffc0; border-radius: 50%; }
@@ -463,7 +498,12 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-benefits [data-lpg-section="benefits"] { padding: 0; border: 0; box-shadow: none; background: transparent; }
 .cj-benefits #benefits-content > div { padding: 28px 0 0; border: 0; }
 .cj-benefits .benefits-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; }
-.cj-benefits .benefit-card { display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 28px; min-height: 220px; padding: 30px; border: 0; border-radius: 24px; background: #fff; }
+.cj-benefits .benefit-card { position: relative; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 28px; min-height: 220px; padding: 30px; border: 0; border-radius: 24px; background: #fff; }
+.cj-benefits .benefit-card.cj-benefit-has-cover { background: var(--lpg-brand-deep); color: #fff; }
+.cj-benefits .benefit-card > img.lpg-benefit-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; }
+.cj-benefit-has-cover::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(180deg,#10182822,#101828cc); }
+.cj-benefits .cj-benefit-has-cover .benefit-copy p { color: #fff; }
+.cj-benefits .cj-benefit-has-cover > div:first-child { background: #fff !important; }
 .cj-benefits .benefit-card .benefit-copy { flex: 0 1 auto; }
 .cj-benefits .benefit-card .benefit-copy p { font-size: clamp(1.2rem,2.3vw,2rem); font-weight: 500; letter-spacing: -.035em; line-height: 1.2; }
 .cj-benefits .benefit-card:first-child { background: var(--lpg-brand-deep); color: #fff; min-height: 280px; }
@@ -518,7 +558,7 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-motion .cj-heading[data-cj-reveal] > :is(.cj-eyebrow,.cj-title,.cj-description) { opacity: calc(.12 + var(--cj-enter) * .88); transform: translateY(calc((1 - var(--cj-enter)) * 40px)); }
 .cj-motion .voucher-card:not(.cj-featured-reward) > div:first-child,.cj-motion .offer-card > div:first-child { clip-path: inset(calc((1 - var(--cj-enter)) * 9%) calc((1 - var(--cj-enter)) * 12%) round calc(22px + (1 - var(--cj-enter)) * 120px)); opacity: calc(.15 + var(--cj-enter) * .85); }
 .cj-motion .voucher-card:not(.cj-featured-reward) > div:last-child,.cj-motion .offer-card > div:last-child { opacity: calc(.2 + var(--cj-enter) * .8); transform: translateY(calc((1 - var(--cj-enter)) * 42px)); }
-.cj-motion :is(.benefit-card,.earn-card)[data-cj-reveal] > * { opacity: calc(.2 + var(--cj-enter) * .8); transform: translateY(calc((1 - var(--cj-enter)) * 24px)); }
+.cj-motion :is(.benefit-card,.earn-card)[data-cj-reveal] > :not(.lpg-benefit-cover) { opacity: calc(.2 + var(--cj-enter) * .8); transform: translateY(calc((1 - var(--cj-enter)) * 24px)); }
 .cj-motion [data-cj-reveal]:focus-within,.cj-motion .cj-scene:target [data-cj-reveal] { --cj-enter: 1 !important; }
 .cj-motion [data-cj-reveal]:focus-within > *,.cj-motion .cj-scene:target [data-cj-reveal] > * { opacity: 1 !important; transform: none !important; clip-path: none !important; }
 /* A reward remains actionable immediately when reached with a keyboard or link. */
@@ -614,6 +654,11 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
       brandName: typeof state.brand?.name === 'string' ? state.brand.name : '',
       memberName: typeof state.member?.name === 'string' ? state.member.name : '',
       initialTier: typeof state.tiers?.[0]?.name === 'string' ? state.tiers[0].name : '',
+      copy: Object.fromEntries(Object.entries(state.cinematic?.copy || {}).filter(([,value]) => typeof value === 'string' && value.length <= 8000)),
+      card: { mode: state.cinematic?.card?.mode === 'image' ? 'image' : 'loyalty', markMode: state.cinematic?.card?.markMode || 'orbit', showDetails: state.cinematic?.card?.showDetails !== false },
+      markImage: imageSource(state.cinematic?.card?.markImageData) || imageSource(state.cinematic?.card?.markImageUrl),
+      cardImage: imageSource(state.cinematic?.card?.artworkImageData) || imageSource(state.cinematic?.card?.artworkImageUrl),
+      brandLogo: imageSource(state.brand?.logoData) || imageSource(state.brand?.logoUrl),
       rewards: state.programEnabled && Array.isArray(state.program?.rewards)
         ? state.program.rewards.filter(r => r && typeof r.id === 'string' && Number.isFinite(r.cost) && r.cost >= 0).map(r => ({ id: r.id, cost: r.cost })) : []
     };

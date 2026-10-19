@@ -279,14 +279,17 @@ function buildProfile(s) {
 // ---- MY BENEFITS (Expandable) ----
 function buildBenefits(s) {
   const items = (s.benefits||[]).map(b => {
+    const rawCover = b.coverImageData || b.coverImageUrl || '';
+    const cover = s.outputTemplate === 'cinematic' && /^(?:https?:\/\/|data:image\/(?:png|jpe?g|webp|gif|avif|svg\+xml)(?:;base64)?,)/i.test(rawCover) ? rawCover : '';
     const imgSrc = b.imageData || b.imageUrl || '';
     const iconInner = imgSrc
       ? `<img src="${imgSrc}" alt="${(b.name||'').replace(/"/g,'&quot;')}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-lg hidden">${b.emoji || '✨'}</span>`
       : `<span class="text-lg">${b.emoji || '✨'}</span>`;
     return `
-            <div class="benefit-card flex items-center gap-3 p-3 rounded-xl bg-page-bg transition-colors hover:bg-gray-100">
+            <div class="benefit-card ${cover ? 'cj-benefit-has-cover' : ''} flex items-center gap-3 p-3 rounded-xl bg-page-bg transition-colors hover:bg-gray-100">
               <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style="background-color: ${s.colors.primary}12;">${iconInner}</div>
               <div class="benefit-copy"><p class="text-sm font-700 text-dark">${b.name}</p></div>
+              ${cover ? `<img class="lpg-benefit-cover" src="${lpgEscape(cover)}" alt="" loading="lazy" onerror="this.parentElement.classList.remove('cj-benefit-has-cover');this.remove();">` : ''}
             </div>`;
   }).join('');
 

@@ -42,7 +42,7 @@ supplies them; frame it as exploring membership benefits instead. Unknown expiry
 should be empty strings. For B2B use business/account language and preserve separate provider,
 participating business and contact. For B2C use individual member language.
 Use only supplied image candidate URLs, never invent image URLs. Leave missing images empty;
-the existing image generation service will fill them. No imageData/base64 in your response.
+the existing image generation service will fill them. No imageData/base64 in your response, including coverImageData. For cinematic benefits you may supply coverImageUrl only from supplied image candidates: a full photographic scene, never an icon. Keep the existing benefit icon imageUrl separate from its coverImageUrl.
 If website data is absent, use the author brief and validatedProgram to personalize content.
 Keep brandName/programName/member/tiers consistent with validatedProgram. Keep JSON complete.
 For a refinement, use existingPresentation as the starting copy. Change the sections relevant
@@ -158,6 +158,7 @@ complete every required section and exact reward/earning mapping before closing 
   function reconcile(content, program, { existing, allowMissing = false, refreshCopy = false } = {}) {
     const data = clone(content || {});
     const refining = isRefinement(existing);
+    if (existing?.cinematic) data.cinematic = clone(existing.cinematic);
     const preserveImage = (item, previous) => {
       if (previous?.imageData) return { ...item, imageData: previous.imageData, imageUrl: '' };
       if (previous?.imageUrl) return { ...item, imageUrl: previous.imageUrl, imageData: '' };
@@ -173,7 +174,13 @@ complete every required section and exact reward/earning mapping before closing 
           const label = item.name || item.title || item.description;
           const previous = existing[key].find(old => (old.name || old.title || old.description) === label)
             || (existing[key].length === items.length ? existing[key][index] : null);
-          return preserveImage(item, previous);
+          const result = preserveImage(item, previous);
+          // Covers belong to the benefit identity, never its former list position.
+          const coverOwner = key === 'benefits' && existing[key].find(old => old.name === item.name);
+          if (coverOwner?.coverImageData || coverOwner?.coverImageUrl) {
+            result.coverImageData = coverOwner.coverImageData || ''; result.coverImageUrl = coverOwner.coverImageData ? '' : coverOwner.coverImageUrl;
+          }
+          return result;
         });
       }
       for (const key of ['upsell', 'navLinks', 'footerLinks']) if (existing[key] && !refreshCopy) data[key] = clone(existing[key]);
@@ -207,7 +214,7 @@ complete every required section and exact reward/earning mapping before closing 
     return data;
   }
 
-  async function generate({ client, brief = {}, program, website, rawURL = '', existing, onStatus = () => {} }) {
+  async function generate({ client, brief = {}, program, website, rawURL = '', existing, cinematic, outputTemplate = 'classic', onStatus = () => {} }) {
     const shared = root.PageHost?._analysis;
     if (!shared || !client?.callLLM) throw new Error('Portal content generation is unavailable. Please refresh the builder.');
     if (typeof root.LocalAI?.fillMissingImages !== 'function') throw new Error('Portal image generation is unavailable. Please refresh the builder.');
@@ -222,7 +229,7 @@ complete every required section and exact reward/earning mapping before closing 
     const sourceCoverage = validated.requirements.slice(0, 30).map(item => ({ text: text(item.text, 500), status: item.status, module: item.module }));
     const payload = {
       author: { mode: validated.mode, objective: text(brief.objective, 2000), request: text(brief.text, 16000), roles: text(brief.roles, 1000) },
-      validatedProgram: facts, sourceCoverage,
+      validatedProgram: facts, sourceCoverage, presentationPreferences: { outputTemplate },
       activityCards: validated.earnRules.map(rule => activitySkeleton(rule, validated)),
       websiteContext: scraped,
       websitePresentationContext: shared.buildUserPrompt({ ...scraped, title: scraped.title || validated.providerName || validated.name }),
@@ -276,14 +283,18 @@ complete every required section and exact reward/earning mapping before closing 
     const candidates = new Set(scraped.images.map(image => image.url).filter(url => /^https?:\/\//i.test(url)));
     for (const key of collections) for (const item of parsed[key]) {
       item.imageUrl = candidates.has(item.imageUrl) ? item.imageUrl : ''; delete item.imageData;
+      item.coverImageUrl = key === 'benefits' && candidates.has(item.coverImageUrl) && item.coverImageUrl !== item.imageUrl ? item.coverImageUrl : '';
+      delete item.coverImageData;
     }
+    delete parsed.cinematic;
     parsed.brand = { logoUrl: candidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl : '' };
     parsed.upsell.bgImageUrl = candidates.has(parsed.upsell.bgImageUrl) ? parsed.upsell.bgImageUrl : '';
     delete parsed.upsell.bgImageData;
     const data = reconcile(parsed, validated, { existing, refreshCopy: true });
+    if (cinematic) data.cinematic = clone(cinematic);
     // Existing user-selected/uploaded assets survive even initial generation.
     if (existing?.brand?.logoData || existing?.brand?.logoUrl) data.brand = { ...data.brand, logoData: existing.brand.logoData || '', logoUrl: existing.brand.logoUrl || '' };
-    const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus });
+    const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus, outputTemplate });
     const remaining = imageResult.remaining ?? Math.max(0, (imageResult.total_empty || 0) - (imageResult.generated || 0));
     const imageWarning = imageResult.warning || (remaining ? `${remaining} images could not be filled. ${imageResult.error || 'You can add images in the builder or generate again.'}` : imageResult.error || '');
     data._meta = { source_url: scraped.url, favicon: scraped.favicon, apple_icon: scraped.appleIcon,

@@ -146,3 +146,34 @@ test('structured output and finish metadata reach the program parser, including 
   const result=await c.api.callLLM({prompt:'Brief',responseFormat:'json',maxTokens:16000});
   assert.equal(result.finish_reason,'MAX_TOKENS');assert.equal(result.text,'');
 });
+
+test('cinematic imagery keeps icons, adds photographic covers, and only generates opted-in card assets', async () => {
+  const prompts = [];
+  let active = [];
+  const c = client(async (_url, options) => {
+    if (options.method === 'POST') { active = JSON.parse(options.body).prompts; prompts.push(...active); return response(202, ticket); }
+    if (options.method === 'DELETE') return response(204);
+    return complete(200, { results: active.map(item => ({ slot: item.slot, imageData: 'data:image/png;base64,small' })) });
+  });
+  const data = { brandName: 'AER', colors: { primary: '#123456', accent: '#abcdef' }, benefits: [{ name: 'Member events' }], cinematic: { card: { mode: 'loyalty', markMode: 'default' } } };
+  await c.api.fillMissingImages(data, { outputTemplate: 'cinematic' });
+  assert.deepEqual(prompts.map(p => p.slot).sort(), ['benefit-0', 'benefit-cover-0']);
+  assert.match(prompts.find(p => p.slot === 'benefit-cover-0').prompt, /photograph or environmental scene/);
+  assert.ok(data.benefits[0].imageData); assert.ok(data.benefits[0].coverImageData);
+  assert.equal(data.cinematic.card.artworkImageData, undefined);
+});
+
+test('selected cinematic slot ignores unrelated missing images and honors author art direction', async () => {
+  let submitted;
+  const c = client(async (_url, options) => {
+    if (options.method === 'POST') { submitted = JSON.parse(options.body).prompts; return response(202, ticket); }
+    if (options.method === 'DELETE') return response(204);
+    return complete(200, { results: submitted.map(item => ({ slot: item.slot, imageData: 'data:image/png;base64,small' })) });
+  });
+  const data = { benefits: [{ name: 'Events' }], cinematic: { card: { mode: 'image', markMode: 'custom', artworkPrompt: '  Opalescent waves  ' } } };
+  const result = await c.api.fillMissingImages(data, { outputTemplate: 'cinematic', onlySlots: ['card-artwork'] });
+  assert.equal(result.total_empty, 1); assert.equal(submitted[0].slot, 'card-artwork');
+  assert.match(submitted[0].prompt, /Author visual direction: Opalescent waves/);
+  assert.match(submitted[0].prompt, /no text, words or numbers/);
+  assert.equal(data.benefits[0].imageData, undefined); assert.equal(data.cinematic.card.markImageData, undefined);
+});

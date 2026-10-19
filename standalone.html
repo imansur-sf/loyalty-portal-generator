@@ -399,6 +399,7 @@
             <h2 id="program-controls-title" class="wizard-title">Portal experience</h2>
             <label class="program-field" for="output-template">Output template<select id="output-template"><option value="classic">Classic · Original portal</option><option value="dashboard">Member Dashboard · Overview and activity</option><option value="showcase">Rewards Showcase · Image-led catalogue</option><option value="editorial">Brand Experience · Immersive brand stories</option><option value="cinematic">Cinematic Journey · Scroll-driven storytelling</option></select></label>
 
+            <div id="cinematic-settings" hidden></div>
             <p id="program-mode-note" class="program-help"></p>
             <div class="program-actions"><button type="button" id="program-edit">Program details &amp; assumptions</button><button type="button" id="program-sample">Start with a sample</button><button type="button" onclick="openPortalPreview()">Preview full size</button></div>
             <details class="presenter-tools" data-presenter-tools><summary>Presentation controls</summary><p>These controls are only in the builder and are not included in the customer portal.</p><div class="program-actions"><button type="button" data-presenter-action onclick="controlPortalPreview('reset')">Restart interactions</button><button type="button" data-presenter-action onclick="controlPortalPreview('welcome')">Show sign-in</button><label data-presenter-role-label hidden>View as <select data-presenter-role onchange="controlPortalPreview('role', this.value)" aria-label="Preview participant role"></select></label></div></details>
@@ -1255,7 +1256,7 @@ const LPGImageUploads = (() => {
   }
   return { entries, context, same, dispose, invalidate, cancel };
 })();
-if (typeof window !== 'undefined') window.LPGImages = { invalidate: LPGImageUploads.invalidate };
+if (typeof window !== 'undefined') window.LPGImages = { invalidate: LPGImageUploads.invalidate, captureContext: LPGImageUploads.context, isContextCurrent: LPGImageUploads.same, cancel: LPGImageUploads.cancel };
 
 /** Attach one set of image handlers to a rendered upload widget. */
 function initImageUpload(dropZoneId, previewId, urlInputId, onImageSet) {
@@ -1298,6 +1299,9 @@ function initImageUpload(dropZoneId, previewId, urlInputId, onImageSet) {
     };
     input.click();
   });
+  listen(dropZone, 'keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); dropZone.click(); }
+  });
   if (urlInput) listen(urlInput, 'input', () => {
     const valid = begin(), url = urlInput.value.trim();
     entry.timer = setTimeout(() => {
@@ -1335,11 +1339,11 @@ function imageUploadHTML(id, label, currentValue) {
   return `
     <div class="space-y-2">
       <label class="block text-xs font-600 text-gray-700">${escape(label)}</label>
-      <div id="drop-${escape(id)}" class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all">
-        <img id="preview-${escape(id)}" src="${hasImage ? escape(currentValue) : ''}" class="${hasImage ? '' : 'hidden'} w-16 h-16 object-cover rounded mx-auto mb-2">
+      <div id="drop-${escape(id)}" role="button" tabindex="0" aria-label="Upload ${escape(label)}" class="relative border-2 border-dashed border-gray-300 rounded-lg p-3 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all">
+        <img id="preview-${escape(id)}" alt="" src="${hasImage ? escape(currentValue) : ''}" class="${hasImage ? '' : 'hidden'} w-16 h-16 object-cover rounded mx-auto mb-2">
         <p class="text-xs text-gray-500">Drop image or click to upload</p>
       </div>
-      <input type="text" id="url-${escape(id)}" value="${currentValue && !currentValue.startsWith('data:') ? escape(currentValue) : ''}" placeholder="Or paste image URL" class="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none">
+      <input type="text" id="url-${escape(id)}" aria-label="${escape(label)} URL" value="${currentValue && !currentValue.startsWith('data:') ? escape(currentValue) : ''}" placeholder="Or paste image URL" class="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 outline-none">
       ${hasImage ? `<button type="button" onclick="clearImage(${escape(JSON.stringify(id))})" class="text-xs text-red-500 hover:text-red-700">✕ Remove image</button>` : ''}
     </div>
   `;
@@ -1363,6 +1367,240 @@ function debounce(fn, ms) {
     timer = setTimeout(() => fn(...args), ms);
   };
 }
+
+</script>
+  <script>
+// ==== inlined from ./js/cinematic-settings.js ====
+// Cinematic-only presentation controls. Shared loyalty data and icon assets stay intact.
+(function (root) {
+  'use strict';
+  const fields = [
+    { id: 'arrival', label: 'Header', fields: [
+      ['arrivalEyebrow', 'Header – Intro line', 'A WORLD OF BELONGING'],
+      ['arrivalTitle', 'Header', 'Your world. Opening up.'],
+      ['arrivalDescription', 'Header – Closer', 'Every moment brings you closer to something extraordinary.'],
+      ['statusEyebrow', 'Next chapter – Intro line', 'YOUR NEXT CHAPTER'],
+      ['statusTitle', 'Next chapter – Heading', 'Good things. Already in motion.'],
+      ['scrollNote', 'Scroll hint', 'Scroll to see what’s ahead ↓'],
+      ['arrivalAction', 'Header – Action label', 'Explore your rewards']
+    ] },
+    { id: 'progress', label: 'Status and progress', fields: [
+      ['progressEyebrow', 'Status – Intro line', 'THE WAY FORWARD'],
+      ['progressTitle', 'Status – Heading', 'A little closer. A little more yours.'],
+      ['progressDescription', 'Status – Closer', 'Your status today, and the milestones ahead.']
+    ] },
+    { id: 'possibility', label: 'Rewards', fields: [
+      ['possibilityEyebrow', 'Rewards – Intro line', 'POSSIBILITY BECOMES REALITY'],
+      ['possibilityTitle', 'Rewards – Heading', 'You’ve earned a world of possibilities.'],
+      ['possibilityDescription', 'Rewards – Closer', 'Put your points toward something worth looking forward to.']
+    ] },
+    { id: 'benefits', label: 'Benefits', fields: [
+      ['benefitsEyebrow', 'Benefits – Intro line', 'MORE THAN POINTS'],
+      ['benefitsTitle', 'Benefits – Heading', 'Recognition. In all the right places.'],
+      ['benefitsDescription', 'Benefits – Closer', 'The benefits that make your membership feel like yours.']
+    ] },
+    { id: 'discovery', label: 'Discovery', fields: [
+      ['discoveryEyebrow', 'Discovery – Intro line', 'A LITTLE FURTHER'],
+      ['discoveryTitle', 'Discovery – Heading', 'More to discover.'],
+      ['discoveryDescription', 'Discovery – Closer', 'Fresh opportunities to get more from your membership.']
+    ] },
+    { id: 'details', label: 'Your account', fields: [
+      ['detailsEyebrow', 'Account – Intro line', 'YOUR MEMBERSHIP'],
+      ['detailsTitle', 'Account – Heading', 'The finer details.'],
+      ['detailsDescription', 'Account – Closer', 'Your activity, community, and account. All within reach.']
+    ] }
+  ];
+  const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  function safeImage(value) {
+    if (typeof value !== 'string' || value.length > 12000000) return '';
+    const image = value.trim();
+    if (/^data:image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)(?:;base64)?,/i.test(image)) return image;
+    try { const url = new URL(image); return ['https:', 'http:'].includes(url.protocol) ? image : ''; } catch (_) { return ''; }
+  }
+  function normalize(value) {
+    const source = value && typeof value === 'object' ? value : {};
+    const copy = {};
+    for (const group of fields) for (const [key, , fallback] of group.fields) {
+      copy[key] = typeof source.copy?.[key] === 'string' ? source.copy[key].slice(0, 8000) : fallback;
+    }
+    const card = source.card || {};
+    return { copy, card: {
+      mode: card.mode === 'image' ? 'image' : 'loyalty',
+      markMode: ['brand', 'custom'].includes(card.markMode) ? card.markMode : 'orbit',
+      markImageUrl: safeImage(card.markImageUrl), markImageData: safeImage(card.markImageData),
+      artworkImageUrl: safeImage(card.artworkImageUrl), artworkImageData: safeImage(card.artworkImageData),
+      showDetails: card.showDetails !== false
+    } };
+  }
+  function current() { return typeof state === 'object' ? state : null; }
+  function settings() {
+    const portal = current(); if (!portal) return null;
+    if (!portal.cinematic || !portal.cinematic.copy || !portal.cinematic.card) portal.cinematic = normalize(portal.cinematic);
+    return portal.cinematic;
+  }
+  function changed() {
+    if (typeof schedulePreview === 'function') schedulePreview();
+    if (typeof scheduleDraftRecovery === 'function') scheduleDraftRecovery();
+  }
+  const versions = new Map(), busy = new Map();
+  const bump = slot => versions.set(slot, (versions.get(slot) || 0) + 1);
+  function asset(type, index) {
+    if (type === 'benefit' || type === 'benefit-cover') {
+      const item = current()?.benefits?.[index];
+      return item ? { item, url: 'coverImageUrl', data: 'coverImageData', slot: 'benefit-cover-' + index } : null;
+    }
+    const card = settings()?.card;
+    if (!card) return null;
+    if (type === 'card-mark') return { item: card, url: 'markImageUrl', data: 'markImageData', slot: type };
+    if (type === 'card-artwork') return { item: card, url: 'artworkImageUrl', data: 'artworkImageData', slot: type };
+    return null;
+  }
+  function setImage(type, index, value) {
+    const target = asset(type, index); if (!target) return;
+    bump(target.slot);
+    const image = safeImage(value);
+    target.item[target.url] = image.startsWith('data:') ? '' : image;
+    target.item[target.data] = image.startsWith('data:') ? image : '';
+    if (image) ensureRemove(target.slot);
+    changed();
+  }
+  function ensureRemove(slot) {
+    const wrapper = document.querySelector(`[data-cinematic-asset="${slot}"]`);
+    if (!wrapper || wrapper.querySelector('[data-cinematic-remove]') || wrapper.querySelector('[onclick^="clearImage"]')) return;
+    const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.cinematicRemove = slot;
+    remove.className = 'text-xs text-red-500'; remove.textContent = '✕ Remove image';
+    remove.onclick = () => root.clearImage(slot); wrapper.appendChild(remove);
+  }
+  function widget(type, index, label, value) {
+    const slot = type === 'benefit-cover' ? 'benefit-cover-' + index : type;
+    return `<div data-cinematic-asset="${slot}" class="space-y-2">${imageUploadHTML(slot, label, safeImage(value))}
+      <label class="block text-xs text-gray-600" for="prompt-${slot}">Image direction (optional)</label>
+      <input id="prompt-${slot}" type="text" maxlength="1200" placeholder="Describe the image you want" class="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg">
+      <button type="button" data-cinematic-generate="${type}"${Number.isInteger(index) ? ` data-index="${index}"` : ''} class="px-3 py-2 text-xs rounded-lg bg-blue-50 text-blue-700">${type === 'benefit-cover' ? 'Generate cover' : 'Generate image'}</button>
+      <p id="status-${slot}" role="status" class="text-xs text-gray-600"></p></div>`;
+  }
+  function renderBenefitCover(index, benefit) {
+    if (current()?.outputTemplate !== 'cinematic' || !Number.isInteger(index) || index < 0) return '';
+    return widget('benefit-cover', index, 'Cinematic cover image', benefit?.coverImageData || benefit?.coverImageUrl || '');
+  }
+  function bindAsset(type, index) {
+    const target = asset(type, index); if (!target) return;
+    const slot = target.slot;
+    initImageUpload('drop-' + slot, 'preview-' + slot, 'url-' + slot, value => {
+      if (asset(type, index)?.item === target.item) setImage(type, index, value);
+    });
+    // Cancel AI as soon as a user starts typing; upload URLs have a debounce.
+    const url = document.getElementById('url-' + slot);
+    if (url) url.oninput = () => bump(slot);
+    const prompt = document.getElementById('prompt-' + slot);
+    if (prompt) prompt.oninput = () => bump(slot);
+    const button = document.querySelector(`[data-cinematic-asset="${slot}"] [data-cinematic-generate]`);
+    if (button) button.onclick = () => generateAsset(type, index);
+  }
+  function initBenefitCoverUploads() {
+    if (current()?.outputTemplate !== 'cinematic') return;
+    current().benefits?.forEach((_, index) => bindAsset('benefit-cover', index));
+  }
+  function render() {
+    const host = document.getElementById('cinematic-settings'), portal = current();
+    if (!host || !portal) return;
+    host.hidden = portal.outputTemplate !== 'cinematic';
+    if (host.hidden) return;
+    const config = settings();
+    host.innerHTML = `<div class="space-y-4 mt-4"><h3 class="font-semibold">Cinematic Journey</h3>
+      <p class="text-xs text-gray-600">Customize each chapter. Press Enter in a text field to place words on separate lines. Clear a field to omit its text.</p>
+      ${fields.map(group => `<details class="rounded-lg border border-gray-200 p-3"><summary class="cursor-pointer font-semibold text-sm">${group.label}</summary><div class="space-y-3 mt-3">${group.fields.map(([key,label]) => `<label class="block text-xs text-gray-700" for="cinematic-copy-${key}">${label}<textarea id="cinematic-copy-${key}" data-cinematic-copy="${key}" rows="2" maxlength="8000" class="block w-full mt-1 px-3 py-2 text-sm border border-gray-300 rounded-lg">${escape(config.copy[key])}</textarea></label>`).join('')}</div></details>`).join('')}
+      <details class="rounded-lg border border-gray-200 p-3"><summary class="cursor-pointer font-semibold text-sm">Membership card</summary><div class="space-y-3 mt-3">
+        <label class="block text-xs" for="cinematic-card-mode">Card appearance</label>
+        <select id="cinematic-card-mode" class="w-full border rounded-lg p-2"><option value="loyalty">Live loyalty card (default)</option><option value="image">Custom card artwork</option></select>
+        <div id="cinematic-mark-controls"><label class="block text-xs" for="cinematic-card-mark">Card emblem</label><select id="cinematic-card-mark" class="w-full border rounded-lg p-2"><option value="orbit">Orbital emblem (default)</option><option value="brand">Brand logo</option><option value="custom">Custom emblem image</option></select>
+          <div id="cinematic-custom-mark">${widget('card-mark', null, 'Card emblem image', config.card.markImageData || config.card.markImageUrl)}</div></div>
+        <div id="cinematic-artwork-controls">${widget('card-artwork', null, 'Full card artwork', config.card.artworkImageData || config.card.artworkImageUrl)}
+          <label class="flex gap-2 text-xs mt-3"><input id="cinematic-card-details" type="checkbox">Keep live brand, tier, and member text over the artwork</label>
+          <p class="text-xs text-gray-600">Without artwork, the loyalty card appears automatically.</p></div>
+      </div></details></div>`;
+    host.querySelectorAll('[data-cinematic-copy]').forEach(input => input.addEventListener('input', () => {
+      settings().copy[input.dataset.cinematicCopy] = input.value; changed();
+    }));
+    const mode = document.getElementById('cinematic-card-mode'), mark = document.getElementById('cinematic-card-mark');
+    const details = document.getElementById('cinematic-card-details');
+    mode.value = config.card.mode; mark.value = config.card.markMode; details.checked = config.card.showDetails;
+    const visibility = () => {
+      document.getElementById('cinematic-mark-controls').hidden = config.card.mode === 'image';
+      document.getElementById('cinematic-artwork-controls').hidden = config.card.mode !== 'image';
+      document.getElementById('cinematic-custom-mark').hidden = config.card.markMode !== 'custom';
+    };
+    mode.onchange = () => { config.card.mode = mode.value; bump('card-artwork'); visibility(); changed(); };
+    mark.onchange = () => { config.card.markMode = mark.value; bump('card-mark'); visibility(); changed(); };
+    details.onchange = () => { config.card.showDetails = details.checked; changed(); };
+    visibility(); bindAsset('card-mark'); bindAsset('card-artwork');
+  }
+  function context() {
+    const portal = current();
+    return JSON.stringify({ epoch: typeof projectEpoch === 'number' ? projectEpoch : null,
+      audience: portal?.activeVariant, template: portal?.outputTemplate, brand: portal?.brand, colors: portal?.colors,
+      program: portal?.program, cinematic: portal?.cinematic });
+  }
+  async function generateAsset(type, index) {
+    const target = asset(type, index), portal = current();
+    if (!target || portal?.outputTemplate !== 'cinematic') return false;
+    const slot = target.slot;
+    root.LPGImages?.cancel?.('drop-' + slot);
+    bump(slot); const version = versions.get(slot);
+    const config = settings(), captured = context(), original = JSON.stringify(target.item);
+    const uploadContext = root.LPGImages?.captureContext?.();
+    const prompt = document.getElementById('prompt-' + slot)?.value || '';
+    const payload = JSON.parse(JSON.stringify({ brandName: portal.brand?.name || '', industry: portal.brand?.industry || 'generic',
+      colors: portal.colors || {}, benefits: portal.benefits || [], cinematic: config }));
+    const destination = type === 'benefit-cover' || type === 'benefit' ? payload.benefits[index] : payload.cinematic.card;
+    destination[target.url] = ''; destination[target.data] = '';
+    if (slot.startsWith('benefit-cover-')) destination.coverPrompt = prompt;
+    else if (type === 'card-mark') { destination.markMode = 'custom'; destination.markPrompt = prompt; }
+    else { destination.mode = 'image'; destination.artworkPrompt = prompt; }
+    const button = document.querySelector(`[data-cinematic-asset="${slot}"] [data-cinematic-generate]`);
+    const status = document.getElementById('status-' + slot);
+    busy.set(slot, version); if (button) button.disabled = true;
+    if (status) status.textContent = 'Generating image…';
+    try {
+      if (!root.LocalAI?.fillMissingImages) throw new Error('Image generation is unavailable.');
+      await root.LocalAI.fillMissingImages(payload, { onlySlots: [slot], outputTemplate: 'cinematic' });
+      const now = asset(type, index);
+      if (current() !== portal || portal.cinematic !== config || captured !== context() || versions.get(slot) !== version ||
+          now?.item !== target.item || JSON.stringify(target.item) !== original ||
+          (uploadContext && !root.LPGImages.isContextCurrent(uploadContext))) {
+        if (busy.get(slot) === version && status?.isConnected) status.textContent = 'The editor changed. Your current image was kept.';
+        return false;
+      }
+      const image = safeImage(destination[target.data] || destination[target.url]);
+      if (!image) throw new Error('No image was returned. Try again or upload an image.');
+      setImage(type, index, image);
+      if (status?.isConnected) status.textContent = 'Image generated.';
+      const preview = document.getElementById('preview-' + slot), url = document.getElementById('url-' + slot);
+      if (preview) { preview.src = image; preview.classList.remove('hidden'); }
+      if (url) url.value = image.startsWith('data:') ? '' : image;
+      ensureRemove(slot);
+      return true;
+    } catch (error) {
+      if (versions.get(slot) === version && status?.isConnected) status.textContent = error.message || 'Image generation failed. Try again.';
+      return false;
+    } finally {
+      if (busy.get(slot) === version) { busy.delete(slot); if (button?.isConnected) button.disabled = false; }
+    }
+  }
+  let initialized = false;
+  function init() {
+    if (!initialized) {
+      document.addEventListener('imageClear', event => {
+        const id = event.detail?.id || '';
+        if (id === 'card-mark' || id === 'card-artwork') setImage(id, undefined, '');
+        else if (/^benefit-cover-\d+$/.test(id)) setImage('benefit-cover', Number(id.slice(14)), '');
+      });
+      initialized = true;
+    }
+    render();
+  }
+  root.LPGCinematic = { fields, normalize, sync: render, render, init, renderBenefitCover, initBenefitCoverUploads, generateAsset };
+})(window);
 
 </script>
   <script>
@@ -1862,6 +2100,10 @@ function debounce(fn, ms) {
   function luminance(hex) { return channels(hex).map(v => { const c = v / 255; return c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); }).reduce((sum, c, i) => sum + c * [.2126, .7152, .0722][i], 0); }
   function darkSurface(hex) { let result = hex; for (let i = 0; i < 12 && luminance(result) > .09; i++) result = mix(result, '#101828', .18); return result; }
 
+  function imageSource(value) {
+    return typeof value === 'string' && /^(?:https?:\/\/|data:image\/(?:png|jpe?g|webp|gif|avif|svg\+xml)(?:;base64)?,)/i.test(value) ? value : '';
+  }
+
   // Serialized into each export. Moving existing nodes preserves inline actions,
   // attached listeners, image fallbacks, input values, and generated content.
   function arrange(cinematic, options) {
@@ -1945,6 +2187,7 @@ function debounce(fn, ms) {
       if (text) node.textContent = text;
       return node;
     };
+    const copy = (key, fallback) => typeof options.copy?.[key] === 'string' ? options.copy[key] : fallback;
     const heroSource = pending.get('hero');
     const tierSource = pending.get('tiers');
     const balanceSource = heroSource?.querySelector('[data-lpg-balance="redeemable"]');
@@ -1958,10 +2201,10 @@ function debounce(fn, ms) {
       if (!keys.some(key => pending.has(key))) return null;
       const wrapper = make('section', 'cj-scene cj-' + id); wrapper.id = 'cj-' + id;
       const heading = make('div', 'cj-heading');
-      heading.appendChild(make('p', 'cj-eyebrow', eyebrow));
-      const h = make('h2', 'cj-title', title); h.id = 'cj-title-' + id;
-      heading.appendChild(h); heading.appendChild(make('p', 'cj-description', description));
-      wrapper.setAttribute('aria-labelledby', h.id); wrapper.appendChild(heading);
+      const eyebrowNode = make('p', 'cj-eyebrow', copy(id + 'Eyebrow', eyebrow)); eyebrowNode.hidden = !eyebrowNode.textContent.trim(); heading.appendChild(eyebrowNode);
+      const h = make('h2', 'cj-title', copy(id + 'Title', title)); h.id = 'cj-title-' + id;
+      heading.appendChild(h); const closer = make('p', 'cj-description', copy(id + 'Description', description)); closer.hidden = !closer.textContent.trim(); heading.appendChild(closer);
+      if (h.textContent.trim()) wrapper.setAttribute('aria-labelledby', h.id); else { h.hidden = true; wrapper.setAttribute('aria-label', label); } wrapper.appendChild(heading);
       const content = make('div', 'cj-content');
       for (const key of keys) if (pending.has(key)) { content.appendChild(pending.get(key)); pending.delete(key); }
       wrapper.appendChild(content); layout.appendChild(wrapper); scenes.push(wrapper);
@@ -1978,15 +2221,29 @@ function debounce(fn, ms) {
       const orbit = make('i', 'cj-orbit'); orbit.setAttribute('aria-hidden', 'true'); stage.appendChild(orbit);
       stage.appendChild(heading);
       const status = make('div', 'cj-arrival-status');
-      status.appendChild(make('p', 'cj-eyebrow', 'YOUR NEXT CHAPTER'));
-      status.appendChild(make('p', 'cj-title', 'Good things. Already in motion.')); stage.appendChild(status);
+      status.appendChild(make('p', 'cj-eyebrow', copy('statusEyebrow','YOUR NEXT CHAPTER')));
+      status.appendChild(make('p', 'cj-title', copy('statusTitle','Good things. Already in motion.'))); stage.appendChild(status);
       const card = make('div', 'cj-membership');
       card.appendChild(make('p', 'cj-card-brand', options.brandName || 'MEMBERSHIP'));
       const sculpture = make('i', 'cj-card-sculpture'); sculpture.setAttribute('aria-hidden', 'true');
       sculpture.appendChild(make('i', '')); sculpture.appendChild(make('i', '')); card.appendChild(sculpture);
       const tier = make('p', 'cj-status-tier', tierName);
       if (tierSource?.querySelector('[data-lpg-tier]')) tier.dataset.lpgTier = '';
-      card.appendChild(tier); card.appendChild(make('p', 'cj-card-member', memberName)); stage.appendChild(card);
+      card.appendChild(tier); card.appendChild(make('p', 'cj-card-member', memberName));
+      const settings = options.card || {};
+      const mark = settings.markMode === 'brand' ? options.brandLogo : settings.markMode === 'custom' ? options.markImage : '';
+      if (mark) {
+        const logo = make('img','cj-card-logo'); logo.src = mark; logo.alt = '';
+        card.classList.add('cj-has-mark');
+        logo.addEventListener('error',()=>{ card.classList.remove('cj-has-mark'); logo.remove(); }); card.appendChild(logo);
+      }
+      if (settings.mode === 'image' && options.cardImage) {
+        const artwork = make('img','cj-card-artwork'); artwork.src = options.cardImage; artwork.alt = '';
+        card.classList.add('cj-has-artwork');
+        if (settings.showDetails === false) card.classList.add('cj-hide-details');
+        artwork.addEventListener('error',()=>{ card.classList.remove('cj-has-artwork','cj-hide-details'); artwork.remove(); }); card.prepend(artwork);
+      }
+      stage.appendChild(card);
       const content = arrival.querySelector('.cj-content');
       if (progressText) {
         const summary = make('p', 'cj-status-summary', progressText.textContent); summary.dataset.lpgProgressText = ''; content.appendChild(summary);
@@ -1994,8 +2251,8 @@ function debounce(fn, ms) {
       stage.appendChild(content);
       const actions = make('div', 'cj-arrival-actions');
       const target = pending.has('vouchers') ? ['possibility', 'Explore your rewards'] : pending.has('tiers') ? ['progress', 'Explore your status'] : pending.has('offers') || pending.has('earn') || pending.has('upsell') ? ['discovery', 'Discover more'] : pending.has('benefits') ? ['benefits', 'Explore your benefits'] : null;
-      actions.appendChild(make('p', 'cj-scroll-note', 'Scroll to see what’s ahead ↓'));
-      if (target) { const action = make('a', 'cj-cta', target[1] + ' ↗'); action.href = '#cj-' + target[0]; actions.appendChild(action); }
+      actions.appendChild(make('p', 'cj-scroll-note', copy('scrollNote','Scroll to see what’s ahead ↓')));
+      if (target && copy('arrivalAction',target[1])) { const label = copy('arrivalAction',target[1]); const action = make('a', 'cj-cta', (label === 'Explore your rewards' && target[0] !== 'possibility' ? target[1] : label) + ' ↗'); action.href = '#cj-' + target[0]; actions.appendChild(action); }
       stage.appendChild(actions); arrival.appendChild(stage);
     }
     scene('progress', ['tiers'], 'THE WAY FORWARD', 'A little closer. A little more yours.', 'Your status today, and the milestones ahead.', 'Your status');
@@ -2055,7 +2312,15 @@ function debounce(fn, ms) {
     const compact = window.matchMedia('(max-width: 900px), (max-height: 740px)');
     // Long customer copy must grow naturally rather than being clipped inside
     // the fixed-height compositions. The same aesthetic stays in normal flow.
-    const crowded = tierName.length > 24 || memberName.length > 50 || (options.brandName || '').length > 40 ||
+    const longSceneCopy = [
+      ['arrivalEyebrow',80,2], ['arrivalTitle',90,3], ['arrivalDescription',220,4],
+      ['statusEyebrow',80,2], ['statusTitle',90,3], ['possibilityEyebrow',80,2],
+      ['possibilityTitle',120,3], ['possibilityDescription',220,4], ['arrivalAction',80,2], ['scrollNote',180,3]
+    ].some(([key, length, lines]) => {
+      const text = options.copy?.[key] || '';
+      return text.length > length || text.split('\n').length > lines;
+    });
+    const crowded = longSceneCopy || tierName.length > 24 || memberName.length > 50 || (options.brandName || '').length > 40 ||
       (film?.querySelector('.cj-featured-copy')?.textContent.length || 0) > 550;
     const clamp = value => Math.max(0, Math.min(1, value));
     const ease = value => { value = clamp(value); return value * value * (3 - 2 * value); };
@@ -2240,6 +2505,7 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-heading { position: relative; min-width: 0; z-index: 2; }
 .cj-eyebrow { color: #526073; font-size: 11px; letter-spacing: .18em; font-weight: 600; margin: 0 0 22px; }
 .cj-title { font-size: clamp(2.8rem,5.5vw,6rem); line-height: 1.02; letter-spacing: -.065em; font-weight: 500; text-wrap: balance; margin: 0; max-width: 850px; }
+.cj-heading :is(.cj-title,.cj-eyebrow,.cj-description),.cj-arrival-status p,.cj-scroll-note { white-space: pre-wrap; }
 .cj-description { color: #526073; max-width: 460px; font-size: 16px; line-height: 1.65; margin: 24px 0 0; }
 .cj-content { position: relative; min-width: 0; z-index: 1; }
 .cj-arrival { background: var(--lpg-soft); padding: 0; }
@@ -2252,6 +2518,13 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-membership::before { content: ''; position: absolute; inset: -90% -60%; background: linear-gradient(115deg,transparent 40%,#ffffff90 50%,transparent 60%); pointer-events: none; }
 .cj-card-brand { position: relative; font-size: 11px; letter-spacing: .17em; font-weight: 650; max-width: calc(100% - 80px); }
 .cj-status-tier { position: relative; margin-top: 56px; font-size: clamp(1.6rem,3vw,2.5rem); line-height: 1.1; letter-spacing: -.04em; font-weight: 500; }
+.cj-card-logo { position: absolute; width: 76px; height: 76px; object-fit: contain; right: 22px; top: 20px; z-index: 3; }
+.cj-has-mark .cj-card-sculpture { visibility: hidden; }
+.cj-membership.cj-has-artwork { color: #fff; background: #18202f; }
+.cj-card-artwork { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+.cj-has-artwork::before { inset: 0; z-index: 1; background: linear-gradient(180deg,#10182840,#101828b8); transform: none !important; }
+.cj-has-artwork :is(.cj-card-brand,.cj-status-tier,.cj-card-member,.cj-card-sculpture) { z-index: 2; }
+.cj-hide-details :is(.cj-card-brand,.cj-status-tier,.cj-card-member,.cj-card-sculpture,.cj-card-logo),.cj-hide-details::before { display: none; }
 .cj-card-member { position: relative; margin-top: 12px; font-size: 11px; letter-spacing: .1em; }
 .cj-card-sculpture { position: absolute; top: 20px; right: 22px; width: 76px; height: 76px; border: 1px solid #ffffffc0; border-radius: 50%; transform: rotate(-25deg); }
 .cj-card-sculpture i { position: absolute; inset: 12px 0; border: 1px solid #ffffffc0; border-radius: 50%; }
@@ -2308,7 +2581,12 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-benefits [data-lpg-section="benefits"] { padding: 0; border: 0; box-shadow: none; background: transparent; }
 .cj-benefits #benefits-content > div { padding: 28px 0 0; border: 0; }
 .cj-benefits .benefits-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; }
-.cj-benefits .benefit-card { display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 28px; min-height: 220px; padding: 30px; border: 0; border-radius: 24px; background: #fff; }
+.cj-benefits .benefit-card { position: relative; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 28px; min-height: 220px; padding: 30px; border: 0; border-radius: 24px; background: #fff; }
+.cj-benefits .benefit-card.cj-benefit-has-cover { background: var(--lpg-brand-deep); color: #fff; }
+.cj-benefits .benefit-card > img.lpg-benefit-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; }
+.cj-benefit-has-cover::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(180deg,#10182822,#101828cc); }
+.cj-benefits .cj-benefit-has-cover .benefit-copy p { color: #fff; }
+.cj-benefits .cj-benefit-has-cover > div:first-child { background: #fff !important; }
 .cj-benefits .benefit-card .benefit-copy { flex: 0 1 auto; }
 .cj-benefits .benefit-card .benefit-copy p { font-size: clamp(1.2rem,2.3vw,2rem); font-weight: 500; letter-spacing: -.035em; line-height: 1.2; }
 .cj-benefits .benefit-card:first-child { background: var(--lpg-brand-deep); color: #fff; min-height: 280px; }
@@ -2363,7 +2641,7 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-motion .cj-heading[data-cj-reveal] > :is(.cj-eyebrow,.cj-title,.cj-description) { opacity: calc(.12 + var(--cj-enter) * .88); transform: translateY(calc((1 - var(--cj-enter)) * 40px)); }
 .cj-motion .voucher-card:not(.cj-featured-reward) > div:first-child,.cj-motion .offer-card > div:first-child { clip-path: inset(calc((1 - var(--cj-enter)) * 9%) calc((1 - var(--cj-enter)) * 12%) round calc(22px + (1 - var(--cj-enter)) * 120px)); opacity: calc(.15 + var(--cj-enter) * .85); }
 .cj-motion .voucher-card:not(.cj-featured-reward) > div:last-child,.cj-motion .offer-card > div:last-child { opacity: calc(.2 + var(--cj-enter) * .8); transform: translateY(calc((1 - var(--cj-enter)) * 42px)); }
-.cj-motion :is(.benefit-card,.earn-card)[data-cj-reveal] > * { opacity: calc(.2 + var(--cj-enter) * .8); transform: translateY(calc((1 - var(--cj-enter)) * 24px)); }
+.cj-motion :is(.benefit-card,.earn-card)[data-cj-reveal] > :not(.lpg-benefit-cover) { opacity: calc(.2 + var(--cj-enter) * .8); transform: translateY(calc((1 - var(--cj-enter)) * 24px)); }
 .cj-motion [data-cj-reveal]:focus-within,.cj-motion .cj-scene:target [data-cj-reveal] { --cj-enter: 1 !important; }
 .cj-motion [data-cj-reveal]:focus-within > *,.cj-motion .cj-scene:target [data-cj-reveal] > * { opacity: 1 !important; transform: none !important; clip-path: none !important; }
 /* A reward remains actionable immediately when reached with a keyboard or link. */
@@ -2459,6 +2737,11 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
       brandName: typeof state.brand?.name === 'string' ? state.brand.name : '',
       memberName: typeof state.member?.name === 'string' ? state.member.name : '',
       initialTier: typeof state.tiers?.[0]?.name === 'string' ? state.tiers[0].name : '',
+      copy: Object.fromEntries(Object.entries(state.cinematic?.copy || {}).filter(([,value]) => typeof value === 'string' && value.length <= 8000)),
+      card: { mode: state.cinematic?.card?.mode === 'image' ? 'image' : 'loyalty', markMode: state.cinematic?.card?.markMode || 'orbit', showDetails: state.cinematic?.card?.showDetails !== false },
+      markImage: imageSource(state.cinematic?.card?.markImageData) || imageSource(state.cinematic?.card?.markImageUrl),
+      cardImage: imageSource(state.cinematic?.card?.artworkImageData) || imageSource(state.cinematic?.card?.artworkImageUrl),
+      brandLogo: imageSource(state.brand?.logoData) || imageSource(state.brand?.logoUrl),
       rewards: state.programEnabled && Array.isArray(state.program?.rewards)
         ? state.program.rewards.filter(r => r && typeof r.id === 'string' && Number.isFinite(r.cost) && r.cost >= 0).map(r => ({ id: r.id, cost: r.cost })) : []
     };
@@ -2491,7 +2774,7 @@ PROGRAM schema (all numeric values must be finite nonnegative numbers):
 "approvalRequired":boolean,
 "assumptions":[string],"futureFeatures":[string],
 "requirements":[{"id":string,"text":string,"source":string,"status":"interactive"|"displayed"|"future"|"question"|"unsupported","module":string}]}
-Use a first tier threshold of 0; ascending distinct thresholds, up to 12 tiers. pointsPerUnit is RP per one monetary unit (e.g.100 points=$1). A spend rule earns amount*qualifyingRate TP and round(amount*redeemableRate*CURRENT tier multiplier) RP. Fixed rules earn fixed points without tier multipliers, amount=1 and rates=0; spend rules have fixed points=0. freeContentMonthlyCap is a combined monthly TP cap across fixed activities. null means unlimited; 0 means no qualifying earning. Use null caps when unknown and note the assumption. Explicitly flag unsupported rules rather than approximate them silently. Rewards require a positive RP cost. This is a visual sales demo: when policies are unspecified, propose 4 relevant rewards and 3-4 earning activities as clearly labeled demo assumptions, using the brand and industry. Use empty arrays only when the author or source explicitly excludes rewards/activities. Never override supplied policy. member.role must match a roles[].id. IDs must contain letters/numbers/underscore/hyphen only.
+Use a first tier threshold of 0; ascending distinct thresholds, up to 12 tiers. pointsPerUnit is RP per one monetary unit (e.g.100 points=$1). A spend rule earns amount*qualifyingRate TP and round(amount*redeemableRate*CURRENT tier multiplier) RP. Fixed rules earn fixed points without tier multipliers, amount=1 and rates=0; spend rules have fixed points=0. freeContentMonthlyCap is a combined monthly TP cap across fixed activities. null means unlimited; 0 means no qualifying earning. Use null caps when unknown and note the assumption. Explicitly flag unsupported rules rather than approximate them silently. Rewards require a positive RP cost. This is a visual sales demo: when policies are unspecified, propose the presentationPreferences.defaultRewardCount relevant rewards and 3-4 earning activities as clearly labeled demo assumptions, using the brand and industry. Use empty arrays only when the author or source explicitly excludes rewards/activities. Presentation counts are defaults only: explicit author/source counts and accepted-program rewards take precedence. Never pad or remove accepted rewards to fit a layout. Never override supplied policy. member.role must match a roles[].id. IDs must contain letters/numbers/underscore/hyphen only.
 For spend rules, amount is a POSITIVE sample transaction amount, not a balance or rate. Use an actual sample product price if available, otherwise 100 with a demo assumption. Never use zero for amount. All unused rate/point fields must be 0. Text labels must be nonempty.
 Separate provider from participating business and person. B2B balances belong to the business. Generate a plausible fictional company in member.organization, distinct from the program provider, and a fictional contact with a first and last name in member.name. For B2C, generate a plausible fictional first and last name in member.name, with an empty organization. Never use placeholder labels such as Demo Member, Member, Demo User, Example Business or Customer. These names must not come from customer personal data. Preserve author-edited names when refining an accepted program. Roles are configurable demo views, not actual authorization. For B2B with approvals include requester and approver roles. For B2C use a member role. Do not infer organizational membership from professional individual membership.
 Only implemented modules: overview (balances/tiers), earn (promotional activity cards with informational links; no purchase entry or points accrual), rewards (fixed points redemption), activity (ledger), team (demo people/roles), approvals (request/approve). These are simulated, not integrated to Salesforce. Earning rules inform promotional card copy only: mark earning requirements displayed, never interactive. Clicking an earning card opens activity details and never changes balances. Mark integrations, real invitations, referral tracking, annual rollover, expiry processing, advanced account hierarchy and other unsupported behavior as unsupported/future/question. Do not claim interactive coverage for them. Referrals are future when the document says later phase. Internal financial/governance plans do not become public portal content.
@@ -2512,10 +2795,10 @@ Return compact JSON without indentation or explanatory prose. Aim for 4500 outpu
       return { name: String(source.name || 'Document').slice(0, 180), pages };
     });
   }
-  function buildPrompt(brief, website, existing) {
+  function buildPrompt(brief, website, existing, { outputTemplate = 'classic' } = {}) {
     const author = { mode: brief.mode === 'b2b' ? 'b2b' : 'b2c', objective: String(brief.objective || '').slice(0, 2000),
       request: String(brief.text || '').slice(0, 16000), roles: String(brief.roles || '').slice(0, 1000) };
-    return JSON.stringify({ author, acceptedProgramToRefine: existing || null,
+    return JSON.stringify({ author, presentationPreferences: { outputTemplate, defaultRewardCount: outputTemplate === 'cinematic' ? 5 : 4 }, acceptedProgramToRefine: existing || null,
       sourceDocuments: sourcesText(brief.sources || []), websiteContext: website || null });
   }
   function parseResponse(response, model, mode) {
@@ -2595,6 +2878,7 @@ Return compact JSON without indentation or explanatory prose. Aim for 4500 outpu
     const copy = JSON.parse(JSON.stringify(payload));
     copy.schemaVersion = 2;
     copy.outputTemplate = copy.outputTemplate === 'modern' ? 'dashboard' : ['dashboard', 'showcase', 'editorial', 'cinematic'].includes(copy.outputTemplate) ? copy.outputTemplate : 'classic';
+    if (root.LPGCinematic) copy.cinematic = root.LPGCinematic.normalize(copy.cinematic);
     copy.programEnabled = copy.programEnabled === true;
     if (copy.program != null) { copy.program = model.normalize(copy.program); copy.programEnabled = true; }
     else { copy.program = null; copy.programEnabled = false; }
@@ -2735,7 +3019,7 @@ supplies them; frame it as exploring membership benefits instead. Unknown expiry
 should be empty strings. For B2B use business/account language and preserve separate provider,
 participating business and contact. For B2C use individual member language.
 Use only supplied image candidate URLs, never invent image URLs. Leave missing images empty;
-the existing image generation service will fill them. No imageData/base64 in your response.
+the existing image generation service will fill them. No imageData/base64 in your response, including coverImageData. For cinematic benefits you may supply coverImageUrl only from supplied image candidates: a full photographic scene, never an icon. Keep the existing benefit icon imageUrl separate from its coverImageUrl.
 If website data is absent, use the author brief and validatedProgram to personalize content.
 Keep brandName/programName/member/tiers consistent with validatedProgram. Keep JSON complete.
 For a refinement, use existingPresentation as the starting copy. Change the sections relevant
@@ -2851,6 +3135,7 @@ complete every required section and exact reward/earning mapping before closing 
   function reconcile(content, program, { existing, allowMissing = false, refreshCopy = false } = {}) {
     const data = clone(content || {});
     const refining = isRefinement(existing);
+    if (existing?.cinematic) data.cinematic = clone(existing.cinematic);
     const preserveImage = (item, previous) => {
       if (previous?.imageData) return { ...item, imageData: previous.imageData, imageUrl: '' };
       if (previous?.imageUrl) return { ...item, imageUrl: previous.imageUrl, imageData: '' };
@@ -2866,7 +3151,13 @@ complete every required section and exact reward/earning mapping before closing 
           const label = item.name || item.title || item.description;
           const previous = existing[key].find(old => (old.name || old.title || old.description) === label)
             || (existing[key].length === items.length ? existing[key][index] : null);
-          return preserveImage(item, previous);
+          const result = preserveImage(item, previous);
+          // Covers belong to the benefit identity, never its former list position.
+          const coverOwner = key === 'benefits' && existing[key].find(old => old.name === item.name);
+          if (coverOwner?.coverImageData || coverOwner?.coverImageUrl) {
+            result.coverImageData = coverOwner.coverImageData || ''; result.coverImageUrl = coverOwner.coverImageData ? '' : coverOwner.coverImageUrl;
+          }
+          return result;
         });
       }
       for (const key of ['upsell', 'navLinks', 'footerLinks']) if (existing[key] && !refreshCopy) data[key] = clone(existing[key]);
@@ -2900,7 +3191,7 @@ complete every required section and exact reward/earning mapping before closing 
     return data;
   }
 
-  async function generate({ client, brief = {}, program, website, rawURL = '', existing, onStatus = () => {} }) {
+  async function generate({ client, brief = {}, program, website, rawURL = '', existing, cinematic, outputTemplate = 'classic', onStatus = () => {} }) {
     const shared = root.PageHost?._analysis;
     if (!shared || !client?.callLLM) throw new Error('Portal content generation is unavailable. Please refresh the builder.');
     if (typeof root.LocalAI?.fillMissingImages !== 'function') throw new Error('Portal image generation is unavailable. Please refresh the builder.');
@@ -2915,7 +3206,7 @@ complete every required section and exact reward/earning mapping before closing 
     const sourceCoverage = validated.requirements.slice(0, 30).map(item => ({ text: text(item.text, 500), status: item.status, module: item.module }));
     const payload = {
       author: { mode: validated.mode, objective: text(brief.objective, 2000), request: text(brief.text, 16000), roles: text(brief.roles, 1000) },
-      validatedProgram: facts, sourceCoverage,
+      validatedProgram: facts, sourceCoverage, presentationPreferences: { outputTemplate },
       activityCards: validated.earnRules.map(rule => activitySkeleton(rule, validated)),
       websiteContext: scraped,
       websitePresentationContext: shared.buildUserPrompt({ ...scraped, title: scraped.title || validated.providerName || validated.name }),
@@ -2969,14 +3260,18 @@ complete every required section and exact reward/earning mapping before closing 
     const candidates = new Set(scraped.images.map(image => image.url).filter(url => /^https?:\/\//i.test(url)));
     for (const key of collections) for (const item of parsed[key]) {
       item.imageUrl = candidates.has(item.imageUrl) ? item.imageUrl : ''; delete item.imageData;
+      item.coverImageUrl = key === 'benefits' && candidates.has(item.coverImageUrl) && item.coverImageUrl !== item.imageUrl ? item.coverImageUrl : '';
+      delete item.coverImageData;
     }
+    delete parsed.cinematic;
     parsed.brand = { logoUrl: candidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl : '' };
     parsed.upsell.bgImageUrl = candidates.has(parsed.upsell.bgImageUrl) ? parsed.upsell.bgImageUrl : '';
     delete parsed.upsell.bgImageData;
     const data = reconcile(parsed, validated, { existing, refreshCopy: true });
+    if (cinematic) data.cinematic = clone(cinematic);
     // Existing user-selected/uploaded assets survive even initial generation.
     if (existing?.brand?.logoData || existing?.brand?.logoUrl) data.brand = { ...data.brand, logoData: existing.brand.logoData || '', logoUrl: existing.brand.logoUrl || '' };
-    const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus });
+    const imageResult = await root.LocalAI.fillMissingImages(data, { onStatus, outputTemplate });
     const remaining = imageResult.remaining ?? Math.max(0, (imageResult.total_empty || 0) - (imageResult.generated || 0));
     const imageWarning = imageResult.warning || (remaining ? `${remaining} images could not be filled. ${imageResult.error || 'You can add images in the builder or generate again.'}` : imageResult.error || '');
     data._meta = { source_url: scraped.url, favicon: scraped.favicon, apple_icon: scraped.appleIcon,
@@ -2997,7 +3292,7 @@ complete every required section and exact reward/earning mapping before closing 
   'use strict';
   const fields = ['brand', 'colors', 'menuColorCustom', 'tiers', 'tierProgress', 'member', 'sections',
     'vouchers', 'offers', 'badges', 'clubs', 'earnMore', 'benefits', 'profileTasks', 'upsell', 'navLinks',
-    'footerLinks', 'program', 'programReview', 'programEnabled', 'outputTemplate'];
+    'footerLinks', 'program', 'programReview', 'programEnabled', 'outputTemplate', 'cinematic'];
   const clone = value => JSON.parse(JSON.stringify(value));
   function snapshot(portal = state) {
     const result = {};
@@ -3056,7 +3351,7 @@ complete every required section and exact reward/earning mapping before closing 
   const safe = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   let importSequence = 0, generationSequence = 0, importing = false;
   function fingerprint() {
-    const copy = clone(state); delete copy.programReview; delete copy.outputTemplate;
+    const copy = clone(state); delete copy.programReview;
     const text = JSON.stringify({ portal: copy, website: el('quickstart-url')?.value || '' });
     // Compact, non-security edit fingerprint; never duplicate source documents
     // and uploaded image data in the persisted pending proposal.
@@ -3139,8 +3434,10 @@ complete every required section and exact reward/earning mapping before closing 
       const audienceBrief = { ...brief, mode };
       const existing = root.LPGVariants.get(mode);
       const current = existing?.program ? clone(existing.program) : null;
+      const cinematic = clone(existing?.cinematic || state.cinematic || {});
+      const outputTemplate = mode === state.activeVariant ? state.outputTemplate || 'classic' : existing?.outputTemplate || state.outputTemplate || 'classic';
       setQuickStartStatus(`Designing the ${mode.toUpperCase()} loyalty experience…`, true);
-      const prompt = LPGRequirements.buildPrompt(audienceBrief, website, current);
+      const prompt = LPGRequirements.buildPrompt(audienceBrief, website, current, { outputTemplate });
       let result = await client.callLLM({ system: LPGRequirements.SYSTEM, prompt, maxTokens: 12000, tier: 'balanced', responseFormat: 'json' });
       checkCurrent();
       let proposal;
@@ -3159,7 +3456,7 @@ complete every required section and exact reward/earning mapping before closing 
       }
       setQuickStartStatus(`Creating ${mode.toUpperCase()} offers, rewards and branded imagery…`, true);
       const content = await root.LPGPortalContent.generate({ client, brief: audienceBrief, program: proposal.program,
-        website, rawURL, existing: current ? existing : null,
+        website, rawURL, outputTemplate, cinematic, existing: current ? existing : null,
         onStatus: phase => { checkCurrent(); setQuickStartStatus(phase === 'generating_images' ? `Creating ${mode.toUpperCase()} portal imagery…` : `Personalizing ${mode.toUpperCase()} portal content…`, true); } });
       checkCurrent();
       if (content._meta?.content_warning) warnings.push(`${mode.toUpperCase()}: ${content._meta.content_warning}`);
@@ -3172,7 +3469,7 @@ complete every required section and exact reward/earning mapping before closing 
       portal.member.name = mode === 'b2b' ? proposal.program.member.organization : proposal.program.member.name;
       portal.member.points = proposal.program.opening.redeemable;
       portal.tiers = proposal.program.tiers.map(tier => ({ name: tier.name, points: tier.threshold }));
-      portal.outputTemplate = mode === state.activeVariant ? state.outputTemplate : existing?.outputTemplate || state.outputTemplate || 'classic';
+      portal.outputTemplate = outputTemplate;
       generated[mode] = portal;
     }
     checkCurrent();
@@ -3329,7 +3626,7 @@ complete every required section and exact reward/earning mapping before closing 
     el('program-sample').addEventListener('click', sample); el('program-edit').addEventListener('click', editProgram);
     el('program-apply').addEventListener('click', apply);
     el('program-discard').addEventListener('click', () => { generationSequence++; state.programReview = null; renderReview(); scheduleDraftRecovery(); });
-    el('output-template').addEventListener('change', event => { state.outputTemplate = event.target.value; schedulePreview(); });
+    el('output-template').addEventListener('change', event => { state.outputTemplate = event.target.value; root.LPGCinematic?.sync(); renderBenefits(); schedulePreview(); });
     root.LPGVariants?.init();
   }
   root.LPGRequirementsEditor = { init, sync, reset, wantsProgram, analyze, fingerprint, apply, sample, editProgram, isImporting: () => importing };
@@ -3619,14 +3916,17 @@ function buildProfile(s) {
 // ---- MY BENEFITS (Expandable) ----
 function buildBenefits(s) {
   const items = (s.benefits||[]).map(b => {
+    const rawCover = b.coverImageData || b.coverImageUrl || '';
+    const cover = s.outputTemplate === 'cinematic' && /^(?:https?:\/\/|data:image\/(?:png|jpe?g|webp|gif|avif|svg\+xml)(?:;base64)?,)/i.test(rawCover) ? rawCover : '';
     const imgSrc = b.imageData || b.imageUrl || '';
     const iconInner = imgSrc
       ? `<img src="${imgSrc}" alt="${(b.name||'').replace(/"/g,'&quot;')}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-lg hidden">${b.emoji || '✨'}</span>`
       : `<span class="text-lg">${b.emoji || '✨'}</span>`;
     return `
-            <div class="benefit-card flex items-center gap-3 p-3 rounded-xl bg-page-bg transition-colors hover:bg-gray-100">
+            <div class="benefit-card ${cover ? 'cj-benefit-has-cover' : ''} flex items-center gap-3 p-3 rounded-xl bg-page-bg transition-colors hover:bg-gray-100">
               <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style="background-color: ${s.colors.primary}12;">${iconInner}</div>
               <div class="benefit-copy"><p class="text-sm font-700 text-dark">${b.name}</p></div>
+              ${cover ? `<img class="lpg-benefit-cover" src="${lpgEscape(cover)}" alt="" loading="lazy" onerror="this.parentElement.classList.remove('cj-benefit-has-cover');this.remove();">` : ''}
             </div>`;
   }).join('');
 
@@ -5103,6 +5403,12 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
         return `Lifestyle promotional image for a ${industry} special offer: "${item.title || 'Special Offer'}" — ${item.description || ''}. Brand: ${brandName}. ${colorHint} Aspirational, inviting mood. No text or words in the image.`;
       case 'badge':
         return `A single clean achievement badge icon for "${item.name || 'Achievement'}" in a ${industry} loyalty program. ${colorHint} Minimal, modern flat design. Centered on a subtle background. No text.`;
+      case 'benefit-cover':
+        return `Full-bleed editorial photograph or environmental scene illustrating the member benefit "${item.name || 'Member benefit'}" for ${brandName}, ${industry}. ${colorHint} Rich cinematic lighting, edge-to-edge scene for a large tile, space for readable text overlay. No icons, badges, typography, text or words.`;
+      case 'card-mark':
+        return `A refined emblem or logo symbol for the ${industry} brand ${brandName}, suitable for a metallic loyalty card. ${colorHint} Simple distinctive graphic, no text or words.`;
+      case 'card-artwork':
+        return `Full loyalty card artwork for ${brandName}, a ${industry} brand. ${colorHint} Premium cinematic visual, balanced composition, no text, words or numbers; member text is added separately.`;
       case 'benefit':
         return `A polished illustrated benefit icon representing "${item.name || 'Member benefit'}" for ${brandName}. ${colorHint} Clean, modern, consistent flat illustration. Centered on a subtle background. No text or words.`;
       case 'club':
@@ -5165,7 +5471,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     }
   }
 
-  async function fillMissingImages(parsed, { onStatus } = {}) {
+  async function fillMissingImages(parsed, { onStatus, outputTemplate = parsed.outputTemplate, onlySlots, prompt } = {}) {
     // Only use default backend (server-side Gemini) for image generation
     const base = getScraperEndpoint(); // empty = same origin
 
@@ -5196,6 +5502,31 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
           });
         }
       });
+    }
+
+    if (outputTemplate === 'cinematic') {
+      (Array.isArray(parsed.benefits) ? parsed.benefits : []).forEach((item, i) => {
+        if (!item.coverImageUrl && !item.coverImageData) slots.push({
+          slot: `benefit-cover-${i}`, prompt: buildImagePrompt('benefit-cover', item, parsed), priority: 1 + i,
+          customPrompt: item.coverPrompt,
+          apply: dataUri => { item.coverImageData = dataUri; }
+        });
+      });
+      const card = parsed.cinematic?.card;
+      if (card?.markMode === 'custom' && !card.markImageUrl && !card.markImageData) slots.push({
+        slot: 'card-mark', prompt: buildImagePrompt('card-mark', card, parsed), priority: 1, customPrompt: card.markPrompt,
+        apply: dataUri => { card.markImageData = dataUri; }
+      });
+      if (card?.mode === 'image' && !card.artworkImageUrl && !card.artworkImageData) slots.push({
+        slot: 'card-artwork', prompt: buildImagePrompt('card-artwork', card, parsed), priority: 1, customPrompt: card.artworkPrompt,
+        apply: dataUri => { card.artworkImageData = dataUri; }
+      });
+    }
+    const allowed = Array.isArray(onlySlots) ? new Set(onlySlots) : null;
+    for (let i = slots.length - 1; i >= 0; i--) {
+      if (allowed && !allowed.has(slots[i].slot)) { slots.splice(i, 1); continue; }
+      const custom = allowed && (typeof prompt === 'string' ? prompt : slots[i].customPrompt || parsed._cinematicImagePrompt);
+      slots[i].prompt = (slots[i].prompt + (typeof custom === 'string' && custom.trim() ? ` Author visual direction: ${custom.trim().slice(0, 1200)}` : '')).slice(0, 2000);
     }
 
     if (slots.length === 0) {
@@ -5522,6 +5853,7 @@ const state = {
   schemaVersion: 2,
   brief: { mode: 'b2c', objective: '', text: '', roles: '', sources: [] },
   program: null, programReview: null, programEnabled: false, outputTemplate: 'classic',
+  cinematic: window.LPGCinematic?.normalize(),
   activeVariant: 'b2c', variants: {},
   brand: { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' },
   colors: { primary: '#2D3748', secondary: '#F7FAFC', accent: '#4299E1', dark: '#1A202C', menu: '#2D3748' },
@@ -5553,6 +5885,7 @@ let previewTimer = null;
 // ---- INIT ----
 document.addEventListener('DOMContentLoaded', () => {
   applyIndustryDefaults('generic');
+  window.LPGCinematic?.init();
   populateFormFromState();
   renderPaletteButtons();
   renderDynamicSections();
@@ -5775,6 +6108,8 @@ async function onQuickStartAnalyze() {
 function applyAnalysis(d, target = state, { render = true } = {}) {
   if (!d || typeof d !== 'object') return;
 
+  if (d.cinematic && window.LPGCinematic) target.cinematic = window.LPGCinematic.normalize(d.cinematic);
+
   // Brand
   if (d.brandName) target.brand.name = d.brandName;
   if (d.industry && ['carwash','restaurant','retail','fitness','healthcare','generic'].includes(d.industry)) {
@@ -5926,7 +6261,9 @@ function cleanBenefit(b) {
     name: str(b.name, 40),
     emoji: str(b.emoji, 4) || '✨',
     imageUrl: isSafeUrl(b.imageUrl) ? b.imageUrl : '',
-    imageData: b.imageData || ''
+    imageData: b.imageData || '',
+    coverImageUrl: isSafeUrl(b.coverImageUrl) ? b.coverImageUrl : '',
+    coverImageData: typeof b.coverImageData === 'string' && b.coverImageData.startsWith('data:image/') ? b.coverImageData : ''
   };
 }
 function cleanEarnMore(e) {
@@ -5985,6 +6322,7 @@ function applyIndustryDefaults(industry) {
 }
 
 function populateFormFromState() {
+  window.LPGCinematic?.sync();
   window.LPGRequirementsEditor?.sync();
   // Brand
   setVal('brand-name', state.brand.name);
@@ -6310,6 +6648,7 @@ function renderPaletteButtons() {
 
 // ---- DYNAMIC SECTION RENDERING ----
 function renderDynamicSections() {
+  window.LPGCinematic?.sync();
   for (const section of ['vouchers', 'earnMore']) {
     const button = document.querySelector(`button[onclick="autoGenerate('${section}')"]`);
     if (button) button.textContent = state.program ? (section === 'vouchers' ? 'Edit reward rules' : 'Edit earning rules') : '⚡ Auto-generate from industry';
@@ -6449,13 +6788,14 @@ function renderBenefits() {
         <input type="text" value="${esc(b.name)}" onchange="updateItem('benefits',${i},'name',this.value)" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="Benefit name">
       </div>
       ${imageUploadHTML('benefit-'+i, 'Icon Image (optional — replaces emoji)', b.imageData||b.imageUrl||'')}
+      ${state.outputTemplate === 'cinematic' ? (window.LPGCinematic?.renderBenefitCover(i,b) || '') : ''}
     </div>
   `).join('');
   reinitDynamicImageUploads();
 }
 
 function addBenefit() {
-  state.benefits.push({ name: '', emoji: '✨', imageUrl: '', imageData: '' });
+  state.benefits.push({ name: '', emoji: '✨', imageUrl: '', imageData: '', coverImageUrl: '', coverImageData: '' });
   renderBenefits();
 }
 
@@ -6612,6 +6952,7 @@ function autoGenerate(section) {
 
 // ---- IMAGE UPLOAD RE-INIT ----
 function reinitDynamicImageUploads() {
+  window.LPGCinematic?.initBenefitCoverUploads();
   // Voucher images
   state.vouchers.forEach((v, i) => {
     initImageUpload('drop-voucher-'+i, 'preview-voucher-'+i, 'url-voucher-'+i, (data) => {
@@ -6827,6 +7168,7 @@ function startOver() {
   state.brand = { name: '', industry: 'generic', programName: '', logoUrl: '', logoData: '' };
   state.member = { name: 'Avery Morgan', number: '234567', points: 1200, email: '', phone: '', joinDate: '', avatarUrl: '', avatarData: '' };
   state.tierProgress = 30;
+  state.cinematic = window.LPGCinematic?.normalize();
   state.sections = { vouchers: true, offers: true, badges: true, clubs: true, earnMore: true, profileTasks: true, upsell: true };
   state.menuColorCustom = false;
   applyIndustryDefaults('generic');

@@ -23,7 +23,7 @@ async function editor() {
   await new Promise(r=>w.document.addEventListener('DOMContentLoaded',r,{once:true}));
   w.HTMLElement.prototype.scrollIntoView=()=>{};w.confirm=()=>true;
   const run=code=>vm.runInContext(code,dom.getInternalVMContext());
-  for(const file of ['defaults','images','program-model','program-runtime','portal-templates','generator','pagehost','requirements','portal-content','variants','requirements-editor','app','projects']) run(fs.readFileSync(`js/${file}.js`,'utf8'));
+  for(const file of ['defaults','images','cinematic-settings','program-model','program-runtime','portal-templates','generator','pagehost','requirements','portal-content','variants','requirements-editor','app','projects']) run(fs.readFileSync(`js/${file}.js`,'utf8'));
   run(`applyIndustryDefaults('generic'); editorDefaults=cloneProject(state); scheduleDraftRecovery=()=>{}; schedulePreview=updatePreview; populateFormFromState(); LPGRequirementsEditor.init();`);
   let imageCalls=0;
   w.LocalAI={fillMissingImages:async data=>{imageCalls++; for(const key of ['vouchers','offers','benefits','badges','clubs']) data[key].forEach((item,i)=>{if(!item.imageUrl&&!item.imageData)item.imageUrl='https://brand.test/'+key+i+'.png';});return {generated:5,total_empty:5};}};
@@ -214,11 +214,12 @@ test('starting a sample for another audience retains the original audience and s
     e.w.LPGVariants.show('b2c');assert.equal(e.run('state.offers[0].title'),'Keep B2C offer');
   }finally{e.close();}
 });
-test('layout changes during generation survive and numerals in point currency do not affect reward cost',async()=>{
+test('layout changes during generation invalidate results and numerals in point currency do not affect reward cost',async()=>{
   const e=await editor();try {
     e.field('brief-text','Member rewards');let resume;const pending=new Promise(r=>resume=r);let started;const ready=new Promise(r=>started=r);
     const request=e.w.LPGRequirementsEditor.analyze(e.client(null,async p=>{started();await pending;return presentation(p.validatedProgram);}),'');
-    await ready;e.run("state.outputTemplate='showcase'");resume();await request;
+    await ready;e.run("state.outputTemplate='showcase'");resume();await assert.rejects(request,/editor changed while AI was working/);
+    await e.w.LPGRequirementsEditor.analyze(e.client(),'');
     assert.equal(e.run('state.outputTemplate'),'showcase');
     e.run("updateItem('vouchers',0,'actionValue','100 B2B Points')");assert.equal(e.run('state.program.rewards[0].cost'),100);
   }finally{e.close();}
@@ -326,4 +327,53 @@ test('live preview scales a desktop viewport without navigating on resize', asyn
     e.run('initializePreviewSizing()'); assert.equal(observations, 1);
     assert.equal(e.w.document.getElementById('expanded-preview-iframe').style.transform, '');
   } finally { e.close(); }
+});
+
+test('both-audience AI requests carry each selected template before rule and image generation', async () => {
+  const e = await editor(); try {
+    e.run(`state.outputTemplate='cinematic'; state.variants.b2b = {...LPGVariants.snapshot(), outputTemplate:'editorial'};`);
+    e.field('brief-mode', 'both');
+    const observed = [];
+    const client = e.client(prompt => {
+      observed.push(prompt.presentationPreferences);
+      return e.w.LPGProgram.normalize({ mode: prompt.author.mode, providerName: 'ISACA' });
+    }, prompt => { observed.push(prompt.presentationPreferences); return presentation(prompt.validatedProgram); });
+    await e.w.LPGRequirementsEditor.analyze(client, '');
+    assert.deepEqual(JSON.parse(JSON.stringify(observed)), [
+      { outputTemplate: 'cinematic', defaultRewardCount: 5 }, { outputTemplate: 'cinematic' },
+      { outputTemplate: 'editorial', defaultRewardCount: 4 }, { outputTemplate: 'editorial' }
+    ]);
+  } finally { e.close(); }
+});
+
+test('a template change while AI is working discards the pending result', async () => {
+  const e = await editor(); try {
+    const client = e.client(prompt => {
+      e.run(`state.outputTemplate='cinematic'`);
+      return e.w.LPGProgram.normalize({ mode: prompt.author.mode });
+    });
+    await assert.rejects(e.w.LPGRequirementsEditor.analyze(client, ''), /editor changed while AI was working/);
+    assert.equal(e.run('state.program'), null);
+  } finally { e.close(); }
+});
+
+test('cinematic builder copy, benefit assets and card customization survive audience switches and saved reloads', async()=>{
+  const e=await editor();try {
+    e.w.LPGCinematic.init();
+    const selector=e.w.document.getElementById('output-template');selector.value='cinematic';selector.dispatchEvent(new e.w.Event('change'));
+    const title=e.w.document.getElementById('cinematic-copy-arrivalTitle');
+    title.value='Your world.\nOpening up.';title.dispatchEvent(new e.w.Event('input'));
+    assert.equal(e.run('state.cinematic.copy.arrivalTitle'),title.value);
+    e.run(`state.benefits[0].coverImageUrl='https://brand.test/cover.jpg';state.cinematic.card.markMode='custom';state.cinematic.card.markImageUrl='https://brand.test/crest.png';state.variants.b2b={...LPGVariants.snapshot(),cinematic:LPGCinematic.normalize({copy:{arrivalTitle:'Business chapter'}})};`);
+    const before=e.run('JSON.stringify(state.cinematic)');
+    e.w.LPGVariants.show('b2b');assert.equal(e.run('state.cinematic.copy.arrivalTitle'),'Business chapter');
+    e.w.LPGVariants.show('b2c');assert.equal(e.run('JSON.stringify(state.cinematic)'),before);
+    e.run('hydratePortal(buildProjectPayload())');
+    assert.equal(e.run('JSON.stringify(state.cinematic)'),before);
+    assert.equal(e.run('state.benefits[0].coverImageUrl'),'https://brand.test/cover.jpg');
+    assert.equal(e.w.document.getElementById('cinematic-copy-arrivalTitle').value,'Your world.\nOpening up.');
+    assert.ok(e.w.document.getElementById('drop-benefit-cover-0'));
+    const preview=e.w.document.getElementById('preview-iframe').srcdoc;
+    assert.match(preview,/Your world/);assert.match(preview,/lpg-benefit-cover/);assert.match(preview,/crest.png/);
+  }finally{e.close();}
 });
