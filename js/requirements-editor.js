@@ -1,4 +1,4 @@
-// Authoring UI for an editable program brief and reviewed AI proposals.
+// Authoring UI for a program brief and live, validated program edits.
 (function (root) {
   'use strict';
   const el = id => document.getElementById(id);
@@ -19,9 +19,12 @@
     state.brief = { ...defaults(), ...state.brief };
     for (const field of ['mode', 'objective', 'text', 'roles']) if (el('brief-' + field)) el('brief-' + field).value = state.brief[field];
     if (el('output-template')) el('output-template').value = state.outputTemplate || 'classic';
-    if (el('program-enabled')) el('program-enabled').checked = !!state.programEnabled;
-    if (el('program-mode-note')) el('program-mode-note').textContent = state.programEnabled ? 'The reviewed program controls the portal’s points, tiers, people and journeys. Brand and color controls still apply. Edit program rules here; the remaining classic card controls apply when Program experience is off.' : 'Classic cards remain available. Analyze a brief or start with a sample to create an interactive program.';
+    syncExperience();
     renderSources(); renderReview();
+  }
+  function syncExperience() {
+    if (el('program-enabled')) el('program-enabled').checked = !!state.programEnabled;
+    if (el('program-mode-note')) el('program-mode-note').textContent = state.programEnabled ? 'The program controls the portal’s points, tiers, people and journeys. Brand and color controls still apply. Edit program rules here; the remaining classic card controls apply when Program experience is off.' : 'Classic cards remain available. Analyze a brief or start with a sample to create an interactive program.';
   }
   function changed() {
     state.brief = state.brief || defaults();
@@ -90,8 +93,8 @@
     if (current) proposal.brand = {};
     if (sequence !== generationSequence || project !== projectEpoch || before !== fingerprint()) throw new Error('The editor changed while AI was working. Your edits were kept; review with AI again when ready.');
     state.programReview = { ...proposal, snapshot: before };
-    renderReview(); scheduleDraftRecovery();
-    setQuickStartStatus('Program ready for review. Check the rules, assumptions and coverage, then apply.', false);
+    renderReview(); updateProgram(true);
+    setQuickStartStatus('Program generated and preview updated. Refine the rules below; valid edits appear live.', false);
     el('program-review').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   function sample() {
@@ -101,12 +104,12 @@
     const program = LPGProgram.normalize({ mode, providerName: state.brand.name || 'Demo Provider', name: state.brand.programName || 'Loyalty Program', approvalRequired: mode === 'b2b', opening: { qualifying: 1000, redeemable: 500 },
       assumptions: ['This is an editable demonstration sample, not an interpretation of the attached requirements.', 'Opening balances are fictional demo values.'] });
     state.programReview = { program, brand: {}, snapshot: fingerprint() };
-    renderReview(); scheduleDraftRecovery();
+    renderReview(); updateProgram();
   }
   function editProgram() {
     if (!state.program) return sample();
     generationSequence++;
-    state.programReview = { program: clone(state.program), brand: {}, snapshot: fingerprint() };
+    state.programReview = { program: clone(state.program), brand: {}, snapshot: fingerprint(), live: true };
     renderReview(); scheduleDraftRecovery();
   }
   function input(label, path, value, type = 'text', extra = '') {
@@ -120,7 +123,7 @@
     const review = state.programReview; box.hidden = !review;
     if (!review) return;
     const p = review.program;
-    el('program-review-fields').innerHTML = `${Object.keys(review.brand).some(key => ['primary', 'accent'].includes(key)) ? `<h4>Proposed brand colors</h4><p class="program-help">Review these colors before applying. You can also refine them in Colors & Theme.</p><div class="program-grid">${['primary', 'accent'].filter(key => review.brand[key]).map(key => `<label class="program-field">${key === 'primary' ? 'Primary' : 'Accent'}<input type="color" data-review-brand="${key}" value="${safe(review.brand[key])}"></label>`).join('')}</div>` : ''}<div class="program-grid">
+    el('program-review-fields').innerHTML = `${Object.keys(review.brand).some(key => ['primary', 'accent'].includes(key)) ? `<h4>Brand colors</h4><p class="program-help">Changes update the preview immediately. You can also refine them in Colors & Theme.</p><div class="program-grid">${['primary', 'accent'].filter(key => review.brand[key]).map(key => `<label class="program-field">${key === 'primary' ? 'Primary' : 'Accent'}<input type="color" data-review-brand="${key}" value="${safe(review.brand[key])}"></label>`).join('')}</div>` : ''}<div class="program-grid">
       ${input('Program name', 'name', p.name)}${input('Program provider', 'providerName', p.providerName)}
       ${input('Demo person', 'member.name', p.member.name)}${p.mode === 'b2b' ? input('Participating business', 'member.organization', p.member.organization) : ''}
       ${input('Qualifying points name', 'currencies.qualifyingName', p.currencies.qualifyingName)}${input('Redeemable points name', 'currencies.redeemableName', p.currencies.redeemableName)}
@@ -145,13 +148,13 @@
     const target = event.target, path = target.dataset.programPath;
     if (!state.programReview) return;
     generationSequence++;
-    if (target.dataset.reviewBrand && /^#[0-9a-f]{6}$/i.test(target.value)) { state.programReview.brand[target.dataset.reviewBrand] = target.value; scheduleDraftRecovery(); return; }
+    if (target.dataset.reviewBrand && /^#[0-9a-f]{6}$/i.test(target.value)) { state.programReview.brand[target.dataset.reviewBrand] = target.value; updateProgram(target.dataset.reviewBrand); return; }
     if (!path) return;
     const keys = path.split('.'); let value = state.programReview.program;
     for (const key of keys.slice(0, -1)) value = value[key];
     const last = keys[keys.length - 1];
     value[last] = target.type === 'checkbox' ? target.checked : path === 'assumptions' ? target.value.split('\n').filter(Boolean) : target.type === 'number' ? (target.value === '' && /Cap$/.test(last) ? null : target.value === '' ? NaN : Number(target.value)) : target.value;
-    scheduleDraftRecovery();
+    updateProgram();
   }
   function reviewClick(event) {
     const remove = event.target.closest('[data-remove-program]'), add = event.target.closest('[data-add-program]');
@@ -168,22 +171,47 @@
       else if (kind === 'roles') p.roles.push({ id, name: 'Custom role', canRequest: true, canApprove: false });
       else p.earnRules.push({ id, name: 'New activity', kind, qualifyingRate: kind === 'spend' ? 1 : 0, redeemableRate: kind === 'spend' ? 1 : 0, qualifyingPoints: kind === 'fixed' ? 25 : 0, redeemablePoints: 0, amount: kind === 'fixed' ? 1 : 100, monthlyCap: null });
     }
-    renderReview(); scheduleDraftRecovery();
+    renderReview(); updateProgram();
+  }
+  // Commit only valid rules so preview, saved projects and exports share one model.
+  // Do not rebuild the editor here: replacing inputs would lose focus mid-typing.
+  function updateProgram(brandChange = false) {
+    const review = state.programReview; if (!review) return false;
+    // Colors are independent of incomplete program rules and should still update live.
+    if ((brandChange === true || brandChange === 'primary') && review.brand.primary) {
+      state.colors.primary = review.brand.primary;
+      if (!state.menuColorCustom) state.colors.menu = review.brand.primary;
+    }
+    if ((brandChange === true || brandChange === 'accent') && review.brand.accent) state.colors.accent = review.brand.accent;
+    for (const key of ['primary', 'accent', 'menu']) {
+      setVal('color-' + key, state.colors[key]); setVal('hex-' + key, state.colors[key]);
+    }
+    const result = LPGProgram.validate(review.program);
+    scheduleDraftRecovery();
+    if (!result.valid) {
+      el('program-review-error').textContent = 'Preview is showing the last valid program. ' + result.errors.join('; ');
+      if (brandChange) schedulePreview();
+      return false;
+    }
+    // Only changed program identity fields should replace shared brand controls.
+    // The author may have edited Brand & Identity while this editor remained open.
+    if (!review.live || result.model.providerName !== state.program?.providerName) {
+      state.brand.name = result.model.providerName || review.brand.name || state.brand.name;
+    }
+    if (!review.live || result.model.name !== state.program?.name) state.brand.programName = result.model.name;
+    state.program = result.model; state.programEnabled = true; state.schemaVersion = 2;
+    setVal('brand-name', state.brand.name); setVal('program-name', state.brand.programName);
+    review.live = true;
+    el('program-review-error').textContent = '';
+    syncExperience(); schedulePreview();
+    return true;
   }
   function apply() {
-    const review = state.programReview; if (!review) return;
     generationSequence++;
-    if (review.snapshot !== fingerprint()) { el('program-review-error').textContent = 'The brief or portal changed since this review began. Review with AI again, or reopen the current program to edit it.'; return; }
-    const result = LPGProgram.validate(review.program);
-    if (!result.valid) { el('program-review-error').textContent = result.errors.join('; '); return; }
-    state.program = result.model; state.programEnabled = true; state.schemaVersion = 2;
-    state.brand.name = result.model.providerName || review.brand.name || state.brand.name;
-    state.brand.programName = result.model.name;
-    if (review.brand.primary) { state.colors.primary = review.brand.primary; if (!state.menuColorCustom) state.colors.menu = review.brand.primary; }
-    if (review.brand.accent) state.colors.accent = review.brand.accent;
+    if (!updateProgram(!state.programReview?.live)) return;
     state.programReview = null;
-    populateFormFromState(); sync(); schedulePreview();
-    setQuickStartStatus('Reviewed program applied. Preview its earning, rewards and role views, or save your project.', false);
+    renderReview(); scheduleDraftRecovery();
+    setQuickStartStatus('Preview updated. You can save your project or export the portal.', false);
   }
   function reset() {
     importSequence++; generationSequence++; importing = false;

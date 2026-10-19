@@ -62,5 +62,22 @@ real Salesforce posting, OCR, referrals and business hierarchy are future work.
 ## Deployment
 
 - [x] Confirm origin/main is synchronized and the tested changes are ready.
-- [ ] Commit and deploy only this feature; preserve the unrelated worker edit.
-- [ ] Verify the deployed revision, health, editor modules and PDF assets.
+- [x] Commit and deploy only this feature; preserve the unrelated worker edit.
+- [x] Verify the deployed revision, health, editor modules and PDF assets.
+
+Deployment completed: commit a3f4196, Heroku release v27 succeeded. New dyno
+web-994549677-qd66x reached up while the previous release was retired. In-dyno
+checks returned 200 for health, the updated editor, program/template scripts
+and both PDF.js assets. All six asset SHA-256 hashes match the tested local
+files. Auth config remains Magic (200); anonymous projects return401 as expected.
+The unrelated worker edit and local tool directories remain untouched.
+
+## Live preview regression
+
+- [x] Identify why generated requirements stay out of the preview (manual apply gate).
+- [x] Automatically activate valid generated programs and valid edits; retain invalid drafts.
+- [x] Verify editor, export and saved-project behavior (79 tests pass).
+- [ ] Deploy and verify the live preview fix.
+
+Review also covered invalid-rule/color edits and preservation of newer shared
+brand identity changes. Both have regression tests. Standalone rebuilt.

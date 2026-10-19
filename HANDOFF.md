@@ -4,8 +4,8 @@ Last updated: 2026-10-18. **Read this first.** `git log` records shipped changes
 
 ## Requirements-driven programs and templates
 
-The user approved deployment of this implementation. Release v26 is the
-pre-deployment baseline; check Heroku releases for the current deployed commit. `REQUIREMENTS-AND-B2B-DESIGN.md` contains the original design;
+Deployed as commit `a3f4196`, Heroku release **v27**. The new web process is up;
+health, editor controls, script/PDF asset hashes and auth endpoint checks passed. `REQUIREMENTS-AND-B2B-DESIGN.md` contains the original design;
 the initial implementation adds its B2C/B2B foundation and a first modern template.
 
 - Step 1 now accepts a program objective, requirements prompt, role descriptions
@@ -18,8 +18,9 @@ the initial implementation adds its B2C/B2B foundation and a first modern templa
   No document binaries are sent or saved. Extracted text is sent on analysis and
   retained in saved editor projects. Scanned PDFs need pasted text (no OCR).
 - `js/requirements-editor.js` owns the editable proposal, rule/role controls,
-  coverage/assumption review and stale-result protection. Applying a proposal is
-  explicit. One schema-repair call is allowed for invalid AI output. Incomplete
+  coverage/assumption review and stale-result protection. Valid AI results and
+  edits now activate automatically and update the live preview. Invalid drafts
+  retain the last valid preview; the form remains open without losing focus. One schema-repair call is allowed for invalid AI output. Incomplete
   manual edits survive draft/cloud round trips. Targeted program refinements
   preserve the accepted brand palette.
 - `js/program-model.js` validates program rules and computes dual balances,
@@ -36,7 +37,7 @@ the initial implementation adds its B2C/B2B foundation and a first modern templa
   source text, requirements coverage, assumptions and future notes stay out of
   exported HTML. The program renderer intentionally excludes legacy card/editor
   controls; a Step 1 explanation directs authors to the program rule editor.
-- Verification: 74 tests pass, including DOM integration, old saves, incomplete
+- Verification: 79 tests pass, including DOM integration, old saves, incomplete
   drafts, concurrent AI/editor changes, source metadata escaping, caps, rounding,
   role approvals, template preservation and exported scripts. All 22 pages of
   the supplied customer PDF extracted successfully. A synthetic B2B request to

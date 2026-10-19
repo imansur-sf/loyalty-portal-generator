@@ -346,16 +346,16 @@
           <section class="wizard-card p-7 program-authoring" aria-labelledby="program-controls-title">
             <h2 id="program-controls-title" class="wizard-title">Portal experience</h2>
             <label class="program-field" for="output-template">Output template<select id="output-template"><option value="classic">Classic · Original portal</option><option value="modern">Modern Brand · Spacious branded cards</option></select></label>
-            <label class="program-check"><input id="program-enabled" type="checkbox"> Use reviewed program experience</label>
+            <label class="program-check"><input id="program-enabled" type="checkbox"> Use program experience</label>
             <p id="program-mode-note" class="program-help"></p>
             <div class="program-actions"><button type="button" id="program-edit">Edit program rules</button><button type="button" id="program-sample">Start from editable sample</button></div>
           </section>
           <section id="program-review" class="wizard-card p-7 program-authoring" hidden aria-labelledby="program-review-title">
-            <h2 id="program-review-title" class="wizard-title">Review your program</h2>
-            <p class="program-help">Check the interpretation before applying it. Opening balances and people are demo data. Changes here do not affect the current preview until you apply them.</p>
+            <h2 id="program-review-title" class="wizard-title">Edit your program</h2>
+            <p class="program-help">AI results and valid edits update the preview automatically. Opening balances and people are demo data. If a field is incomplete or invalid, the preview keeps the last valid program.</p>
             <div id="program-review-fields"></div>
             <p id="program-review-error" role="alert" class="program-warning"></p>
-            <div class="program-actions"><button type="button" id="program-apply" class="btn-primary-sf">Apply reviewed program</button><button type="button" id="program-discard">Discard proposal</button></div>
+            <div class="program-actions"><button type="button" id="program-apply" class="btn-primary-sf">Update preview &amp; close</button><button type="button" id="program-discard">Close editor</button></div>
           </section>
           <div class="wizard-card p-7">
             <div class="wizard-eyebrow mb-2">Step 1 of 7</div>
@@ -761,7 +761,7 @@
   <script src="./js/program-runtime.js?v=20261018b"></script>
   <script src="./js/portal-templates.js?v=20261018b"></script>
   <script src="./js/requirements.js?v=20261018b"></script>
-  <script src="./js/requirements-editor.js?v=20261018b"></script>
+  <script src="./js/requirements-editor.js?v=20261018c"></script>
   <script src="./js/generator.js?v=20261018b"></script>
   <script src="./js/pagehost.js?v=20260718c"></script>
   <script src="./js/localai.js?v=20260718c"></script>
