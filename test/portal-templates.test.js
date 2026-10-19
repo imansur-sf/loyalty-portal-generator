@@ -334,14 +334,19 @@ test('approved scene timelines morph the card and expand the actual reward, with
   dom.window.close();
 });
 
-test('long customer copy uses the flowing composition and all serialized brand values remain plain text', () => {
+test('overflowing card copy only uses a flowing arrival and serialized brand values remain plain text', () => {
   let frame;
   const name='A customer brand with a very long descriptive name '.repeat(4);
   const output=cinematicProductionFixture({brand:{name,programName:'Member program'}});
   const dom=new JSDOM(output,{runScripts:'dangerously',beforeParse(win){win.requestAnimationFrame=cb=>{frame=cb;return 1;};win.matchMedia=()=>({matches:false,addEventListener(){}});}});
+  const card = dom.window.document.querySelector('.cj-membership');
+  Object.defineProperties(card, { clientHeight: { value: 250 }, scrollHeight: { value: 420 } });
+  Object.defineProperties(card.querySelector('.cj-card-brand'), { offsetTop: { value: 28 }, offsetHeight: { value: 300 }, scrollHeight: { value: 300 } });
   frame();
   assert.equal(dom.window.document.querySelector('.cj-card-brand').textContent,name);
-  assert.equal(dom.window.document.querySelector('.lpg-layout-cinematic').classList.contains('cj-motion'),false);
+  assert.equal(dom.window.document.querySelector('.lpg-layout-cinematic').classList.contains('cj-motion'),true);
+  assert.equal(dom.window.document.querySelector('.cj-arrival').classList.contains('cj-arrival-motion'),false);
+  assert.equal(dom.window.document.querySelector('.cj-reward-film').classList.contains('cj-film-motion'),true);
   assert.ok(dom.window.document.querySelector('.cj-featured-reward [data-lpg-action="request"]'));
   dom.window.close();
   const attack='</script><script>window.injected=true</script>';
@@ -428,13 +433,57 @@ test('card emblem and full artwork can be replaced without losing live tier data
   custom.window.close();
 });
 
-test('multiline editable headings use flowing scenes when too tall for pinned compositions',()=>{
-  for(const key of ['arrivalEyebrow','statusEyebrow','statusTitle','possibilityTitle','possibilityDescription']){
-    let frame;
-    const dom=new JSDOM(cinematicProductionFixture({cinematic:{copy:{[key]:'One\nTwo\nThree\nFour\nFive\nSix'}}}),{runScripts:'dangerously',beforeParse(win){win.requestAnimationFrame=cb=>{frame=cb;return 1;};win.matchMedia=()=>({matches:false,addEventListener(){}});}});
-    frame();
-    assert.equal(dom.window.document.querySelector('.lpg-layout-cinematic').classList.contains('cj-motion'),false,key);
-    assert.ok(dom.window.document.querySelector('.cj-featured-copy [data-lpg-action="request"]'));
-    dom.window.close();
-  }
+test('rendered scene overflow falls back independently and refits on resize',()=>{
+  let frame;
+  const dom=new JSDOM(cinematicProductionFixture(),{runScripts:'dangerously',beforeParse(win){win.requestAnimationFrame=cb=>{frame=cb;return 1;};win.matchMedia=()=>({matches:false,addEventListener(){}});}});
+  const win=dom.window,doc=win.document,arrival=doc.querySelector('.cj-arrival'),film=doc.querySelector('.cj-reward-film');
+  let introHeight=800;
+  film.querySelector('.cj-film-intro').getBoundingClientRect=()=>({height:introHeight});
+  frame();
+  assert.equal(arrival.classList.contains('cj-arrival-motion'),true);
+  assert.equal(film.classList.contains('cj-film-motion'),false);
+  assert.ok(film.querySelector('[data-lpg-action="request"]'));
+  introHeight=150;win.dispatchEvent(new win.Event('resize'));frame();
+  assert.equal(film.classList.contains('cj-film-motion'),true);
+  assert.equal(arrival.classList.contains('cj-arrival-motion'),true);
+  dom.window.close();
+});
+
+test('long AI progress sentences and names preserve both scroll transformations when rendered content fits',()=>{
+  let frame;
+  const summary='Earn qualifying credits through eligible activities and purchases to move toward your next membership tier. '.repeat(3);
+  const dom=new JSDOM(cinematicProductionFixture({brand:{name:'A thoughtfully named international membership brand',programName:'Member program'},cinematic:{copy:{progressSummary:summary}}}),{runScripts:'dangerously',beforeParse(win){win.requestAnimationFrame=cb=>{frame=cb;return 1;};win.matchMedia=()=>({matches:false,addEventListener(){}});}});
+  const win=dom.window,doc=win.document,arrival=doc.querySelector('.cj-arrival'),film=doc.querySelector('.cj-reward-film');
+  let top=0;
+  arrival.getBoundingClientRect=film.getBoundingClientRect=()=>({top,height:1600});
+  frame();
+  assert.equal(arrival.classList.contains('cj-arrival-motion'),true);
+  assert.equal(film.classList.contains('cj-film-motion'),true);
+  assert.equal(arrival.style.getPropertyValue('--cj-card-radius'),'76px');
+  assert.equal(film.style.getPropertyValue('--cj-mask-x'),'29%');
+  top=-1600;win.dispatchEvent(new win.Event('scroll'));frame();
+  assert.equal(arrival.style.getPropertyValue('--cj-card-radius'),'24px');
+  assert.equal(film.style.getPropertyValue('--cj-mask-x'),'0%');
+  assert.match(doc.querySelector('.cj-status-summary').textContent,/Earn qualifying credits/);
+  dom.window.close();
+});
+
+test('decorative card overflow does not disable zoom while overflowing visible text does',()=>{
+  let frame;
+  const dom=new JSDOM(cinematicProductionFixture(),{runScripts:'dangerously',beforeParse(win){win.requestAnimationFrame=cb=>{frame=cb;return 1;};win.matchMedia=()=>({matches:false,addEventListener(){}});}});
+  const win=dom.window,doc=win.document,arrival=doc.querySelector('.cj-arrival'),film=doc.querySelector('.cj-reward-film'),card=doc.querySelector('.cj-membership');
+  Object.defineProperties(card,{clientHeight:{value:250},scrollHeight:{value:950}});
+  const tier=card.querySelector('.cj-status-tier');
+  let textHeight=45,textWidth=200;
+  Object.defineProperties(tier,{offsetTop:{value:110},offsetHeight:{get:()=>textHeight},scrollHeight:{get:()=>textHeight},clientWidth:{value:220},scrollWidth:{get:()=>textWidth}});
+  frame();
+  assert.equal(arrival.classList.contains('cj-arrival-motion'),true,'decorative scroll height is irrelevant');
+  textWidth=300;win.dispatchEvent(new win.Event('resize'));frame();
+  assert.equal(arrival.classList.contains('cj-arrival-motion'),false,'visible text width overflow uses flowing arrival');
+  assert.equal(film.classList.contains('cj-film-motion'),true);
+  textWidth=200;textHeight=180;win.dispatchEvent(new win.Event('resize'));frame();
+  assert.equal(arrival.classList.contains('cj-arrival-motion'),false,'visible text height overflow uses flowing arrival');
+  textHeight=45;win.dispatchEvent(new win.Event('resize'));frame();
+  assert.equal(arrival.classList.contains('cj-arrival-motion'),true);
+  dom.window.close();
 });

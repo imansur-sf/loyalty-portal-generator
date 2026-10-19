@@ -248,39 +248,63 @@
     if (!window.matchMedia || !window.requestAnimationFrame) return;
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const compact = window.matchMedia('(max-width: 900px), (max-height: 740px)');
-    // Long customer copy must grow naturally rather than being clipped inside
-    // the fixed-height compositions. The same aesthetic stays in normal flow.
-    const longSceneCopy = [
-      ['arrivalEyebrow',80,2], ['arrivalTitle',90,3], ['arrivalDescription',220,4],
-      ['statusEyebrow',80,2], ['statusTitle',90,3], ['possibilityEyebrow',80,2],
-      ['possibilityTitle',120,3], ['possibilityDescription',220,4], ['arrivalAction',80,2], ['scrollNote',180,3], ['progressSummary',220,4]
-    ].some(([key, length, lines]) => {
-      const text = options.copy?.[key] || '';
-      return text.length > length || text.split('\n').length > lines;
-    });
-    const crowded = longSceneCopy || tierName.length > 24 || memberName.length > 50 || (options.brandName || '').length > 40 ||
-      (film?.querySelector('.cj-featured-copy')?.textContent.length || 0) > 550;
+    // Fit each pinned scene independently. A longer sentence or membership name
+    // must not switch off the other scene (or the page's continuous reveals).
+    let fitDirty = true;
+    function fits(node, available) {
+      if (!node) return true;
+      const height = Math.max(node.scrollHeight || 0, node.getBoundingClientRect().height || 0);
+      return height <= available;
+    }
+    function measureScenes(enabled, screen) {
+      arrival?.classList.toggle('cj-arrival-motion', enabled);
+      film?.classList.toggle('cj-film-motion', enabled);
+      if (!enabled) return;
+      if (arrival) {
+        const card = arrival.querySelector('.cj-membership');
+        // The metallic sheen and artwork can extend the card's scrollable bounds.
+        // Only visible text determines whether its fixed composition fits.
+        const cardFits = !card || !card.clientHeight || Array.from(card.querySelectorAll('.cj-card-brand,.cj-status-tier,.cj-card-member')).every(text => {
+          if (!text.offsetHeight && !text.offsetWidth) return true;
+          const bottom = text.offsetTop + Math.max(text.offsetHeight, text.scrollHeight);
+          return bottom <= card.clientHeight + 2 && (!text.clientWidth || text.scrollWidth <= text.clientWidth + 2);
+        });
+        const arrivalFits = cardFits && fits(arrival.querySelector('.cj-heading'), screen * .52) &&
+          fits(arrival.querySelector('.cj-arrival-status'), screen * .35) &&
+          fits(arrival.querySelector('.cj-stage > .cj-content'), screen * .3) &&
+          fits(arrival.querySelector('.cj-arrival-actions'), screen * .12);
+        arrival.classList.toggle('cj-arrival-motion', arrivalFits);
+      }
+      if (film) {
+        const filmFits = fits(film.querySelector('.cj-film-intro'), screen * .55) &&
+          fits(film.querySelector('.cj-featured-copy'), screen * .78);
+        film.classList.toggle('cj-film-motion', filmFits);
+      }
+    }
     const clamp = value => Math.max(0, Math.min(1, value));
     const ease = value => { value = clamp(value); return value * value * (3 - 2 * value); };
     const set = (node, values) => { if (node) for (const [key, value] of Object.entries(values)) node.style.setProperty('--cj-' + key, String(value)); };
     let frame = 0;
     function paint() {
       frame = 0;
-      const enabled = !motion.matches && !compact.matches && !crowded;
+      const enabled = !motion.matches && !compact.matches;
       layout.classList.toggle('cj-motion', enabled);
       const navHeight = Math.ceil(nav.getBoundingClientRect().height);
       const screen = window.innerHeight - navHeight;
       set(layout, { 'nav-height': navHeight + 'px', 'screen-height': screen + 'px' });
+      if (fitDirty) { measureScenes(enabled, screen); fitDirty = false; }
+      const arrivalEnabled = enabled && arrival?.classList.contains('cj-arrival-motion');
+      const filmEnabled = enabled && film?.classList.contains('cj-film-motion');
       // Read stationary scene bounds before writing animation properties.
       const measurements = scenes.map(node => ({ node, rect: node.getBoundingClientRect() }));
-      const filmRect = enabled && film ? film.getBoundingClientRect() : null;
+      const filmRect = filmEnabled && film ? film.getBoundingClientRect() : null;
       const entrances = enabled ? reveals.map(node => ({ node, top: node.getBoundingClientRect().top })) : [];
       let active = scenes[0];
       measurements.forEach(({node, rect}) => {
         if (rect.top <= window.innerHeight * .45) active = node;
         const position = clamp((navHeight - rect.top) / Math.max(1, rect.height - screen));
         set(node, { scroll: enabled ? position.toFixed(4) : '0' });
-        if (node === arrival) {
+        if (node === arrival && arrivalEnabled) {
           // Chapter links and focus show the final, fully readable status view.
           const focused = node.contains(document.activeElement) || node.matches(':target');
           const p = focused ? 1 : position;
@@ -311,8 +335,11 @@
     }
     const schedule = () => { if (!frame) frame = window.requestAnimationFrame(paint); };
     layout.addEventListener('focusin', schedule); layout.addEventListener('focusout', schedule); window.addEventListener('hashchange', schedule);
-    window.addEventListener('scroll', schedule, { passive: true }); window.addEventListener('resize', schedule, { passive: true });
-    motion.addEventListener?.('change', schedule); compact.addEventListener?.('change', schedule);
+    const refit = () => { fitDirty = true; schedule(); };
+    window.addEventListener('scroll', schedule, { passive: true }); window.addEventListener('resize', refit, { passive: true });
+    motion.addEventListener?.('change', refit); compact.addEventListener?.('change', refit);
+    window.addEventListener('load', refit, { once: true });
+    document.fonts?.ready?.then(refit);
     // The template is attached immediately after this function returns.
     schedule();
   }
@@ -550,31 +577,31 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-scene .btn-primary { border-radius: 30px; }
 .cj-scene a[style*="color:"] { color: var(--lpg-brand-deep) !important; }
 /* Pinned scenes are opt-in. The static layout above is complete on its own. */
-.cj-motion .cj-arrival { height: calc(var(--cj-screen-height) * 2.4); }
-.cj-motion .cj-stage { position: sticky; top: var(--cj-nav-height); height: var(--cj-screen-height); min-height: 0; display: block; padding: 0; }
-.cj-motion .cj-arrival .cj-heading { position: absolute; left: 7%; top: 10%; width: 46%; opacity: var(--cj-intro,1); transform: translateY(calc(var(--cj-scroll,0) * -65px)); pointer-events: none; }
-.cj-motion .cj-membership { position: absolute; left: var(--cj-card-x,71%); top: var(--cj-card-y,48%); width: var(--cj-card-width,310px); height: var(--cj-card-height,250px); min-height: 0; max-width: 80%; padding: 28px; border-radius: var(--cj-card-radius,76px); transform: translate(-50%,-50%) perspective(900px) rotateY(var(--cj-card-tilt,-16deg)) rotateZ(var(--cj-card-rotate,-12deg)); }
-.cj-motion .cj-membership .cj-status-tier { margin-top: 40px; font-size: clamp(1.4rem,2.5vw,2rem); }
-.cj-motion .cj-membership::before { transform: translateX(calc(var(--cj-scroll,0) * 70%)); }
-.cj-motion .cj-arrival-status { display: block; position: absolute; top: 7%; left: 10%; right: 10%; text-align: center; opacity: var(--cj-status,0); transform: translateY(var(--cj-status-y,35px)); pointer-events: none; }
-.cj-motion .cj-arrival-status .cj-title { max-width: 850px; margin: auto; font-size: clamp(2.5rem,4.3vw,4.8rem); }
-.cj-motion .cj-stage > .cj-content { position: absolute; left: 7%; right: 7%; bottom: 11%; opacity: calc(.15 + var(--cj-status,0) * .85); transform: translateY(var(--cj-status-y,35px)); }
-.cj-motion .cj-arrival-actions { position: absolute; left: 7%; right: 7%; bottom: 20px; }
-.cj-motion .cj-reward-film { height: calc(var(--cj-screen-height) * 2.3); }
-.cj-motion .cj-reward-stage { position: sticky; top: var(--cj-nav-height); height: var(--cj-screen-height); padding: 0; }
-.cj-motion .cj-film-intro { position: absolute; top: 7%; left: 10%; right: 10%; z-index: 4; opacity: var(--cj-film-heading,1); transform: translateY(var(--cj-film-heading-y,0px)); pointer-events: none; }
-.cj-motion .cj-film-intro .cj-title { font-size: clamp(2.5rem,4.8vw,5rem); }
-.cj-motion .cj-featured-reward { display: block; position: absolute; inset: 7% 4%; clip-path: inset(var(--cj-mask-y,27%) var(--cj-mask-x,29%) round var(--cj-mask-radius,160px)); transform: translateY(var(--cj-film-y,80px)) scale(var(--cj-film-scale,.91)); opacity: var(--cj-film-opacity,.4); }
-.cj-motion .cj-featured-reward,.cj-motion .cj-featured-reward:hover { transition: none; box-shadow: none; transform: translateY(var(--cj-film-y,80px)) scale(var(--cj-film-scale,.91)); }
-.cj-motion .cj-featured-reward > .cj-reward-visual { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; min-height: 0; border-radius: 0; }
-.cj-motion .cj-reward-visual > :is(img,span) { transform: scale(var(--cj-landscape-scale,1.18)); }
-.cj-motion .cj-reward-visual::after { content: ''; position: absolute; z-index: 2; inset: 0; background: linear-gradient(180deg,#1018280a 10%,#101828b8 65%,#101828ed 100%); pointer-events: none; }
-.cj-motion .cj-featured-reward > .cj-featured-copy { position: absolute; z-index: 3; left: 7%; bottom: 7%; width: 86%; padding: 0; opacity: var(--cj-film-copy,0); transform: translateY(var(--cj-film-copy-y,30px)); }
-.cj-motion .cj-featured-copy :is(.text-dark,.text-muted,p,span,h3) { color: #fff !important; }
-.cj-motion .cj-featured-copy h3 { font-size: clamp(1.6rem,3.6vw,3.5rem); max-width: 760px; }
-.cj-motion .cj-featured-copy .btn-primary { background: #fff; color: #18202f; }
-.cj-motion .cj-featured-copy [title="Copy code"] svg { color: #18202f !important; }
-.cj-motion .cj-featured-copy .voucher-actions { max-width: 640px; }
+.cj-motion :where(.cj-arrival.cj-arrival-motion) { height: calc(var(--cj-screen-height) * 2.4); }
+.cj-motion :where(.cj-arrival.cj-arrival-motion) .cj-stage { position: sticky; top: var(--cj-nav-height); height: var(--cj-screen-height); min-height: 0; display: block; padding: 0; }
+.cj-motion :where(.cj-arrival.cj-arrival-motion) .cj-heading { position: absolute; left: 7%; top: 10%; width: 46%; opacity: var(--cj-intro,1); transform: translateY(calc(var(--cj-scroll,0) * -65px)); pointer-events: none; }
+.cj-motion :where(.cj-arrival.cj-arrival-motion) .cj-membership { position: absolute; left: var(--cj-card-x,71%); top: var(--cj-card-y,48%); width: var(--cj-card-width,310px); height: var(--cj-card-height,250px); min-height: 0; max-width: 80%; padding: 28px; border-radius: var(--cj-card-radius,76px); transform: translate(-50%,-50%) perspective(900px) rotateY(var(--cj-card-tilt,-16deg)) rotateZ(var(--cj-card-rotate,-12deg)); }
+.cj-motion :where(.cj-arrival.cj-arrival-motion) .cj-membership .cj-status-tier { margin-top: 40px; font-size: clamp(1.4rem,2.5vw,2rem); }
+.cj-motion :where(.cj-arrival.cj-arrival-motion) .cj-membership::before { transform: translateX(calc(var(--cj-scroll,0) * 70%)); }
+.cj-motion :where(.cj-arrival.cj-arrival-motion) .cj-arrival-status { display: block; position: absolute; top: 7%; left: 10%; right: 10%; text-align: center; opacity: var(--cj-status,0); transform: translateY(var(--cj-status-y,35px)); pointer-events: none; }
+.cj-motion :where(.cj-arrival.cj-arrival-motion) .cj-arrival-status .cj-title { max-width: 850px; margin: auto; font-size: clamp(2.5rem,4.3vw,4.8rem); }
+.cj-motion :where(.cj-arrival.cj-arrival-motion) .cj-stage > .cj-content { position: absolute; left: 7%; right: 7%; bottom: 11%; opacity: calc(.15 + var(--cj-status,0) * .85); transform: translateY(var(--cj-status-y,35px)); }
+.cj-motion :where(.cj-arrival.cj-arrival-motion) .cj-arrival-actions { position: absolute; left: 7%; right: 7%; bottom: 20px; }
+.cj-motion :where(.cj-reward-film.cj-film-motion) { height: calc(var(--cj-screen-height) * 2.3); }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-reward-stage { position: sticky; top: var(--cj-nav-height); height: var(--cj-screen-height); padding: 0; }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-film-intro { position: absolute; top: 7%; left: 10%; right: 10%; z-index: 4; opacity: var(--cj-film-heading,1); transform: translateY(var(--cj-film-heading-y,0px)); pointer-events: none; }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-film-intro .cj-title { font-size: clamp(2.5rem,4.8vw,5rem); }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-reward { display: block; position: absolute; inset: 7% 4%; clip-path: inset(var(--cj-mask-y,27%) var(--cj-mask-x,29%) round var(--cj-mask-radius,160px)); transform: translateY(var(--cj-film-y,80px)) scale(var(--cj-film-scale,.91)); opacity: var(--cj-film-opacity,.4); }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-reward,.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-reward:hover { transition: none; box-shadow: none; transform: translateY(var(--cj-film-y,80px)) scale(var(--cj-film-scale,.91)); }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-reward > .cj-reward-visual { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; min-height: 0; border-radius: 0; }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-reward-visual > :is(img,span) { transform: scale(var(--cj-landscape-scale,1.18)); }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-reward-visual::after { content: ''; position: absolute; z-index: 2; inset: 0; background: linear-gradient(180deg,#1018280a 10%,#101828b8 65%,#101828ed 100%); pointer-events: none; }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-reward > .cj-featured-copy { position: absolute; z-index: 3; left: 7%; bottom: 7%; width: 86%; padding: 0; opacity: var(--cj-film-copy,0); transform: translateY(var(--cj-film-copy-y,30px)); }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-copy :is(.text-dark,.text-muted,p,span,h3) { color: #fff !important; }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-copy h3 { font-size: clamp(1.6rem,3.6vw,3.5rem); max-width: 760px; }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-copy .btn-primary { background: #fff; color: #18202f; }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-copy [title="Copy code"] svg { color: #18202f !important; }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-copy .voucher-actions { max-width: 640px; }
 /* Continuous entrances measure stationary containers and transform their children. */
 [data-cj-reveal] { --cj-enter: 1; }
 .cj-motion .cj-heading[data-cj-reveal] > :is(.cj-eyebrow,.cj-title,.cj-description) { opacity: calc(.12 + var(--cj-enter) * .88); transform: translateY(calc((1 - var(--cj-enter)) * 40px)); }
@@ -584,8 +611,8 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
 .cj-motion [data-cj-reveal]:focus-within,.cj-motion .cj-scene:target [data-cj-reveal] { --cj-enter: 1 !important; }
 .cj-motion [data-cj-reveal]:focus-within > *,.cj-motion .cj-scene:target [data-cj-reveal] > * { opacity: 1 !important; transform: none !important; clip-path: none !important; }
 /* A reward remains actionable immediately when reached with a keyboard or link. */
-.cj-motion .cj-featured-reward:focus-within,.cj-motion .cj-possibility:target .cj-featured-reward { clip-path: none; transform: none; opacity: 1; }
-.cj-motion .cj-featured-reward:focus-within .cj-featured-copy,.cj-motion .cj-possibility:target .cj-featured-copy { opacity: 1; transform: none; }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-reward:focus-within,.cj-motion .cj-possibility:target :where(.cj-reward-film.cj-film-motion) .cj-featured-reward { clip-path: none; transform: none; opacity: 1; }
+.cj-motion :where(.cj-reward-film.cj-film-motion) .cj-featured-reward:focus-within .cj-featured-copy,.cj-motion .cj-possibility:target .cj-featured-copy { opacity: 1; transform: none; }
 @media(max-width:900px) {
  .cj-stage { grid-template-columns: 1fr; gap: 36px; min-height: 0; padding: 56px 7%; }
  .cj-membership { justify-self: center; }

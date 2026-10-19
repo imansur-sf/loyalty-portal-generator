@@ -559,6 +559,20 @@ test('selective proposal acceptance has accessible group controls, all/none coun
   assert.ok(w.document.getElementById('generation-discard').classList.contains('btn-secondary-sf'));
  }finally{e.close();}
 });
+test('proposal preview keeps a desktop viewport while fitting its panel without reloading on resize',async()=>{
+ const e=await editor({review:true});try{
+  let resized,disconnected=0;
+  e.w.ResizeObserver=class{constructor(callback){resized=callback;}observe(){}disconnect(){disconnected++;}};
+  e.field('brief-text','Professional program');await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+  const doc=e.w.document,frame=doc.getElementById('generation-review-preview'),stage=doc.getElementById('generation-review-preview-stage');
+  assert.equal(frame.width,'1440');assert.equal(frame.height,'900');
+  let width=720;Object.defineProperty(stage,'clientWidth',{get:()=>width});
+  doc.querySelector('.generation-review-preview').dispatchEvent(new e.w.Event('toggle'));
+  assert.equal(frame.style.transform,'scale(0.5)');const source=frame.srcdoc;
+  width=360;resized();assert.equal(frame.style.transform,'scale(0.25)');assert.equal(frame.srcdoc,source);
+  doc.getElementById('generation-discard').click();assert.ok(disconnected>0);
+ }finally{e.close();}
+});
 test('accepting promotions alone declines inferred policy and all other content and does not generate rejected images',async()=>{
  const e=await editor({review:true});try{
   e.field('brief-text','Professional program');e.run('Object.assign(state,LPGContentContract.ensure(state))');const original=e.run('JSON.stringify({program:state.program,brand:state.brand,member:state.member,tiers:state.tiers,vouchers:state.vouchers,benefits:state.benefits})');

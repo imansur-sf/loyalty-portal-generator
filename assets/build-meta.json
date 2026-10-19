@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "buildId": "87667f5a872ec744eb57429e99a83b7c0fbb153981c4967cf375f42175848a10",
+  "buildId": "f9b87e3f11cbab44ddfbb5390efb5c6cdb37f1d796c783d62632f12077689870",
   "assets": {
     "js/accounts-loader.js": "d7eb6095c4cdd76b10fc4f183e7a4645243fd84f3cd475f90ca89b946a4369b4",
     "js/app.js": "afedc321e7add667802df40f23c08e5387e45df8e1503bcf37f1bf83a04f3816",
@@ -8,19 +8,19 @@
     "js/content-contract.js": "7b62dbe35a95c633812f802a6ffa5f8979d906387f6931e8d19e3784ad6bcf41",
     "js/defaults.js": "bc138671a8e095a34f899ef24a3151be529067f04e2180cd33f3164d1cb88d6b",
     "js/editor-tools.js": "c9deb363db043dbe89c8f6febee97e2e48ae602714ba3de68e86baf652f9d0a0",
-    "js/generator.js": "cabc638279d6c9388f8e4e5d74d529365370c8fddf3e0dadb585eeba62891cf7",
+    "js/generator.js": "74a37345307857974c382f207a8799c9fd018e5ef7f6ecfd7d3426372d1fcefc",
     "js/images.js": "0ccf092540c8c0db87649e3763bfc0a15b72b6f0a170a7671e3ebd86c09dbbeb",
     "js/localai.js": "cd932a65bbad5c99b29f33ca65f116737e00259b2826a4f1a573445d78849922",
     "js/pagehost.js": "f65fb1ea48d218199ca9f94b64e28c3b19309911216e5f91f25b80cffd08504e",
     "js/portal-content.js": "8837959a734e48ab8d55dd2ee4f6b6a454db66622ec19166de7b6445b7998717",
-    "js/portal-templates.js": "49c56a49eee2ade4b57a4c9b8492766e304a5bef82b130b3b75671f4b8101fcd",
+    "js/portal-templates.js": "1344f3834067902932c6146f3c271475edd3938650b7fc82e56803db315bd8a8",
     "js/program-model.js": "853c3637cc3460d7f72d2c4f6a475daef619938f5160919367a09e70a82d87b4",
     "js/program-provenance.js": "736da9474de08050603bc6b5740cd1b7dbf5ed6527597f12edf0d98ef6c57787",
     "js/program-runtime.js": "866e718ff2d722f0898fbee0a8b69badd091fa9b9129d83f50cdd4a853d527dc",
     "js/projects.js": "91616aa5f87de18d5ae880ca2b63e261821e4593a1d794431009281f8d668c07",
-    "js/requirements-editor.js": "fee7996bcbe111a9b47c345de38bf0d6e2ffb71fffdbc2d03af5f2e1181103a5",
+    "js/requirements-editor.js": "475eb97a8998165a5a5283f93e9a75bc4dbac7818136ea747ff5e69389a5ee42",
     "js/requirements.js": "cd8117060249d2ea2c8da5ed2947797082ef84bda40005d94ea19f8a887576f1",
     "js/variants.js": "8bb370744bdea612d0d8b0426c679ebcb1b364bc76313c0f9cc2414672e9a100",
-    "assets/builder.css": "ce0948aa126be214b1d75e112a6c97be948669a129003512927b1f37a6cf3fb5"
+    "assets/builder.css": "ca392fb52f3b81b7b244d04d2403691a2ada4045e698874a1cd310e52fa24a96"
   }
 }
