@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "buildId": "44766cb1c3264318a94232ad7253a2d7eed1b695dd9eb76669a1cafc24b0a923",
+  "buildId": "f0ba240470813e3a73bc9f5f0f43b8192f97909dd293652d5d8cadaa1a09a4b4",
   "assets": {
     "js/accounts-loader.js": "d7eb6095c4cdd76b10fc4f183e7a4645243fd84f3cd475f90ca89b946a4369b4",
     "js/app.js": "afedc321e7add667802df40f23c08e5387e45df8e1503bcf37f1bf83a04f3816",
@@ -8,7 +8,7 @@
     "js/content-contract.js": "7b62dbe35a95c633812f802a6ffa5f8979d906387f6931e8d19e3784ad6bcf41",
     "js/defaults.js": "bc138671a8e095a34f899ef24a3151be529067f04e2180cd33f3164d1cb88d6b",
     "js/editor-tools.js": "c9deb363db043dbe89c8f6febee97e2e48ae602714ba3de68e86baf652f9d0a0",
-    "js/generator.js": "560810d8df953d19670e9d3d52b421c907df42bb80f917088b8643cf03ee02e3",
+    "js/generator.js": "cabc638279d6c9388f8e4e5d74d529365370c8fddf3e0dadb585eeba62891cf7",
     "js/images.js": "0ccf092540c8c0db87649e3763bfc0a15b72b6f0a170a7671e3ebd86c09dbbeb",
     "js/localai.js": "9c2d00fedd30ceb367fcf7dbcad076aed7ed81365cd6f78a554b0be24de288d6",
     "js/pagehost.js": "f65fb1ea48d218199ca9f94b64e28c3b19309911216e5f91f25b80cffd08504e",

@@ -8103,11 +8103,11 @@ function buildTierProgress(s, pointsToNext) {
 // ---- MY PROFILE (Expandable) ----
 function buildProfile(s) {
   return `<div data-lpg-section="profile" class="card mb-3 overflow-hidden">
-      <button onclick="toggleSection('profile')" class="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/60 transition-colors">
+      <button onclick="toggleSection('profile')" aria-expanded="true" aria-controls="profile-content" class="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/60 transition-colors">
         <span class="text-base font-700 text-dark">My Profile</span>
-        <svg id="profile-chevron" class="w-5 h-5 text-muted chevron-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        <svg id="profile-chevron" class="w-5 h-5 text-muted chevron-icon rotated" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
       </button>
-      <div id="profile-content" class="toggle-content">
+      <div id="profile-content" class="toggle-content open">
         <div class="px-6 pb-6 border-t border-border pt-5">
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             <div><span class="text-[10px] text-muted uppercase tracking-[0.15em] font-700">Name</span><p class="text-sm font-700 text-dark mt-1.5">${lpgEscape(s.member.name||'Member')}</p></div>
@@ -8472,6 +8472,7 @@ function buildScript() {
       const ch = document.getElementById(id + '-chevron');
       if (c.classList.contains('open')) { c.classList.remove('open'); ch.classList.remove('rotated'); }
       else { c.classList.add('open'); ch.classList.add('rotated'); }
+      ch.closest('button')?.setAttribute('aria-expanded', String(c.classList.contains('open')));
     }
     document.querySelectorAll('[title="Copy code"]').forEach(btn => {
       btn.addEventListener('click', (e) => {
