@@ -4,12 +4,12 @@ const {createApiSecurity}=require('../api-security');
 function res(){return {statusCode:200,headers:{},set(k,v){if(typeof k==='object')Object.assign(this.headers,k);else this.headers[k]=v;return this;},status(v){this.statusCode=v;return this;},json(v){this.body=v;return this;},sendStatus(v){this.statusCode=v;return this;}};}
 function req(extra={}) {return {protocol:'https',ip:'203.0.113.1',headers:{host:'lpg.example',origin:'https://lpg.example'},...extra};}
 function token(s,r=req()){const out=res();s.issue(r,out);assert.equal(out.statusCode,200);return out.body.token;}
-test('capabilities require same-origin issuance, cannot be forged, reused from another address, or used after expiry',()=>{
+test('capabilities require same-origin issuance, cannot be forged or used after expiry',()=>{
  let time=100;const s=createApiSecurity({now:()=>time,windowMs:1000});
  for(const headers of [{host:'lpg.example'},{host:'lpg.example',origin:'https://evil.example'}]) {const out=res();s.issue(req({headers}),out);assert.equal(out.statusCode,403);}
  const cap=token(s);const r=req();r.headers['x-lpg-capability']=cap;
  assert.equal(s.authorize(r,res()),undefined);
- for(const candidate of [req({ip:'203.0.113.2',headers:r.headers}),req({headers:{...r.headers,'x-lpg-capability':cap+'x'}})]){const out=res();s.authorize(candidate,out);assert.equal(out.statusCode,401);}
+ for(const candidate of [req({headers:{...r.headers,'x-lpg-capability':cap+'x'}})]){const out=res();s.authorize(candidate,out);assert.equal(out.statusCode,401);}
  time=1101;const out=res();s.authorize(r,out);assert.equal(out.statusCode,401);
 });
 test('new capabilities share budget, images count individually and concurrency is shared with direct text work',()=>{
@@ -37,4 +37,30 @@ test('invalid cost types cannot poison budgets or occupy concurrency',()=>{
  }
  const release=s.reserve(r,res(),{tokens:3,images:1});assert.equal(typeof release,'function');release();
  const exhausted=res();s.reserve(r,exhausted,{tokens:1});assert.equal(exhausted.statusCode,429);
+});
+
+
+test('explicit internal SSO origin is accepted when the upstream host is rewritten',()=>{
+ const origin='https://sassysolutions-loyaltygen-7922fe2e6c27.azalea-virginia.herokuapp-internal.com';
+ const r=req({headers:{host:'sassysolutions-loyaltygen-7922fe2e6c27.azalea-virginia.herokuapp.com',origin}});
+ const denied=res();createApiSecurity().issue(r,denied);assert.equal(denied.statusCode,403);
+ const s=createApiSecurity({allowedOrigins:[origin]});const issued=res();s.issue(r,issued);assert.equal(issued.statusCode,200);
+ const wrong=res();s.issue(req({headers:{...r.headers,origin:'https://another.herokuapp-internal.com'}}),wrong);assert.equal(wrong.statusCode,403);
+});
+
+test('changing SSO egress keeps signed quota ownership instead of invalidating or resetting access',()=>{
+ const s=createApiSecurity({maxTokens:10});const cap=token(s);
+ const moved=req({ip:'203.0.113.2',headers:{...req().headers,'x-lpg-capability':cap}});
+ const release=s.reserve(moved,res(),{tokens:10});assert.equal(typeof release,'function');release();
+ assert.equal(moved.generationIdentity,'203.0.113.1');
+ const next=req({ip:'203.0.113.3',headers:{...moved.headers}});const out=res();s.reserve(next,out,{tokens:1});
+ assert.equal(out.statusCode,429);assert.equal(out.body.error,'generation_budget_exceeded');
+});
+
+test('configured signing key accepts an unexpired capability after a process replacement',()=>{
+ const secret='synthetic-persistent-signing-key-1234567890';
+ const before=createApiSecurity({secret});const cap=token(before);
+ const after=createApiSecurity({secret});const request=req({headers:{...req().headers,'x-lpg-capability':cap}});
+ assert.equal(after.authorize(request,res()),undefined);
+ const other=res();createApiSecurity({secret:'another-synthetic-signing-key-1234567890'}).authorize(request,other);assert.equal(other.statusCode,401);
 });

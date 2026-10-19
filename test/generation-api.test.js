@@ -77,6 +77,7 @@ test('direct and pollable paid routes share concurrency and rightmost trusted ad
   while(providerCalls<1)await new Promise(r=>setTimeout(r,1));
   for(let n=0;n<5;n++)assert.equal((await nativeFetch(base+'/api/jobs',{method:'POST',headers,body:JSON.stringify({kind:'llm',prompt:'held'})})).status,202);
   const blocked=await nativeFetch(base+'/api/llm',{method:'POST',headers,body:JSON.stringify({prompt:'blocked'})});assert.equal(blocked.status,429);assert.equal(providerCalls,6);
-  const changedTrustedHop=await nativeFetch(base+'/api/llm',{method:'POST',headers:{...headers,'X-Forwarded-For':'1.1.1.1, 203.0.113.45'},body:JSON.stringify({prompt:'denied'})});assert.equal(changedTrustedHop.status,401);
+  const changedTrustedHop=await nativeFetch(base+'/api/llm',{method:'POST',headers:{...headers,'X-Forwarded-For':'1.1.1.1, 203.0.113.45'},body:JSON.stringify({prompt:'denied'})});assert.equal(changedTrustedHop.status,429);assert.equal(providerCalls,6);
+  assert.equal(JSON.parse(Buffer.from(cap.token.split('.')[0],'base64url')).id,'203.0.113.44');
   releases.forEach(r=>r());assert.equal((await direct).status,200);
 });

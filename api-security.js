@@ -1,12 +1,13 @@
-// Bounded guest generation access, not account authentication. Budgets and the
-// signing key belong to this single process and reset on restart. Before scaling
-// dynos, move both to shared storage and bind signed-in usage to verified accounts.
+// Bounded guest generation access, not account authentication. Guest
+// quota counters belong to one process and reset on restart. The deployed server
+// supplies a persistent signing key; local use defaults to a process-local key.
+// Before scaling dynos, share accounting and bind signed-in usage to accounts.
 const { randomBytes, createHmac, timingSafeEqual } = require('node:crypto');
 function createApiSecurity({secret=randomBytes(32),now=Date.now,windowMs=3600000,maxIdentities=5000,
   maxTokens=1200000,maxImages=240,maxCalls=160,maxScrapes=120,maxActive=6,maxImageActive=8,
   allowedOrigins=(process.env.LPG_ALLOWED_ORIGINS || '').split(',').filter(Boolean)}={}) {
   const buckets=new Map();let active=0,imageActive=0;
-  function identity(req) { return req.ip || req.socket?.remoteAddress || 'unknown'; }
+  function identity(req) { return req.generationIdentity || req.ip || req.socket?.remoteAddress || 'unknown'; }
   function bucket(req) {
     const time=now();
     for (const [id,b] of buckets) if(b.expiresAt<=time) buckets.delete(id);
@@ -43,7 +44,10 @@ function createApiSecurity({secret=randomBytes(32),now=Date.now,windowMs=3600000
       const [payload,signature,...extra]=raw.split('.');const expected=Buffer.from(sign(payload)),supplied=Buffer.from(signature||'');
       if(extra.length || supplied.length!==expected.length || !timingSafeEqual(supplied,expected))throw Error();
       const data=JSON.parse(Buffer.from(payload,'base64url'));
-      if(data.id!==identity(req) || !Number.isFinite(data.expiresAt) || data.expiresAt<=now())throw Error();
+      if(typeof data.id!=='string' || !data.id || !Number.isFinite(data.expiresAt) || data.expiresAt<=now())throw Error();
+      // Corporate SSO egress may change between requests. The signed issuance
+      // identity owns the quota; a different network hop must not invalidate
+      // this bearer permission or give it a fresh budget.
       req.generationIdentity=data.id;
     }catch{return res.status(401).json({error:'generation_capability_expired'});}
   }

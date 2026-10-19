@@ -166,6 +166,12 @@
     }
   }
 
+  function forgetRejectedCapability(base, token) {
+    const key = String(base).replace(/\/+$/, '');
+    // A concurrent request may already be renewing or using a newer token.
+    if (backendCapabilities.get(key)?.token === token) backendCapabilities.delete(key);
+  }
+
   async function scrapeViaCorsProxy(url) {
     let lastError = null;
 
@@ -174,8 +180,14 @@
     const scrapeBase = own || '';  // empty = same origin
     {
       try {
-        const headers = await backendAccessHeaders(scrapeBase);
-        const res = await fetch(`${scrapeBase}/api/scrape?url=${encodeURIComponent(url)}`, { method: 'GET', credentials: 'same-origin', headers });
+        let headers = await backendAccessHeaders(scrapeBase);
+        const endpoint = `${scrapeBase}/api/scrape?url=${encodeURIComponent(url)}`;
+        let res = await fetch(endpoint, { method: 'GET', credentials: 'same-origin', headers });
+        if (res.status === 401 && ['generation_capability_required','generation_capability_expired'].includes(await capabilityRejection(res))) {
+          forgetRejectedCapability(scrapeBase, headers['X-LPG-Capability']);
+          headers = await backendAccessHeaders(scrapeBase);
+          res = await fetch(endpoint, { method: 'GET', credentials: 'same-origin', headers });
+        }
         if (res.ok) {
           const ct = res.headers.get('content-type') || '';
           const raw = await res.text();
@@ -196,7 +208,7 @@
           if ([401,403,429].includes(res.status)) { lastError.noProxy = true; throw lastError; }
         }
       } catch (err) {
-        if (err.noProxy || ['generation_session','default_rate_limited','generation_budget'].includes(err.code)) throw err;
+        if (err.noProxy || ['generation_session','generation_origin','generation_permission','default_rate_limited','generation_budget'].includes(err.code)) throw err;
         lastError = localError('own_scraper_network', { endpoint: scrapeBase || window.location.origin, cause: err.message });
       }
     }
@@ -283,8 +295,34 @@
     return localError('default_failed', { status, upstream: code, upstreamStatus: body?.status });
   }
 
+  async function capabilityRejection(response) {
+    if (![401,403].includes(response.status) || typeof response.json !== 'function') return '';
+    // timedFetch has already buffered the body and exposes a reusable json().
+    try { return (await (typeof response.clone === 'function' ? response.clone() : response).json()).error || ''; } catch (_) { return ''; }
+  }
+  async function authorizedBackendPost(path, body, base) {
+    const send = async access => timedFetch(`${base}${path}`, { method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', ...access }, body: JSON.stringify(body) });
+    let access = await backendAccessHeaders(base);
+    let response = await send(access);
+    const rejection = await capabilityRejection(response);
+    // Only these explicit rejections establish that no paid work was accepted.
+    // Never retry uncertain transport failures, HTML sign-in pages, or a 202 job.
+    if (response.status === 401 && ['generation_capability_required','generation_capability_expired'].includes(rejection)) {
+      forgetRejectedCapability(base, access['X-LPG-Capability']);
+      access = await backendAccessHeaders(base);
+      response = await send(access);
+    }
+    return response;
+  }
+
   async function transportJSON(response) {
-    if ([401, 403].includes(response.status)) throw localError('generation_session');
+    if ([401, 403].includes(response.status)) {
+      const rejection = await capabilityRejection(response);
+      if (['origin_not_allowed','same_origin_required'].includes(rejection)) throw localError('generation_origin');
+      if (['generation_capability_required','generation_capability_expired'].includes(rejection)) throw localError('generation_permission');
+      throw localError('generation_session');
+    }
     const type = response.headers?.get('content-type') || '';
     if (/text\/html/i.test(type)) throw localError(response.status >= 500 ? 'generation_gateway' : 'generation_session', { status: response.status });
     try { return await response.json(); }
@@ -297,11 +335,11 @@
     const paths = { llm: '/api/llm', images: '/api/generate-images', image: '/api/generate-image' };
     if (!paths[kind]) throw localError('generation_protocol');
     const deadline = Date.now() + JOB_DEADLINE_MS;
-    const access = await backendAccessHeaders(base);
+    // Acquire access separately: an issuance failure has not submitted a job.
+    await backendAccessHeaders(base);
     let submitted;
     try {
-      submitted = await timedFetch(`${base}/api/jobs`, { method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', ...access }, body: JSON.stringify({ ...body, kind }) });
+      submitted = await authorizedBackendPost('/api/jobs', { ...body, kind }, base);
     } catch (_) {
       // The server may already have accepted the paid job. Never resubmit it or
       // fall back to another POST when the submission outcome is uncertain.
@@ -311,8 +349,7 @@
       // Older custom backends explicitly lack this endpoint. This is the only
       // permitted synchronous fallback, not a recovery for a failed AI call.
       try {
-        const legacy = await timedFetch(`${base}${paths[kind]}`, { method: 'POST', credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', ...access }, body: JSON.stringify(body) });
+        const legacy = await authorizedBackendPost(paths[kind], body, base);
         const payload = await transportJSON(legacy);
         if (!legacy.ok) throw backendFailure(legacy.status, payload);
         return payload;
@@ -819,6 +856,10 @@ Return ONLY the JSON per the schema. Return ONLY the JSON.`
         return 'Generation did not finish within the waiting limit. Your current portal was kept; try again with a shorter brief.';
       case 'generation_job_missing':
         return 'This generation result expired or the server restarted. Your current portal was kept. Please generate again.';
+      case 'generation_origin':
+        return 'Generation access is not configured for this generator address. Your current portal was kept. The administrator needs to enable this exact app address.';
+      case 'generation_permission':
+        return 'Generation permission could not be renewed. Your current portal was kept. Please try again shortly.';
       case 'generation_session':
         return 'Refresh the generator to renew generation access. Complete app sign-in if prompted, then try again. Your current portal was kept.';
       case 'generation_gateway':

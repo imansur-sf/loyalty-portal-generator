@@ -5,11 +5,11 @@ const vm = require('node:vm');
 
 const ticket = { id: 'job-id-123456', token: 'test-token-123456789' };
 const response = (status, body, type = 'application/json') => ({ status, ok: status >= 200 && status < 300,
-  headers: { get: () => type }, json: async () => body, text: async () => typeof body === 'string' ? body : JSON.stringify(body) });
+  headers: { get: () => type }, clone: () => response(status,body,type), json: async () => body, text: async () => typeof body === 'string' ? body : JSON.stringify(body) });
 const complete = (status, body) => response(200, { status: 'complete', result: { status, body } });
 
 function client(handler) {
-  let now = 0, next = 0;
+  let now = 0, next = 0, issued = 0;
   const calls = [], timers = new Map(), timeoutValues = [];
   const context = vm.createContext({ console, AbortController, URL, Date: { now: () => now } });
   context.window = context;
@@ -26,9 +26,9 @@ function client(handler) {
     const [id, timer] = [...timers].find(([, value]) => value.ms > 1500) || [];
     assert.ok(timer); timers.delete(id); now += timer.ms; timer.fn();
   };
-  context.fetch = async (url, options) => { if (url.endsWith('/api/capability')) return response(200, {token:'capability-for-test-1234567890',expiresAt:now+900000}); calls.push({ url, ...options }); return handler(url, options, { expireRequest }); };
+  context.fetch = async (url, options) => { if (url.endsWith('/api/capability')) {issued++;return response(200, {token:issued===1?'capability-for-test-1234567890':'renewed-capability-for-test-1234567890',expiresAt:now+900000});} calls.push({ url, ...options }); return handler(url, options, { expireRequest }); };
   vm.runInContext(fs.readFileSync('js/localai.js', 'utf8'), context);
-  return { api: context.LocalAI, calls, timeoutValues, timers };
+  return { api: context.LocalAI, calls, timeoutValues, timers, capabilityRequests: () => issued };
 }
 
 test('default LLM uses one short submission, authenticated polling and completed-result cleanup', async () => {
@@ -221,4 +221,61 @@ test('scraper reads non-executable JSON and keeps rejected destinations out of p
   const blocked=client(async()=>response(403,{error:'blocked_destination'}));
   await assert.rejects(blocked.api.scrapeViaCorsProxy('http://private.test/'),error=>error.code==='own_scraper_status');
   assert.equal(blocked.calls.length,1);
+});
+
+
+test('an explicit pre-acceptance capability rejection renews once and starts one paid job',async()=>{
+ let posts=0;
+ const c=client(async(_url,options)=>{
+   if(options.method==='POST')return ++posts===1?response(401,{error:'generation_capability_expired'}):response(202,ticket);
+   return options.method==='DELETE'?response(204):complete(200,{text:'Ready'});
+ });
+ assert.equal((await c.api.callDefaultBackend({prompt:'Brief'})).text,'Ready');
+ assert.equal(c.capabilityRequests(),2);assert.equal(posts,2);
+ const submitted=c.calls.filter(r=>r.method==='POST');
+ assert.equal(submitted[0].headers['X-LPG-Capability'],'capability-for-test-1234567890');
+ assert.equal(submitted[1].headers['X-LPG-Capability'],'renewed-capability-for-test-1234567890');
+});
+
+test('permission renewal is bounded and never retries generic login failures or accepted jobs',async()=>{
+ const rejected=client(async()=>response(401,{error:'generation_capability_expired'}));
+ await assert.rejects(rejected.api.callDefaultBackend({prompt:'Brief'}),error=>error.code==='generation_permission');
+ assert.equal(rejected.calls.length,2);assert.equal(rejected.capabilityRequests(),2);
+ const signin=client(async()=>response(401,{error:'invalid_token'}));
+ await assert.rejects(signin.api.callDefaultBackend({prompt:'Brief'}),error=>error.code==='generation_session');assert.equal(signin.calls.length,1);
+ const accepted=client(async(_url,options)=>options.method==='POST'?response(202,ticket):response(401,{error:'generation_capability_expired'}));
+ await assert.rejects(accepted.api.callDefaultBackend({prompt:'Brief'}));assert.equal(accepted.calls.filter(r=>r.method==='POST').length,1);
+});
+
+test('origin configuration errors explain the address issue without prompting repeated refreshes',async()=>{
+ const context=vm.createContext({console,AbortController,URL,Date,setTimeout,clearTimeout});context.window=context;context.PageHost={_analysis:{}};
+ context.fetch=async()=>response(403,{error:'origin_not_allowed'});
+ vm.runInContext(fs.readFileSync('js/localai.js','utf8'),context);
+ await assert.rejects(context.LocalAI.callDefaultBackend({prompt:'Brief'}),error=>error.code==='generation_origin');
+ assert.match(context.LocalAI.humanErrorMessage({code:'generation_origin'}),/generator address/);
+});
+
+
+test('scraping renews a rejected capability once without silently discarding website context',async()=>{
+ let scrapes=0;
+ const html='<html><body>Verified customer website context for the next generation.</body></html>';
+ const c=client(async()=>++scrapes===1?response(401,{error:'generation_capability_expired'}):response(200,{html,finalUrl:'https://brand.test/'}));
+ assert.equal(await c.api.scrapeViaCorsProxy('https://brand.test/'),html);
+ assert.equal(scrapes,2);assert.equal(c.capabilityRequests(),2);
+ assert.equal(c.calls[1].headers['X-LPG-Capability'],'renewed-capability-for-test-1234567890');
+});
+
+
+test('simultaneous expired-token responses share one permission renewal',async()=>{
+ let accepted=0;
+ const c=client(async(_url,options)=>{
+   if(options.method==='POST') {
+     if(options.headers['X-LPG-Capability']==='capability-for-test-1234567890')return response(401,{error:'generation_capability_expired'});
+     accepted++;return response(202,ticket);
+   }
+   return options.method==='DELETE'?response(204):complete(200,{text:'Ready'});
+ });
+ await Promise.all([c.api.callDefaultBackend({prompt:'First request'}),c.api.callDefaultBackend({prompt:'Second request'})]);
+ assert.equal(c.capabilityRequests(),2);assert.equal(accepted,2);
+ assert.equal(c.calls.filter(r=>r.method==='POST').length,4);
 });

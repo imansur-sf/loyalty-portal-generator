@@ -11,7 +11,9 @@ const PORT = process.env.PORT || 3000;
 // Outside Heroku trust no proxy unless deployment explicitly configures hops.
 const proxyHops = Number(process.env.LPG_TRUST_PROXY_HOPS ?? (process.env.DYNO ? 1 : 0));
 app.set('trust proxy', Number.isInteger(proxyHops) && proxyHops >= 0 && proxyHops <= 3 ? proxyHops : 0);
-const apiSecurity = createApiSecurity();
+const capabilitySecret = process.env.LPG_GENERATION_SECRET;
+if (capabilitySecret && capabilitySecret.length < 32) throw new Error('LPG_GENERATION_SECRET must contain at least 32 characters');
+const apiSecurity = createApiSecurity(capabilitySecret ? { secret: capabilitySecret } : {});
 
 // ============================================================
 // Configuration
