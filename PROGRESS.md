@@ -169,7 +169,20 @@ visualverification remainsblocked byadminoriginpolicy.
 ## Promotional earning and fictional member identity
 - [x] Restore earning cards as conceptual activity links without transaction entry.
 - [x] Make AI card mapping resilient and use fictional people/company identities.
-- [ ] Verify generation, audience editing and all templates; deploy.
+- [x] Verify generation, audience editing and all templates; deploy.
 
 154tests passed, embeddedCSS96354bytes checked and standalone rebuilt.
 Deployment/approved-PDF replay pending.
+
+Deployed5e71d6d / Heroku v33, web-f988b995d-xdtr9 up. Approved22-pagePDF
++ISACAwebsite passed B2C and B2B textgeneration in36.2s/4calls withoutrepairs.
+Both:5earningcards/4vouchers/2offers. All4templates each embedCSS, omitpurchase
+inputs/buttons, and usecorrectindividual/companyidentity. Health200/versionh.
+Imageenrichment stubbed forreplay; visualbrowserverification unavailable.
+
+## Benefits and earning layout repair
+- [x] Trace squeezed cards to viewport-based inner grids inside narrow sections.
+- [x] Size cards by available section width and revise Showcase composition.
+- [ ] Verify templates, rebuild both artifacts and deploy.
+
+155tests pass; both artifacts rebuilt and CSS reproduction check passed. Deployment pending.

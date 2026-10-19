@@ -2,7 +2,21 @@
 
 Last updated: 2026-10-18. **Read this first.** `git log` records shipped changes; PROGRESS.md records the current sign-in/save rollout. `CLAUDE.md` in this repo is stale (still describes a Page Host zip-bundle deployment that was abandoned); its two-build-outputs instructions still apply.
 
-## Promotional earning and fictional identity (2026-10-18, deployment pending)
+## Benefits and earning card layout (2026-10-18, deployment pending)
+
+Fixed viewport-based four-column benefits/two-column earning grids squeezing
+inside Showcase community columns and Editorial halves. Generator now emits
+benefits-grid/benefit-card/benefit-copy/earn-grid hooks. Alternate template CSS
+uses section-width auto-fit grids:220px minimum benefits,280px earning, bounded
+by100% for narrow screens, with normal word wrapping and flexible text boxes.
+Showcase has a wide benefits+earn column and supporting upsell column, stacked
+below1000px. Profile fields also adapt in narrow rails. Classic styles unchanged.
+155tests pass including real generated markup, computed grid/wrapping styles,
+allfourtemplates and content/action retention. CompiledCSS current96354bytes;
+standalone rebuilt, cacheversion20261018i. Browser visual check unavailable due
+to existing admin policy. Save/reload existing project to apply; no AI regeneration.
+
+## Promotional earning and fictional identity (2026-10-18, deployed5e71d6d / v33)
 
 Earn More is now customer-facing promotional activity cards: icon/image, title,
 copy and a chevron. Clicking opens informational activity details and never
@@ -23,6 +37,14 @@ audience switching preserve both independently. Empty builder uses Avery Morgan.
 154tests pass including promotional click balance invariance, all four templates,
 AI mapping recovery and B2B company editing. EmbeddedCSS96354bytes; standalone
 rebuilt. Browser visual verification remains admin-policy blocked.
+
+Production v33 web-f988b995d-xdtr9 is up, health200, version20261018h.
+Full approved22-pagePDF+ISACAwebsite replay passed BOTH audiences in36.2s,
+4AIcalls, no retry/warning. Each produced5earningcards,4vouchers,2offers and
+5/6benefits. B2C fictional Elena Rostova; B2B primary Apex Risk Advisory with
+separate contact. All4templates peraudience generated activitycards, embedded
+CSS, noAmountinputs/noAddpurchasebuttons. Imageenrichment stubbed inthisreplay;
+no browservisualverification. Unrelated worker/scrape.js edits remain untouched.
 
 ## Customer-facing controls and full-size preview (2026-10-18, deployed4e72d3e / v32)
 

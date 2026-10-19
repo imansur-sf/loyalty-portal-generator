@@ -284,9 +284,9 @@ function buildBenefits(s) {
       ? `<img src="${imgSrc}" alt="${(b.name||'').replace(/"/g,'&quot;')}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-lg hidden">${b.emoji || '✨'}</span>`
       : `<span class="text-lg">${b.emoji || '✨'}</span>`;
     return `
-            <div class="flex items-center gap-3 p-3 rounded-xl bg-page-bg transition-colors hover:bg-gray-100">
+            <div class="benefit-card flex items-center gap-3 p-3 rounded-xl bg-page-bg transition-colors hover:bg-gray-100">
               <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style="background-color: ${s.colors.primary}12;">${iconInner}</div>
-              <div><p class="text-sm font-700 text-dark">${b.name}</p></div>
+              <div class="benefit-copy"><p class="text-sm font-700 text-dark">${b.name}</p></div>
             </div>`;
   }).join('');
 
@@ -297,7 +297,7 @@ function buildBenefits(s) {
       </button>
       <div id="benefits-content" class="toggle-content">
         <div class="px-6 pb-6 border-t border-border pt-5">
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">${items}</div>
+          <div class="benefits-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">${items}</div>
           <p class="text-xs text-muted mt-5">Upgrade to enjoy better benefits and exclusive offers. <a href="#" class="font-700 hover:underline" style="color: ${s.colors.primary};">View All Benefits →</a></p>
         </div>
       </div>
@@ -428,7 +428,7 @@ function buildEarnMore(s) {
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-800 text-dark flex items-center gap-2.5 section-title"><span class="w-1 h-6 rounded-full" style="background-color: ${s.colors.primary};"></span>Earn More</h2>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${cards}</div>
+          <div class="earn-grid grid grid-cols-1 sm:grid-cols-2 gap-4">${cards}</div>
         </section>`;
 }
 

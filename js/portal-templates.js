@@ -51,7 +51,12 @@
       group('showcase-status', ['hero', 'tiers']);
       group('catalogue', ['vouchers']);
       group('promotions', ['offers']);
-      group('community', ['benefits', 'earn', 'upsell']);
+      const community = group('community', []);
+      const communityMain = group('community-main', ['benefits', 'earn']);
+      const communitySupport = group('community-support', ['upsell']);
+      if (communityMain.children.length) community.appendChild(communityMain);
+      if (communitySupport.children.length) community.appendChild(communitySupport);
+      if (community.children.length) layout.appendChild(community);
       group('details', ['activity', 'team', 'profile', 'profile-tasks', 'badges', 'clubs']);
     } else {
       const hero = group('brand-opening', ['hero']);
@@ -125,7 +130,18 @@ body[data-lpg-template] .text-muted { color: #586273; }
 .lpg-layout .offer-card img { object-fit: cover; }
 .lpg-layout .voucher-card h3 { font-size: 1rem; line-height: 1.4; }
 .lpg-layout .voucher-card { padding: 20px; }
-.lpg-layout .earn-card { padding: 22px; }
+.lpg-layout .earn-card { padding: 22px; min-width: 0; }
+/* Fit the section's available width, not the viewport. A dashboard rail or
+   editorial half-column must never inherit the original four-column grid. */
+.lpg-layout .benefits-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,220px),1fr)); gap: 14px; }
+.lpg-layout .benefit-card { min-width: 0; display: flex; align-items: center; gap: 12px; padding: 16px; }
+.lpg-layout .benefit-card > :first-child { flex: 0 0 40px; width: 40px; height: 40px; }
+.lpg-layout .benefit-copy { min-width: 0; flex: 1; }
+.lpg-layout .benefit-copy p { line-height: 1.5; overflow-wrap: break-word; word-break: normal; }
+.lpg-layout .earn-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,280px),1fr)); gap: 18px; }
+.lpg-layout .earn-card :is(h3,p,button) { overflow-wrap: break-word; word-break: normal; }
+.lpg-layout .earn-card > .flex > .flex-1 { min-width: 0; }
+.lpg-layout [data-lpg-section="profile"] .grid { grid-template-columns: repeat(auto-fit,minmax(min(100%,180px),1fr)); }
 .lpg-layout [data-lpg-section="tiers"] { padding: 26px; }
 .lpg-layout [data-lpg-section="tiers"] > .grid { gap: 16px; }
 .lpg-layout #benefits-content.open { max-height: none; }
@@ -154,7 +170,10 @@ body[data-lpg-template="showcase"] main { max-width: 1520px; }
 .lpg-promotions [data-lpg-section="offers"] > div:last-child { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,320px),1fr)); gap: 24px; }
 .lpg-promotions .offer-card { margin: 0 !important; }
 .lpg-promotions .offer-card > div:first-child { width: 100%; height: auto; aspect-ratio: 1.65; }
-.lpg-community { grid-template-columns: repeat(auto-fit,minmax(min(100%,320px),1fr)); padding: 32px; background: var(--lpg-soft); border-radius: 12px; }
+.lpg-community { grid-template-columns: minmax(0,2fr) minmax(240px,1fr); padding: 32px; background: var(--lpg-soft); border-radius: 12px; align-items: start; }
+.lpg-community-main { gap: 32px; }
+.lpg-community-support { min-width: 0; }
+.lpg-community > :only-child { grid-column: 1 / -1; }
 .lpg-details { grid-template-columns: repeat(auto-fit,minmax(min(100%,300px),1fr)); }
 /* Editorial: a photographic opening, benefits story, and staggered campaigns. */
 body[data-lpg-template="editorial"] { background: #faf9f6; }
@@ -180,7 +199,7 @@ body[data-lpg-template="editorial"] main > div > h1 { font-family: Georgia, 'Tim
 body[data-lpg-template="editorial"] .lpg-layout .section-title { font-family: Georgia, 'Times New Roman', serif; font-size: 1.65rem; font-weight: 500; }
 @media(max-width:1000px) {
  .lpg-dashboard-columns { grid-template-columns: minmax(0,1.6fr) minmax(250px,1fr); }
- .lpg-overview,.lpg-showcase-status { grid-template-columns: 1fr; }
+ .lpg-overview,.lpg-showcase-status,.lpg-community { grid-template-columns: 1fr; }
  .lpg-overview .member-hero { flex-direction: row; align-items: center; }
  .lpg-secondary { padding: 14px; }
  .lpg-primary [data-lpg-section="vouchers"] > .grid { grid-template-columns: 1fr; }

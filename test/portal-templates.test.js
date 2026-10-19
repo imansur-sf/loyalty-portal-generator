@@ -109,3 +109,35 @@ test('literal closing-body strings inside runtime code cannot swallow template i
   assert.equal(dom.window.document.querySelectorAll('#lpg-template-layout').length, 1);
   dom.window.close();
 });
+
+test('real benefit and earn grids size to their section and keep descriptive text wrapping normally', () => {
+  const context=vm.createContext({});context.window=context;
+  for(const file of ['defaults','generator','portal-templates']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',file+'.js'),'utf8'),context);
+  for (const outputTemplate of ['classic','dashboard','showcase','editorial']) {
+    context.layoutFixture={outputTemplate};
+    const output=vm.runInContext(`generatePortalHTML({...INDUSTRY_DEFAULTS.generic,...layoutFixture,brand:{name:'Northstar',programName:'Partner Benefits'},member:{name:'Summit Manufacturing',points:750},sections:{vouchers:true,offers:true,earnMore:true,badges:true,clubs:true,upsell:true},colors:{primary:'#123456',accent:'#abcdef',secondary:'#fafafa',dark:'#142332'},benefits:[{name:'Complimentary Technical Certification and Professional Development',emoji:'✦'},{name:'Priority Partner Support',emoji:'✦'}],earnMore:[{title:'Explore professional learning opportunities',description:'Develop practical skills with curated member resources.'},{title:'Connect with your community',description:'Discover local chapter events and share your expertise.'}]})`,context);
+    const dom=new JSDOM(output,{runScripts:'dangerously'});const doc=dom.window.document;
+    const style=node=>dom.window.getComputedStyle(node);
+    if (outputTemplate === 'classic') {
+      assert.equal(doc.querySelector('.lpg-layout'),null);
+      assert.ok(doc.querySelector('.benefits-grid').classList.contains('lg:grid-cols-4'));
+      assert.ok(doc.querySelector('.earn-grid').classList.contains('sm:grid-cols-2'));
+      assert.doesNotMatch(style(doc.querySelector('.benefits-grid')).gridTemplateColumns,/auto-fit/);
+    } else {
+      assert.match(style(doc.querySelector('.benefits-grid')).gridTemplateColumns,/auto-fit.*220px/);
+      assert.match(style(doc.querySelector('.earn-grid')).gridTemplateColumns,/auto-fit.*280px/);
+      assert.equal(style(doc.querySelector('.benefit-copy p')).overflowWrap,'break-word');
+      assert.equal(style(doc.querySelector('.benefit-copy p')).wordBreak,'normal');
+      assert.equal(style(doc.querySelector('.earn-card h3')).overflowWrap,'break-word');
+    }
+    assert.equal(doc.querySelectorAll('.benefit-card').length,2);
+    assert.equal(doc.querySelectorAll('.earn-card').length,2);
+    if(outputTemplate==='showcase') {
+      assert.ok(doc.querySelector('.lpg-community > .lpg-community-main > [data-lpg-section="benefits"]'));
+      assert.ok(doc.querySelector('.lpg-community > .lpg-community-main > [data-lpg-section="earn"]'));
+      assert.ok(doc.querySelector('.lpg-community > .lpg-community-support > [data-lpg-section="upsell"]'));
+      assert.equal(doc.querySelector('.lpg-community > [data-lpg-section]'),null,'Sections must not become three equal-width columns');
+    }
+    dom.window.close();
+  }
+});
