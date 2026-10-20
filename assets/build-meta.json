@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "buildId": "be932a3cc568298cd479f870862076feaf40b925aa22c32ff36bcef97fa8034d",
+  "buildId": "390df33c576c1bc994039f416f69610a1f45e8974fe4ee9632bc0c859d8f1d95",
   "assets": {
     "js/accounts-loader.js": "d7eb6095c4cdd76b10fc4f183e7a4645243fd84f3cd475f90ca89b946a4369b4",
     "js/app.js": "ca7ea5ad29005ef4b0d27c7fedfc794ae6f048913b1164e3e37123a7354a58a4",
@@ -22,6 +22,6 @@
     "js/requirements.js": "cd8117060249d2ea2c8da5ed2947797082ef84bda40005d94ea19f8a887576f1",
     "js/variants.js": "8bb370744bdea612d0d8b0426c679ebcb1b364bc76313c0f9cc2414672e9a100",
     "assets/builder.css": "7605de06a91759b484150b66d59725bb80689a1eb0dea1865d2bf6416a8ca306",
-    "assets/editor-design.css": "dc7fbdd8c159128087470e2200d621256a92a8ffb2dcaef0aeb862da237c39f5"
+    "assets/editor-design.css": "763591ee05e8879d061206a3c62e505f1cefb330ba587987affef1cdbd1a6d53"
   }
 }
