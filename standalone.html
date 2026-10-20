@@ -3880,19 +3880,6 @@ video {
               </div>
               <div class="quickstart-status" id="quickstart-status"></div>
               <div class="quickstart-error" id="quickstart-error" style="display:none;"></div>
-              <div id="quickstart-mode-badge" class="quickstart-mode-badge">Detecting mode…</div>
-              <div id="quickstart-note" class="quickstart-note" style="display:none;"></div>
-
-              <div class="quickstart-fallback-hint">
-                <span class="quickstart-fallback-icon">💡</span>
-                <span>
-                  <strong>Analyze failing?</strong>
-                  Grab an API key from the
-                  <a href="https://eng-ai-model-gateway-oidc.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl/" target="_blank" rel="noopener">LLM Gateway Express</a>
-                  and paste it in <strong>Advanced</strong> below.
-                </span>
-              </div>
-
               <button class="quickstart-settings-toggle" onclick="toggleQuickStartSettings()">Advanced · use your own key or override endpoints</button>
               <div class="quickstart-settings" id="quickstart-settings">
                 <!-- BYOK panel — optional override -->
@@ -3927,6 +3914,17 @@ video {
           <div class="editor-command-row">
             <div class="editor-history"><button type="button" id="editor-undo" aria-label="Undo" title="Undo" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 10 5 6l4-4M5 6h9a6 6 0 0 1 0 12h-3"/></svg></button><button type="button" id="editor-redo" aria-label="Redo" title="Redo" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m15 10 4-4-4-4m4 4h-9a6 6 0 0 0 0 12h3"/></svg></button></div>
             <div class="editor-search-wrap"><label for="editor-search" class="sr-only">Find an editable field</label><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.5-4.5M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0"/></svg><input id="editor-search" type="search" placeholder="Find a setting…" autocomplete="off"><div id="editor-search-results" hidden></div></div>
+            <div class="generation-info" id="generation-info">
+              <button type="button" id="generation-info-trigger" class="generation-info-trigger" aria-label="Generation information" aria-expanded="false" aria-controls="generation-info-panel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 11v6m0-10v.1"/></svg></button>
+              <div id="generation-info-panel" class="generation-info-panel" hidden>
+                <h3>Generation information</h3>
+                <p id="quickstart-mode-badge">Checking AI connection…</p>
+                <p id="quickstart-note" style="display:none"></p>
+                <div id="generation-recovery-host"></div>
+                <p id="generation-image-status" role="status"></p>
+                <div id="image-generation-controls" hidden></div>
+              </div>
+            </div>
             <button type="button" class="mobile-preview-button" onclick="openPortalPreview()">Preview</button>
           </div>
           <details class="editor-options-group"><summary>Editing options</summary>
@@ -4488,6 +4486,15 @@ video {
 .editor-history { display: flex; gap: .375rem; flex-shrink: 0; }
 .editor-history button { width: 2.75rem; color: #1f4c9f; background: white; border: 1px solid var(--editor-line); border-radius: .625rem; display: grid; place-items: center; }
 .editor-history svg { width: 1.125rem; height: 1.125rem; }
+.generation-info { flex-shrink: 0; }
+.generation-info-trigger { width: 2.75rem; display: grid; place-items: center; color: #3e5d89; border: 1px solid var(--editor-line); border-radius: .625rem; background: white; }
+.generation-info-trigger svg { width: 1.25rem; height: 1.25rem; }
+.generation-info-panel { position: fixed; z-index: 70; max-height: calc(100dvh - 2rem); overflow: auto; padding: 1rem; border: 1px solid var(--editor-line); border-radius: .875rem; background: white; box-shadow: 0 12px 32px #001e5b24; color: var(--editor-ink); font-size: .8125rem; line-height: 1.6; }
+.generation-info-panel h3 { font-weight: 600; font-size: .9375rem; margin-bottom: .5rem; }
+.generation-info-panel :is(p,ul) { margin-block: .5rem; }
+.generation-info-panel #generation-recovery { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--editor-line); }
+.generation-info-panel #generation-recovery h3 { font-size: .875rem; }
+.generation-info-panel button { padding: .5rem .75rem; margin-top: .5rem; background: #edf3ff; color: var(--editor-blue); border: 1px solid #c5d7f7; border-radius: .625rem; }
 .editor-search-wrap { flex: 1; min-width: 0; position: relative; }
 .editor-search-wrap > svg { position: absolute; left: .75rem; top: .875rem; width: 1rem; height: 1rem; color: #667e9f; pointer-events: none; }
 .builder-app .editor-search-wrap #editor-search { margin: 0; padding: .625rem .75rem .625rem 2.25rem; min-height: 2.75rem; font-size: .875rem; background: white; border: 1px solid var(--editor-line); border-radius: .625rem; }
@@ -4559,6 +4566,9 @@ video {
   .builder-app .editor-navigation { bottom: .5rem; }
 }
 @media (max-width: 600px) {
+  .editor-command-row { flex-wrap: wrap; }
+  .editor-search-wrap { order: 1; flex-basis: 100%; }
+  .generation-info { margin-left: auto; }
   .app-header-inner { padding: .375rem 1rem .75rem; }
   .app-header-inner > div:first-child { width: 100%; }
   .app-header-inner > div:last-child { gap: .375rem; width: 100%; }
@@ -6202,7 +6212,8 @@ function debounce(fn, ms) {
       if (mark) {
         const logo = make('img','cj-card-logo'); logo.src = mark; logo.alt = '';
         card.classList.add('cj-has-mark');
-        logo.addEventListener('error',()=>{ card.classList.remove('cj-has-mark'); logo.remove(); }); card.appendChild(logo);
+        const fallbacks=settings.markMode==='brand'?[...(options.brandLogoFallbacks||[])]:[];
+        logo.addEventListener('error',()=>{const next=fallbacks.shift();if(next){logo.src=next;return;}card.classList.remove('cj-has-mark');logo.remove();});card.appendChild(logo);
       }
       if (settings.mode === 'image' && options.cardImage) {
         const artwork = make('img','cj-card-artwork'); artwork.dataset.lpgImageSlot = 'card-artwork'; artwork.src = options.cardImage; artwork.alt = '';artwork.style.objectFit=options.cardFit==='contain'?'contain':'cover';artwork.style.objectPosition=options.cardPosition || '50% 50%';
@@ -6758,6 +6769,7 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
       markImage: imageSource(state.cinematic?.card?.markImageData) || imageSource(state.cinematic?.card?.markImageUrl),
       cardImage: imageSource(state.cinematic?.card?.artworkImageData) || imageSource(state.cinematic?.card?.artworkImageUrl),
       brandLogo: imageSource(state.brand?.logoData) || imageSource(state.brand?.logoUrl),
+      brandLogoFallbacks: state.brand?.logoData?[]:(Array.isArray(state.brand?.logoCandidates)?state.brand.logoCandidates:[]).map(imageSource).filter(url=>url&&url!==state.brand?.logoUrl).slice(0,8),
       rewards: Array.isArray(program?.rewards)
         ? program.rewards.filter(r => r && typeof r.id === 'string' && Number.isFinite(r.cost) && r.cost >= 0).map(r => ({ id: r.id, cost: r.cost })) : []
     };
@@ -7615,7 +7627,10 @@ complete every required section and exact reward/earning mapping before closing 
     const generatedCopy=Object.fromEntries(cinematicCopyKeys.filter(key=>typeof parsed.cinematic?.copy?.[key]==='string').map(key=>[key,parsed.cinematic.copy[key].slice(0,8000)]));
     const generatedProgressMessage = generatedCopy.progressSummary;
     delete parsed.cinematic;
-    parsed.brand = { logoUrl: candidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl : '' };
+    const siteIcons=[scraped.appleIcon,scraped.favicon].filter(url=>/^https?:\/\//i.test(url));
+    const logoCandidates=new Set([...candidates,...siteIcons]);
+    parsed.brand = { logoUrl: logoCandidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl :
+      scraped.images.find(image=>image.role==='logo'&&candidates.has(image.url))?.url || siteIcons[0] || '' };
     parsed.upsell.bgImageUrl = candidates.has(parsed.upsell.bgImageUrl) ? parsed.upsell.bgImageUrl : '';
     delete parsed.upsell.bgImageData;
     let data = reconcile(parsed, validated, { existing, refreshCopy: true });
@@ -7637,6 +7652,7 @@ complete every required section and exact reward/earning mapping before closing 
     }
     if (refinement && isRefinement(existing) && root.LPGContentContract) data = root.LPGContentContract.scope(data, existing, refinement);
     data._meta = { source_url: scraped.url, favicon: scraped.favicon, apple_icon: scraped.appleIcon,
+      logo_candidates:[...new Set([...scraped.images.filter(image=>image.role==='logo').map(image=>image.url),...siteIcons])].filter(url=>logoCandidates.has(url)).slice(0,8),
       mode: 'program-rich-content', images_generated: 0, images_empty: 0,
       images_pending: deferImages, ...([activityRecovery?.warning, rewardRecovery?.warning].filter(Boolean).length ? { content_warning: [activityRecovery?.warning, rewardRecovery?.warning].filter(Boolean).join(' ') } : {}) };
     checkCancelled();
@@ -7742,7 +7758,7 @@ complete every required section and exact reward/earning mapping before closing 
   function clearCheckpoint() { try {localStorage.removeItem(RECOVERY_KEY);}catch(_){} }
   function renderRecovery() {
     let box=el('generation-recovery');
-    if(!box && el('program-review')) {box=document.createElement('section');box.id='generation-recovery';box.className='program-edit-card';box.setAttribute('aria-label','Unfinished generation');el('program-review').insertAdjacentElement('beforebegin',box);}
+    if(!box && el('generation-recovery-host')) {box=document.createElement('section');box.id='generation-recovery';box.setAttribute('aria-label','Unfinished generation');el('generation-recovery-host').appendChild(box);}
     if(!box)return;
     const jobs=root.LocalAI?.getPendingJobs?.() || [],checkpoint=readCheckpoint();
     box.hidden=!!pendingGeneration || (!jobs.length && !checkpoint);
@@ -7791,11 +7807,8 @@ complete every required section and exact reward/earning mapping before closing 
   }
   function renderImageControls() {
     let box=el('image-generation-controls');
-    if (!box && el('portal-edit-status')) {
-      box=document.createElement('div');box.id='image-generation-controls';
-      el('portal-edit-status').insertAdjacentElement('afterend',box);
-    }
     if (!box) return;
+    box.hidden=false;
     box.innerHTML='<button type="button" id="retry-missing-images">Fill missing images</button> <button type="button" id="cancel-image-generation">Cancel image work</button>';
     el('retry-missing-images').addEventListener('click',retryImages);
     el('cancel-image-generation').addEventListener('click',cancelGeneration);
@@ -7895,16 +7908,16 @@ complete every required section and exact reward/earning mapping before closing 
             if (proposal.signal?.aborted || proposal.project !== projectEpoch || proposal.sequence !== generationSequence) throw new Error('Image generation cancelled.');
             if (progress?.generated) mergeGeneratedImages(proposal,mode,draft,enriched);
             if (progress) imageCheckpoint(proposal,mode,mask,Math.max(0,(proposal.maxImages || 16)-progress.attempted));
-            if (progress && el('portal-edit-status')) el('portal-edit-status').textContent=`Images: ${progress.generated} generated; ${progress.remaining} remain. You can keep editing.`;
+            if (progress && el('generation-image-status')) el('generation-image-status').textContent=`Images: ${progress.generated} generated; ${progress.remaining} remain. You can keep editing.`;
           }});
         if (proposal.signal?.aborted || proposal.project !== projectEpoch || proposal.sequence !== generationSequence) return;
         mergeGeneratedImages(proposal,mode,draft,enriched);
         imageCheckpoint(proposal,mode,mask,readCheckpoint()?.remainingBudget ?? proposal.maxImages);
         if (!(root.LocalAI?.getPendingJobs?.() || []).some(job=>job.kind==='images')) clearCheckpoint();
         renderRecovery();
-        if (enriched._meta?.image_warning && el('portal-edit-status')) el('portal-edit-status').textContent = enriched._meta.image_warning;
+        if (enriched._meta?.image_warning && el('generation-image-status')) el('generation-image-status').textContent = enriched._meta.image_warning;
       } catch (error) {
-        if (!proposal.signal?.aborted && proposal.sequence === generationSequence && proposal.project === projectEpoch && el('portal-edit-status')) el('portal-edit-status').textContent = 'Your text draft was kept. Some images did not finish; generate an image in its section or upload your own.';
+        if (!proposal.signal?.aborted && proposal.sequence === generationSequence && proposal.project === projectEpoch && el('generation-image-status')) el('generation-image-status').textContent = 'Your text draft was kept. Some images did not finish; generate an image in its section or upload your own.';
       }
     }
     if (proposal.sequence === generationSequence && proposal.project === projectEpoch && !proposal.signal?.aborted) setQuickStartStatus((root.LocalAI?.getPendingJobs?.() || []).some(job=>job.kind==='images') ? 'Your text draft is ready. Some image work is unfinished; use Recover unfinished generation to check its saved request.' : 'Your portal is ready. Edit any section, or save your project to return later.', false);
@@ -8599,7 +8612,7 @@ function buildHeader(s, logoSrc, programName, brandAbbr, menuColor) {
   const rawName = (s.brand.name && s.brand.name.trim()) || 'Loyalty';
   const displayName = lpgEscape(rawName);
   const logoHTML = logoSrc
-    ? `<img src="${lpgEscape(logoSrc)}" alt="${displayName}" class="h-10 w-auto object-contain" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
+    ? `<img src="${lpgEscape(logoSrc)}" data-lpg-logo-fallbacks="${lpgEscape(JSON.stringify(s.brand.logoData?[]:(Array.isArray(s.brand.logoCandidates)?s.brand.logoCandidates:[]).map(lpgImageSource).filter(url=>url&&url!==logoSrc).slice(0,8)))}" alt="${displayName}" class="h-10 w-auto object-contain" onerror="const urls=JSON.parse(this.dataset.lpgLogoFallbacks||'[]');const next=urls.shift();this.dataset.lpgLogoFallbacks=JSON.stringify(urls);if(next){this.src=next;}else{this.style.display='none';this.nextElementSibling.style.display='inline-flex';}">
           <span class="text-xl font-800 tracking-tight text-white hidden" style="display:none;">${displayName}</span>`
     : `<span class="text-xl font-800 tracking-tight text-white">${displayName}</span>`;
 
@@ -9229,6 +9242,7 @@ const LPG_PORTAL_UTILITIES_CSS = "*, ::before, ::after {\n  --tw-border-spacing-
 
     doc.querySelectorAll('script, style, noscript, iframe, template').forEach(n => n.remove());
 
+    const imageBase = absolutize(doc.querySelector('base[href]')?.getAttribute('href') || url, url);
     const title = doc.querySelector('title')?.textContent?.trim() || '';
     const description =
       doc.querySelector('meta[name="description"]')?.getAttribute('content') ||
@@ -9238,20 +9252,20 @@ const LPG_PORTAL_UTILITIES_CSS = "*, ::before, ::after {\n  --tw-border-spacing-
       doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content') || '';
     const ogImage = absolutize(
       doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || '' ,
-      url
+      imageBase
     );
     const twitterImage = absolutize(
       doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') || '',
-      url
+      imageBase
     );
 
     const appleIcon = absolutize(
       doc.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('href') || '',
-      url
+      imageBase
     );
     const favicon = absolutize(
       (doc.querySelector('link[rel~="icon"]') || {}).getAttribute?.('href') || '',
-      url
+      imageBase
     );
 
     // Extract visible-ish text — headings first, then body content, capped
@@ -9278,10 +9292,10 @@ const LPG_PORTAL_UTILITIES_CSS = "*, ::before, ::after {\n  --tw-border-spacing-
 
     // <img> tags — include src, srcset (first URL), data-src, data-lazy-src
     doc.querySelectorAll('img').forEach(img => {
-      const srcAttrs = ['src', 'data-src', 'data-lazy-src', 'data-original'];
+      const srcAttrs = ['data-src', 'data-lazy-src', 'data-original', 'src'];
       for (const attr of srcAttrs) {
         const v = img.getAttribute(attr);
-        if (v) {
+        if (v && isLikelyContentImage(absolutize(v, imageBase), { className: img.className, alt: img.alt })) {
           rawCandidates.push({
             src: v,
             alt: img.getAttribute('alt') || '',
@@ -9294,7 +9308,7 @@ const LPG_PORTAL_UTILITIES_CSS = "*, ::before, ::after {\n  --tw-border-spacing-
         }
       }
       // srcset — pick the highest-res URL
-      const srcset = img.getAttribute('srcset');
+      const srcset = img.getAttribute('data-srcset') || img.getAttribute('srcset') || img.closest('picture')?.querySelector('source[srcset],source[data-srcset]')?.getAttribute('data-srcset') || img.closest('picture')?.querySelector('source[srcset]')?.getAttribute('srcset');
       if (srcset) {
         const parts = srcset.split(',').map(s => s.trim().split(/\s+/));
         const best = parts.reduce((a, b) => {
@@ -9337,7 +9351,7 @@ const LPG_PORTAL_UTILITIES_CSS = "*, ::before, ::after {\n  --tw-border-spacing-
     const seen = new Set();
     const images = [];
     for (const c of rawCandidates) {
-      const abs = absolutize(c.src, url);
+      const abs = absolutize(c.src, imageBase);
       if (!abs) continue;
       if (seen.has(abs)) continue;
       if (!isLikelyContentImage(abs, c)) continue;
@@ -9350,9 +9364,11 @@ const LPG_PORTAL_UTILITIES_CSS = "*, ::before, ::after {\n  --tw-border-spacing-
         height: c.height,
         near: (c.near || '').slice(0, 120)
       });
-      if (images.length >= 25) break;
+      if (images.length >= 250) break;
     }
 
+    const rank = image => image.role === 'logo' ? 0 : /\.svg(?:$|[?#])/i.test(image.url) ? 2 : 1;
+    images.sort((a,b) => rank(a)-rank(b));
     return {
       url,
       title,
@@ -9365,7 +9381,7 @@ const LPG_PORTAL_UTILITIES_CSS = "*, ::before, ::after {\n  --tw-border-spacing-
       headings,
       navLinkCandidates,
       bodyText,
-      images
+      images: images.slice(0,25)
     };
   }
 
@@ -9386,7 +9402,8 @@ const LPG_PORTAL_UTILITIES_CSS = "*, ::before, ::after {\n  --tw-border-spacing-
     }
     if (/pixel|spacer|1x1|tracking|beacon|adsystem|analytics|doubleclick|googletag/i.test(lower)) return false;
     // If we know width, skip tiny images (< 40px = icon/pixel/spacer)
-    if ((c.width && c.width < 40) || (c.height && c.height < 40)) return false;
+    const minimum = /logo|brand-mark/i.test((c.className || '')+' '+(c.alt || '')+' '+abs) ? 16 : 40;
+    if ((c.width && c.width < minimum) || (c.height && c.height < minimum)) return false;
     // Skip base64 unless it's clearly a real image
     if (/^data:image\//.test(abs) && abs.length < 200) return false;
     // Must have a plausible image extension OR be a data: URL OR served from a common CDN pattern
@@ -10959,9 +10976,19 @@ document.addEventListener('DOMContentLoaded', () => {
   renderPaletteButtons();
   renderDynamicSections();
   initImageUpload('drop-logo', 'preview-logo', 'url-logo', (data) => {
+    state.brand.logoCandidates = [];
     if (data && data.startsWith('data:')) { state.brand.logoData = data; state.brand.logoUrl = ''; }
     else { state.brand.logoUrl = data; state.brand.logoData = ''; }
     schedulePreview();
+  });
+  document.getElementById('preview-logo')?.addEventListener('error',event=>{
+    const preview=event.currentTarget;
+    if(state.brand.logoData || preview.getAttribute('src')!==state.brand.logoUrl)return;
+    const candidates=Array.isArray(state.brand.logoCandidates)?state.brand.logoCandidates:[];
+    const next=candidates.find(url=>isSafeUrl(url)&&url!==state.brand.logoUrl);
+    if(!next)return;
+    state.brand.logoCandidates=candidates.filter(url=>url!==next&&url!==state.brand.logoUrl);
+    state.brand.logoUrl=next;preview.src=next;setVal('url-logo',next);schedulePreview();
   });
   initImageUpload('drop-avatar', 'preview-avatar', 'url-avatar', (data) => {
     if (data && data.startsWith('data:')) { state.member.avatarData = data; state.member.avatarUrl = ''; }
@@ -11019,7 +11046,7 @@ function initQuickStart() {
 
   if (mode === 'pagehost') {
     if (badge) { badge.textContent = '⚡ Page Host mode · using tile AI'; badge.classList.remove('local'); }
-    if (note) { note.style.display = 'block'; note.innerHTML = 'Running on Page Host — Claude and the CORS proxy are handled by the platform.'; }
+    if (note) { note.style.display = 'block'; note.innerHTML = 'Using the connected AI service.'; }
   } else {
     // Local mode — badge label depends on whether user has provided their own key
     const provider = window.LocalAI && window.LocalAI.currentProvider();
@@ -11038,9 +11065,9 @@ function initQuickStart() {
     if (note) {
       note.style.display = 'block';
       if (provider === 'default') {
-        note.innerHTML = 'Works out of the box — the tool routes through a shared backend that holds the LLM API key. To route through your own account instead, open Advanced and paste your key.';
+        note.innerHTML = 'You can use Advanced settings to choose another AI connection.';
       } else {
-        note.innerHTML = 'Using your own API key from Advanced. Clear it to switch back to the default backend.';
+        note.innerHTML = 'Using your own API key. Clear it in Advanced to use the default connection.';
       }
     }
   }
@@ -11226,25 +11253,19 @@ function applyAnalysis(d, target = state, { render = true } = {}) {
   //   1. Existing user upload (target.brand.logoData) — never overwrite
   //   2. Existing user URL (target.brand.logoUrl) — never overwrite
   //   3. AI-picked logo from candidate list (d.brand.logoUrl)
-  //   4. Clearbit Logo API for the domain (works even in URL-only mode)
-  //   5. Apple touch icon
-  //   6. Favicon
-  if (!target.brand.logoData && !target.brand.logoUrl) {
+  //   4. Apple touch icon supplied by the website
+  //   5. Favicon supplied by the website
+  if (!target.brand.logoData && (!target.brand.logoUrl || /^https:\/\/logo\.clearbit\.com\//i.test(target.brand.logoUrl))) {
     let logo = '';
     if (d.brand && typeof d.brand === 'object' && d.brand.logoUrl && isSafeUrl(d.brand.logoUrl)) {
       logo = d.brand.logoUrl;
-    }
-    if (!logo && d._meta && d._meta.source_url) {
-      try {
-        const host = new URL(d._meta.source_url).hostname.replace(/^www\./, '');
-        logo = `https://logo.clearbit.com/${host}`;
-      } catch (_) { /* fall through */ }
     }
     if (!logo && d._meta && d._meta.apple_icon) logo = d._meta.apple_icon;
     if (!logo && d._meta && d._meta.favicon)    logo = d._meta.favicon;
 
     if (logo) {
       target.brand.logoUrl = logo;
+      target.brand.logoCandidates = [...new Set([...(Array.isArray(d._meta?.logo_candidates)?d._meta.logo_candidates:[]),d._meta?.apple_icon,d._meta?.favicon])].filter(url=>isSafeUrl(url)&&url!==logo).slice(0,8);
       if (render) {
         const prev = document.getElementById('preview-logo');
         if (prev) { prev.src = logo; prev.classList.remove('hidden'); }
@@ -11411,6 +11432,11 @@ function populateFormFromState() {
   setVal('brand-name', state.brand.name);
   setVal('brand-industry', state.brand.industry);
   setVal('program-name', state.brand.programName);
+  for(const [slot,owner,dataKey,urlKey] of [['logo',state.brand,'logoData','logoUrl'],['avatar',state.member,'avatarData','avatarUrl']]) {
+    const source=owner[dataKey] || owner[urlKey] || '',preview=document.getElementById('preview-'+slot);
+    setVal('url-'+slot,owner[urlKey] || '');
+    if(preview){if(source){if(preview.getAttribute('src')!==source)preview.src=source;}else preview.removeAttribute('src');preview.classList.toggle('hidden',!source);}
+  }
 
   // Colors
   setVal('color-primary', state.colors.primary);
@@ -11613,6 +11639,7 @@ function resetMenuColor() {
 }
 
 function onLogoUrlChange() {
+  state.brand.logoCandidates = [];
   const url = getVal('url-logo').trim();
   if (url) {
     state.brand.logoUrl = url;
@@ -12922,8 +12949,32 @@ async function initializeProjects() {
     for(const[field,caption]of [['email','Member email'],['phone','Member phone'],['joinDate','Member since']])add(caption,state.member[field],value=>{record('Edit member details',field);state.member[field]=value;const original=el('member-'+(field==='joinDate'?'join':field));if(original)original.value=value;schedulePreview();});
     host.append(details);
   }
+  function initGenerationInfo() {
+    const trigger=el('generation-info-trigger'),panel=el('generation-info-panel'),host=el('generation-info');if(!trigger||!panel||!host)return;
+    let closing;
+    const close=()=>{clearTimeout(closing);panel.hidden=true;trigger.setAttribute('aria-expanded','false');};
+    const open=()=>{
+      clearTimeout(closing);panel.hidden=false;trigger.setAttribute('aria-expanded','true');
+      const rect=trigger.getBoundingClientRect(),width=Math.min(340,root.innerWidth-32);
+      panel.style.width=width+'px';panel.style.left=Math.max(16,Math.min(rect.right-width,root.innerWidth-width-16))+'px';
+      panel.style.top=Math.min(rect.bottom+8,Math.max(16,root.innerHeight-panel.offsetHeight-16))+'px';
+    };
+    const leave=()=>{closing=setTimeout(()=>{if(!host.matches(':hover')&&!host.contains(document.activeElement))close();},120);};
+    trigger.addEventListener('mouseenter',open);panel.addEventListener('mouseenter',()=>clearTimeout(closing));
+    host.addEventListener('mouseleave',leave);host.addEventListener('focusin',open);host.addEventListener('focusout',leave);
+    trigger.addEventListener('click',open);
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden){close();trigger.focus({preventScroll:true});close();event.preventDefault();}});
+    document.addEventListener('pointerdown',event=>{if(!host.contains(event.target))close();});
+    root.addEventListener('resize',close);
+    document.addEventListener('scroll',event=>{
+      if(panel.hidden||host.contains(event.target))return;
+      const rect=trigger.getBoundingClientRect();
+      if(host.contains(document.activeElement)&&rect.bottom>0&&rect.top<root.innerHeight)open();else close();
+    },true);
+  }
   function init() {
     if(initialized)return;initialized=true;
+    initGenerationInfo();
     el('editor-undo')?.addEventListener('click',()=>restore('undo'));el('editor-redo')?.addEventListener('click',()=>restore('redo'));
     el('editor-search')?.addEventListener('input',event=>search(event.target.value));
     el('preview-edit-mode')?.addEventListener('change',()=>{

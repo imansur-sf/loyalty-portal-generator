@@ -110,6 +110,7 @@
 
     doc.querySelectorAll('script, style, noscript, iframe, template').forEach(n => n.remove());
 
+    const imageBase = absolutize(doc.querySelector('base[href]')?.getAttribute('href') || url, url);
     const title = doc.querySelector('title')?.textContent?.trim() || '';
     const description =
       doc.querySelector('meta[name="description"]')?.getAttribute('content') ||
@@ -119,20 +120,20 @@
       doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content') || '';
     const ogImage = absolutize(
       doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || '' ,
-      url
+      imageBase
     );
     const twitterImage = absolutize(
       doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') || '',
-      url
+      imageBase
     );
 
     const appleIcon = absolutize(
       doc.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('href') || '',
-      url
+      imageBase
     );
     const favicon = absolutize(
       (doc.querySelector('link[rel~="icon"]') || {}).getAttribute?.('href') || '',
-      url
+      imageBase
     );
 
     // Extract visible-ish text — headings first, then body content, capped
@@ -159,10 +160,10 @@
 
     // <img> tags — include src, srcset (first URL), data-src, data-lazy-src
     doc.querySelectorAll('img').forEach(img => {
-      const srcAttrs = ['src', 'data-src', 'data-lazy-src', 'data-original'];
+      const srcAttrs = ['data-src', 'data-lazy-src', 'data-original', 'src'];
       for (const attr of srcAttrs) {
         const v = img.getAttribute(attr);
-        if (v) {
+        if (v && isLikelyContentImage(absolutize(v, imageBase), { className: img.className, alt: img.alt })) {
           rawCandidates.push({
             src: v,
             alt: img.getAttribute('alt') || '',
@@ -175,7 +176,7 @@
         }
       }
       // srcset — pick the highest-res URL
-      const srcset = img.getAttribute('srcset');
+      const srcset = img.getAttribute('data-srcset') || img.getAttribute('srcset') || img.closest('picture')?.querySelector('source[srcset],source[data-srcset]')?.getAttribute('data-srcset') || img.closest('picture')?.querySelector('source[srcset]')?.getAttribute('srcset');
       if (srcset) {
         const parts = srcset.split(',').map(s => s.trim().split(/\s+/));
         const best = parts.reduce((a, b) => {
@@ -218,7 +219,7 @@
     const seen = new Set();
     const images = [];
     for (const c of rawCandidates) {
-      const abs = absolutize(c.src, url);
+      const abs = absolutize(c.src, imageBase);
       if (!abs) continue;
       if (seen.has(abs)) continue;
       if (!isLikelyContentImage(abs, c)) continue;
@@ -231,9 +232,11 @@
         height: c.height,
         near: (c.near || '').slice(0, 120)
       });
-      if (images.length >= 25) break;
+      if (images.length >= 250) break;
     }
 
+    const rank = image => image.role === 'logo' ? 0 : /\.svg(?:$|[?#])/i.test(image.url) ? 2 : 1;
+    images.sort((a,b) => rank(a)-rank(b));
     return {
       url,
       title,
@@ -246,7 +249,7 @@
       headings,
       navLinkCandidates,
       bodyText,
-      images
+      images: images.slice(0,25)
     };
   }
 
@@ -267,7 +270,8 @@
     }
     if (/pixel|spacer|1x1|tracking|beacon|adsystem|analytics|doubleclick|googletag/i.test(lower)) return false;
     // If we know width, skip tiny images (< 40px = icon/pixel/spacer)
-    if ((c.width && c.width < 40) || (c.height && c.height < 40)) return false;
+    const minimum = /logo|brand-mark/i.test((c.className || '')+' '+(c.alt || '')+' '+abs) ? 16 : 40;
+    if ((c.width && c.width < minimum) || (c.height && c.height < minimum)) return false;
     // Skip base64 unless it's clearly a real image
     if (/^data:image\//.test(abs) && abs.length < 200) return false;
     // Must have a plausible image extension OR be a data: URL OR served from a common CDN pattern

@@ -140,8 +140,32 @@
     for(const[field,caption]of [['email','Member email'],['phone','Member phone'],['joinDate','Member since']])add(caption,state.member[field],value=>{record('Edit member details',field);state.member[field]=value;const original=el('member-'+(field==='joinDate'?'join':field));if(original)original.value=value;schedulePreview();});
     host.append(details);
   }
+  function initGenerationInfo() {
+    const trigger=el('generation-info-trigger'),panel=el('generation-info-panel'),host=el('generation-info');if(!trigger||!panel||!host)return;
+    let closing;
+    const close=()=>{clearTimeout(closing);panel.hidden=true;trigger.setAttribute('aria-expanded','false');};
+    const open=()=>{
+      clearTimeout(closing);panel.hidden=false;trigger.setAttribute('aria-expanded','true');
+      const rect=trigger.getBoundingClientRect(),width=Math.min(340,root.innerWidth-32);
+      panel.style.width=width+'px';panel.style.left=Math.max(16,Math.min(rect.right-width,root.innerWidth-width-16))+'px';
+      panel.style.top=Math.min(rect.bottom+8,Math.max(16,root.innerHeight-panel.offsetHeight-16))+'px';
+    };
+    const leave=()=>{closing=setTimeout(()=>{if(!host.matches(':hover')&&!host.contains(document.activeElement))close();},120);};
+    trigger.addEventListener('mouseenter',open);panel.addEventListener('mouseenter',()=>clearTimeout(closing));
+    host.addEventListener('mouseleave',leave);host.addEventListener('focusin',open);host.addEventListener('focusout',leave);
+    trigger.addEventListener('click',open);
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden){close();trigger.focus({preventScroll:true});close();event.preventDefault();}});
+    document.addEventListener('pointerdown',event=>{if(!host.contains(event.target))close();});
+    root.addEventListener('resize',close);
+    document.addEventListener('scroll',event=>{
+      if(panel.hidden||host.contains(event.target))return;
+      const rect=trigger.getBoundingClientRect();
+      if(host.contains(document.activeElement)&&rect.bottom>0&&rect.top<root.innerHeight)open();else close();
+    },true);
+  }
   function init() {
     if(initialized)return;initialized=true;
+    initGenerationInfo();
     el('editor-undo')?.addEventListener('click',()=>restore('undo'));el('editor-redo')?.addEventListener('click',()=>restore('redo'));
     el('editor-search')?.addEventListener('input',event=>search(event.target.value));
     el('preview-edit-mode')?.addEventListener('change',()=>{

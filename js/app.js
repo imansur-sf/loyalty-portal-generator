@@ -45,9 +45,19 @@ document.addEventListener('DOMContentLoaded', () => {
   renderPaletteButtons();
   renderDynamicSections();
   initImageUpload('drop-logo', 'preview-logo', 'url-logo', (data) => {
+    state.brand.logoCandidates = [];
     if (data && data.startsWith('data:')) { state.brand.logoData = data; state.brand.logoUrl = ''; }
     else { state.brand.logoUrl = data; state.brand.logoData = ''; }
     schedulePreview();
+  });
+  document.getElementById('preview-logo')?.addEventListener('error',event=>{
+    const preview=event.currentTarget;
+    if(state.brand.logoData || preview.getAttribute('src')!==state.brand.logoUrl)return;
+    const candidates=Array.isArray(state.brand.logoCandidates)?state.brand.logoCandidates:[];
+    const next=candidates.find(url=>isSafeUrl(url)&&url!==state.brand.logoUrl);
+    if(!next)return;
+    state.brand.logoCandidates=candidates.filter(url=>url!==next&&url!==state.brand.logoUrl);
+    state.brand.logoUrl=next;preview.src=next;setVal('url-logo',next);schedulePreview();
   });
   initImageUpload('drop-avatar', 'preview-avatar', 'url-avatar', (data) => {
     if (data && data.startsWith('data:')) { state.member.avatarData = data; state.member.avatarUrl = ''; }
@@ -105,7 +115,7 @@ function initQuickStart() {
 
   if (mode === 'pagehost') {
     if (badge) { badge.textContent = '⚡ Page Host mode · using tile AI'; badge.classList.remove('local'); }
-    if (note) { note.style.display = 'block'; note.innerHTML = 'Running on Page Host — Claude and the CORS proxy are handled by the platform.'; }
+    if (note) { note.style.display = 'block'; note.innerHTML = 'Using the connected AI service.'; }
   } else {
     // Local mode — badge label depends on whether user has provided their own key
     const provider = window.LocalAI && window.LocalAI.currentProvider();
@@ -124,9 +134,9 @@ function initQuickStart() {
     if (note) {
       note.style.display = 'block';
       if (provider === 'default') {
-        note.innerHTML = 'Works out of the box — the tool routes through a shared backend that holds the LLM API key. To route through your own account instead, open Advanced and paste your key.';
+        note.innerHTML = 'You can use Advanced settings to choose another AI connection.';
       } else {
-        note.innerHTML = 'Using your own API key from Advanced. Clear it to switch back to the default backend.';
+        note.innerHTML = 'Using your own API key. Clear it in Advanced to use the default connection.';
       }
     }
   }
@@ -312,25 +322,19 @@ function applyAnalysis(d, target = state, { render = true } = {}) {
   //   1. Existing user upload (target.brand.logoData) — never overwrite
   //   2. Existing user URL (target.brand.logoUrl) — never overwrite
   //   3. AI-picked logo from candidate list (d.brand.logoUrl)
-  //   4. Clearbit Logo API for the domain (works even in URL-only mode)
-  //   5. Apple touch icon
-  //   6. Favicon
-  if (!target.brand.logoData && !target.brand.logoUrl) {
+  //   4. Apple touch icon supplied by the website
+  //   5. Favicon supplied by the website
+  if (!target.brand.logoData && (!target.brand.logoUrl || /^https:\/\/logo\.clearbit\.com\//i.test(target.brand.logoUrl))) {
     let logo = '';
     if (d.brand && typeof d.brand === 'object' && d.brand.logoUrl && isSafeUrl(d.brand.logoUrl)) {
       logo = d.brand.logoUrl;
-    }
-    if (!logo && d._meta && d._meta.source_url) {
-      try {
-        const host = new URL(d._meta.source_url).hostname.replace(/^www\./, '');
-        logo = `https://logo.clearbit.com/${host}`;
-      } catch (_) { /* fall through */ }
     }
     if (!logo && d._meta && d._meta.apple_icon) logo = d._meta.apple_icon;
     if (!logo && d._meta && d._meta.favicon)    logo = d._meta.favicon;
 
     if (logo) {
       target.brand.logoUrl = logo;
+      target.brand.logoCandidates = [...new Set([...(Array.isArray(d._meta?.logo_candidates)?d._meta.logo_candidates:[]),d._meta?.apple_icon,d._meta?.favicon])].filter(url=>isSafeUrl(url)&&url!==logo).slice(0,8);
       if (render) {
         const prev = document.getElementById('preview-logo');
         if (prev) { prev.src = logo; prev.classList.remove('hidden'); }
@@ -497,6 +501,11 @@ function populateFormFromState() {
   setVal('brand-name', state.brand.name);
   setVal('brand-industry', state.brand.industry);
   setVal('program-name', state.brand.programName);
+  for(const [slot,owner,dataKey,urlKey] of [['logo',state.brand,'logoData','logoUrl'],['avatar',state.member,'avatarData','avatarUrl']]) {
+    const source=owner[dataKey] || owner[urlKey] || '',preview=document.getElementById('preview-'+slot);
+    setVal('url-'+slot,owner[urlKey] || '');
+    if(preview){if(source){if(preview.getAttribute('src')!==source)preview.src=source;}else preview.removeAttribute('src');preview.classList.toggle('hidden',!source);}
+  }
 
   // Colors
   setVal('color-primary', state.colors.primary);
@@ -699,6 +708,7 @@ function resetMenuColor() {
 }
 
 function onLogoUrlChange() {
+  state.brand.logoCandidates = [];
   const url = getVal('url-logo').trim();
   if (url) {
     state.brand.logoUrl = url;

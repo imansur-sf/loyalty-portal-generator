@@ -34,6 +34,14 @@ const legacyFetch = handler => (url, options) => url.endsWith('/api/capability')
   ? Promise.resolve({status:200,ok:true,json:async()=>({token:'capability-for-test-1234567890',expiresAt:Date.now()+900000})}) : (url.endsWith('/api/jobs') || url.endsWith('/api/capabilities'))
   ? Promise.resolve({ status: 404, ok: false }) : handler(url, options);
 
+test('site-owned logo and icon fallbacks survive content generation without inventing logo URLs',async()=>{
+ const program=makeProgram(),context=harness();
+ const website={url:'https://brand.test',appleIcon:'https://brand.test/touch.png',favicon:'https://brand.test/favicon.ico',images:[]};
+ const output=await context.LPGPortalContent.generate({program,website,deferImages:true,client:{callLLM:async()=>JSON.stringify(content(program))}});
+ assert.equal(output.brand.logoUrl,website.appleIcon);
+ assert.deepEqual(Array.from(output._meta.logo_candidates),[website.appleIcon,website.favicon]);
+});
+
 test('rich generation retains website candidates and requests full branded content and image enrichment', async () => {
   const program = makeProgram();
   const phases = [];

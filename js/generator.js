@@ -171,7 +171,7 @@ function buildHeader(s, logoSrc, programName, brandAbbr, menuColor) {
   const rawName = (s.brand.name && s.brand.name.trim()) || 'Loyalty';
   const displayName = lpgEscape(rawName);
   const logoHTML = logoSrc
-    ? `<img src="${lpgEscape(logoSrc)}" alt="${displayName}" class="h-10 w-auto object-contain" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">
+    ? `<img src="${lpgEscape(logoSrc)}" data-lpg-logo-fallbacks="${lpgEscape(JSON.stringify(s.brand.logoData?[]:(Array.isArray(s.brand.logoCandidates)?s.brand.logoCandidates:[]).map(lpgImageSource).filter(url=>url&&url!==logoSrc).slice(0,8)))}" alt="${displayName}" class="h-10 w-auto object-contain" onerror="const urls=JSON.parse(this.dataset.lpgLogoFallbacks||'[]');const next=urls.shift();this.dataset.lpgLogoFallbacks=JSON.stringify(urls);if(next){this.src=next;}else{this.style.display='none';this.nextElementSibling.style.display='inline-flex';}">
           <span class="text-xl font-800 tracking-tight text-white hidden" style="display:none;">${displayName}</span>`
     : `<span class="text-xl font-800 tracking-tight text-white">${displayName}</span>`;
 

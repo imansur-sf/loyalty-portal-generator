@@ -386,19 +386,6 @@
               </div>
               <div class="quickstart-status" id="quickstart-status"></div>
               <div class="quickstart-error" id="quickstart-error" style="display:none;"></div>
-              <div id="quickstart-mode-badge" class="quickstart-mode-badge">Detecting mode…</div>
-              <div id="quickstart-note" class="quickstart-note" style="display:none;"></div>
-
-              <div class="quickstart-fallback-hint">
-                <span class="quickstart-fallback-icon">💡</span>
-                <span>
-                  <strong>Analyze failing?</strong>
-                  Grab an API key from the
-                  <a href="https://eng-ai-model-gateway-oidc.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl/" target="_blank" rel="noopener">LLM Gateway Express</a>
-                  and paste it in <strong>Advanced</strong> below.
-                </span>
-              </div>
-
               <button class="quickstart-settings-toggle" onclick="toggleQuickStartSettings()">Advanced · use your own key or override endpoints</button>
               <div class="quickstart-settings" id="quickstart-settings">
                 <!-- BYOK panel — optional override -->
@@ -433,6 +420,17 @@
           <div class="editor-command-row">
             <div class="editor-history"><button type="button" id="editor-undo" aria-label="Undo" title="Undo" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 10 5 6l4-4M5 6h9a6 6 0 0 1 0 12h-3"/></svg></button><button type="button" id="editor-redo" aria-label="Redo" title="Redo" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m15 10 4-4-4-4m4 4h-9a6 6 0 0 0 0 12h3"/></svg></button></div>
             <div class="editor-search-wrap"><label for="editor-search" class="sr-only">Find an editable field</label><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.5-4.5M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0"/></svg><input id="editor-search" type="search" placeholder="Find a setting…" autocomplete="off"><div id="editor-search-results" hidden></div></div>
+            <div class="generation-info" id="generation-info">
+              <button type="button" id="generation-info-trigger" class="generation-info-trigger" aria-label="Generation information" aria-expanded="false" aria-controls="generation-info-panel"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 11v6m0-10v.1"/></svg></button>
+              <div id="generation-info-panel" class="generation-info-panel" hidden>
+                <h3>Generation information</h3>
+                <p id="quickstart-mode-badge">Checking AI connection…</p>
+                <p id="quickstart-note" style="display:none"></p>
+                <div id="generation-recovery-host"></div>
+                <p id="generation-image-status" role="status"></p>
+                <div id="image-generation-controls" hidden></div>
+              </div>
+            </div>
             <button type="button" class="mobile-preview-button" onclick="openPortalPreview()">Preview</button>
           </div>
           <details class="editor-options-group"><summary>Editing options</summary>
@@ -890,7 +888,7 @@
     .image-framing {font-size:12px;margin-top:8px;}.image-framing label {display:block;margin-top:8px;}.image-framing input {width:100%;}
     @media(max-width:1023px){.editor-toolbar {position:relative;}.editor-toolbar .program-actions {position:sticky;top:0;background:white;z-index:5;}}
   </style>
-  <link rel="stylesheet" href="./assets/editor-design.css?v=d339aecf16d1">
+  <link rel="stylesheet" href="./assets/editor-design.css?v=dc7fbdd8c159">
   <!-- Scripts -->
   <script src="./js/accounts-loader.js?v=d7eb6095c4cd"></script>
   <script src="./js/defaults.js?v=bc138671a8e0"></script>
@@ -898,18 +896,18 @@
   <script src="./js/cinematic-settings.js?v=f15b2303d036"></script>
   <script src="./js/program-model.js?v=853c3637cc34"></script>
   <script src="./js/program-runtime.js?v=866e718ff2d7"></script>
-  <script src="./js/portal-templates.js?v=405c815af314"></script>
+  <script src="./js/portal-templates.js?v=9ac13abd0025"></script>
   <script src="./js/requirements.js?v=cd8117060249"></script>
   <script src="./js/content-contract.js?v=7b62dbe35a95"></script>
   <script src="./js/program-provenance.js?v=736da9474de0"></script>
-  <script src="./js/portal-content.js?v=8837959a734e"></script>
+  <script src="./js/portal-content.js?v=eb5c5f764c8f"></script>
   <script src="./js/variants.js?v=8bb370744bde"></script>
-  <script src="./js/requirements-editor.js?v=f4a60ba17663"></script>
-  <script src="./js/generator.js?v=d9f9579efa43"></script>
-  <script src="./js/pagehost.js?v=f65fb1ea48d2"></script>
+  <script src="./js/requirements-editor.js?v=b21810cfad92"></script>
+  <script src="./js/generator.js?v=5e76d65a9ea8"></script>
+  <script src="./js/pagehost.js?v=adf18bb57653"></script>
   <script src="./js/localai.js?v=cd932a65bbad"></script>
-  <script src="./js/app.js?v=b357fb7688bf"></script>
+  <script src="./js/app.js?v=4f75e94ca7e7"></script>
   <script src="./js/projects.js?v=9b651f165901"></script>
-  <script src="./js/editor-tools.js?v=9a679e73881c"></script>
+  <script src="./js/editor-tools.js?v=2fc641022f13"></script>
 </body>
 </html>

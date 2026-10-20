@@ -112,3 +112,25 @@ test('project popover supports keyboard dismissal and returns focus to its trigg
   doc.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(panel.classList.contains('hidden'),true);assert.equal(trigger.getAttribute('aria-expanded'),'false');assert.equal(doc.activeElement,trigger);
  }finally{f.close();}
 });
+
+test('generation details stay behind an info control with hover and keyboard access',async()=>{
+ const f=await fixture();try{
+  const doc=f.w.document,trigger=doc.getElementById('generation-info-trigger'),panel=doc.getElementById('generation-info-panel');
+  f.w.LocalAI={getPendingJobs:()=>[{kind:'images',status:'cancelled'}]};f.w.LPGRequirementsEditor.renderRecovery();
+  assert.equal(panel.hidden,true);assert.ok(doc.getElementById('generation-recovery').closest('#generation-info-panel'));
+  assert.equal(doc.querySelector('.quickstart-fallback-hint'),null);
+  trigger.dispatchEvent(new f.w.MouseEvent('mouseenter'));assert.equal(panel.hidden,false);assert.equal(trigger.getAttribute('aria-expanded'),'true');
+  doc.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(panel.hidden,true);assert.equal(doc.activeElement,trigger);
+ }finally{f.close();}
+});
+
+test('accepted or restored assets synchronize the editor thumbnails and URL fields',async()=>{
+ const f=await fixture();try{
+  const doc=f.w.document;
+  f.run("state.brand.logoUrl='https://brand.test/logo.svg';state.member.avatarData='data:image/png;base64,uploaded';populateFormFromState();");
+  assert.equal(doc.getElementById('preview-logo').getAttribute('src'),'https://brand.test/logo.svg');assert.equal(doc.getElementById('url-logo').value,'https://brand.test/logo.svg');assert.equal(doc.getElementById('preview-logo').classList.contains('hidden'),false);
+  assert.equal(doc.getElementById('preview-avatar').getAttribute('src'),'data:image/png;base64,uploaded');
+  f.run("state.brand.logoUrl='';state.member.avatarData='';populateFormFromState();");
+  assert.equal(doc.getElementById('preview-logo').getAttribute('src'),null);assert.equal(doc.getElementById('preview-logo').classList.contains('hidden'),true);assert.equal(doc.getElementById('url-logo').value,'');
+ }finally{f.close();}
+});

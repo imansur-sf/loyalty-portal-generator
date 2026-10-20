@@ -433,6 +433,16 @@ test('card emblem and full artwork can be replaced without losing live tier data
   custom.window.close();
 });
 
+test('scraped brand logos try site-owned alternatives before hiding the card emblem',()=>{
+ const dom=new JSDOM(cinematicProductionFixture({brand:{name:'NCSA',programName:'Rewards',logoUrl:'https://brand.example/unavailable.svg',logoCandidates:['https://brand.example/touch.png','https://brand.example/favicon.ico']}}),{runScripts:'dangerously'});
+ try{
+  const logo=dom.window.document.querySelector('.cj-card-logo');
+  logo.dispatchEvent(new dom.window.Event('error'));assert.equal(logo.src,'https://brand.example/touch.png');assert.ok(logo.isConnected);
+  logo.dispatchEvent(new dom.window.Event('error'));assert.equal(logo.src,'https://brand.example/favicon.ico');assert.ok(logo.isConnected);
+  logo.dispatchEvent(new dom.window.Event('error'));assert.equal(logo.isConnected,false);
+ }finally{dom.window.close();}
+});
+
 test('rendered scene overflow falls back independently and refits on resize',()=>{
   let frame;
   const dom=new JSDOM(cinematicProductionFixture(),{runScripts:'dangerously',beforeParse(win){win.requestAnimationFrame=cb=>{frame=cb;return 1;};win.matchMedia=()=>({matches:false,addEventListener(){}});}});

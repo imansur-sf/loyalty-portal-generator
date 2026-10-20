@@ -393,7 +393,10 @@ complete every required section and exact reward/earning mapping before closing 
     const generatedCopy=Object.fromEntries(cinematicCopyKeys.filter(key=>typeof parsed.cinematic?.copy?.[key]==='string').map(key=>[key,parsed.cinematic.copy[key].slice(0,8000)]));
     const generatedProgressMessage = generatedCopy.progressSummary;
     delete parsed.cinematic;
-    parsed.brand = { logoUrl: candidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl : '' };
+    const siteIcons=[scraped.appleIcon,scraped.favicon].filter(url=>/^https?:\/\//i.test(url));
+    const logoCandidates=new Set([...candidates,...siteIcons]);
+    parsed.brand = { logoUrl: logoCandidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl :
+      scraped.images.find(image=>image.role==='logo'&&candidates.has(image.url))?.url || siteIcons[0] || '' };
     parsed.upsell.bgImageUrl = candidates.has(parsed.upsell.bgImageUrl) ? parsed.upsell.bgImageUrl : '';
     delete parsed.upsell.bgImageData;
     let data = reconcile(parsed, validated, { existing, refreshCopy: true });
@@ -415,6 +418,7 @@ complete every required section and exact reward/earning mapping before closing 
     }
     if (refinement && isRefinement(existing) && root.LPGContentContract) data = root.LPGContentContract.scope(data, existing, refinement);
     data._meta = { source_url: scraped.url, favicon: scraped.favicon, apple_icon: scraped.appleIcon,
+      logo_candidates:[...new Set([...scraped.images.filter(image=>image.role==='logo').map(image=>image.url),...siteIcons])].filter(url=>logoCandidates.has(url)).slice(0,8),
       mode: 'program-rich-content', images_generated: 0, images_empty: 0,
       images_pending: deferImages, ...([activityRecovery?.warning, rewardRecovery?.warning].filter(Boolean).length ? { content_warning: [activityRecovery?.warning, rewardRecovery?.warning].filter(Boolean).join(' ') } : {}) };
     checkCancelled();

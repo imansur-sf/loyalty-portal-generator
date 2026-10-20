@@ -160,7 +160,8 @@
       if (mark) {
         const logo = make('img','cj-card-logo'); logo.src = mark; logo.alt = '';
         card.classList.add('cj-has-mark');
-        logo.addEventListener('error',()=>{ card.classList.remove('cj-has-mark'); logo.remove(); }); card.appendChild(logo);
+        const fallbacks=settings.markMode==='brand'?[...(options.brandLogoFallbacks||[])]:[];
+        logo.addEventListener('error',()=>{const next=fallbacks.shift();if(next){logo.src=next;return;}card.classList.remove('cj-has-mark');logo.remove();});card.appendChild(logo);
       }
       if (settings.mode === 'image' && options.cardImage) {
         const artwork = make('img','cj-card-artwork'); artwork.dataset.lpgImageSlot = 'card-artwork'; artwork.src = options.cardImage; artwork.alt = '';artwork.style.objectFit=options.cardFit==='contain'?'contain':'cover';artwork.style.objectPosition=options.cardPosition || '50% 50%';
@@ -716,6 +717,7 @@ body[data-lpg-template="cinematic"] main > div:empty { display: none; }
       markImage: imageSource(state.cinematic?.card?.markImageData) || imageSource(state.cinematic?.card?.markImageUrl),
       cardImage: imageSource(state.cinematic?.card?.artworkImageData) || imageSource(state.cinematic?.card?.artworkImageUrl),
       brandLogo: imageSource(state.brand?.logoData) || imageSource(state.brand?.logoUrl),
+      brandLogoFallbacks: state.brand?.logoData?[]:(Array.isArray(state.brand?.logoCandidates)?state.brand.logoCandidates:[]).map(imageSource).filter(url=>url&&url!==state.brand?.logoUrl).slice(0,8),
       rewards: Array.isArray(program?.rewards)
         ? program.rewards.filter(r => r && typeof r.id === 'string' && Number.isFinite(r.cost) && r.cost >= 0).map(r => ({ id: r.id, cost: r.cost })) : []
     };

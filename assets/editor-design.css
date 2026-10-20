@@ -102,6 +102,15 @@
 .editor-history { display: flex; gap: .375rem; flex-shrink: 0; }
 .editor-history button { width: 2.75rem; color: #1f4c9f; background: white; border: 1px solid var(--editor-line); border-radius: .625rem; display: grid; place-items: center; }
 .editor-history svg { width: 1.125rem; height: 1.125rem; }
+.generation-info { flex-shrink: 0; }
+.generation-info-trigger { width: 2.75rem; display: grid; place-items: center; color: #3e5d89; border: 1px solid var(--editor-line); border-radius: .625rem; background: white; }
+.generation-info-trigger svg { width: 1.25rem; height: 1.25rem; }
+.generation-info-panel { position: fixed; z-index: 70; max-height: calc(100dvh - 2rem); overflow: auto; padding: 1rem; border: 1px solid var(--editor-line); border-radius: .875rem; background: white; box-shadow: 0 12px 32px #001e5b24; color: var(--editor-ink); font-size: .8125rem; line-height: 1.6; }
+.generation-info-panel h3 { font-weight: 600; font-size: .9375rem; margin-bottom: .5rem; }
+.generation-info-panel :is(p,ul) { margin-block: .5rem; }
+.generation-info-panel #generation-recovery { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--editor-line); }
+.generation-info-panel #generation-recovery h3 { font-size: .875rem; }
+.generation-info-panel button { padding: .5rem .75rem; margin-top: .5rem; background: #edf3ff; color: var(--editor-blue); border: 1px solid #c5d7f7; border-radius: .625rem; }
 .editor-search-wrap { flex: 1; min-width: 0; position: relative; }
 .editor-search-wrap > svg { position: absolute; left: .75rem; top: .875rem; width: 1rem; height: 1rem; color: #667e9f; pointer-events: none; }
 .builder-app .editor-search-wrap #editor-search { margin: 0; padding: .625rem .75rem .625rem 2.25rem; min-height: 2.75rem; font-size: .875rem; background: white; border: 1px solid var(--editor-line); border-radius: .625rem; }
@@ -173,6 +182,9 @@
   .builder-app .editor-navigation { bottom: .5rem; }
 }
 @media (max-width: 600px) {
+  .editor-command-row { flex-wrap: wrap; }
+  .editor-search-wrap { order: 1; flex-basis: 100%; }
+  .generation-info { margin-left: auto; }
   .app-header-inner { padding: .375rem 1rem .75rem; }
   .app-header-inner > div:first-child { width: 100%; }
   .app-header-inner > div:last-child { gap: .375rem; width: 100%; }

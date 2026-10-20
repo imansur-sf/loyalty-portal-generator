@@ -22,7 +22,7 @@
   function clearCheckpoint() { try {localStorage.removeItem(RECOVERY_KEY);}catch(_){} }
   function renderRecovery() {
     let box=el('generation-recovery');
-    if(!box && el('program-review')) {box=document.createElement('section');box.id='generation-recovery';box.className='program-edit-card';box.setAttribute('aria-label','Unfinished generation');el('program-review').insertAdjacentElement('beforebegin',box);}
+    if(!box && el('generation-recovery-host')) {box=document.createElement('section');box.id='generation-recovery';box.setAttribute('aria-label','Unfinished generation');el('generation-recovery-host').appendChild(box);}
     if(!box)return;
     const jobs=root.LocalAI?.getPendingJobs?.() || [],checkpoint=readCheckpoint();
     box.hidden=!!pendingGeneration || (!jobs.length && !checkpoint);
@@ -71,11 +71,8 @@
   }
   function renderImageControls() {
     let box=el('image-generation-controls');
-    if (!box && el('portal-edit-status')) {
-      box=document.createElement('div');box.id='image-generation-controls';
-      el('portal-edit-status').insertAdjacentElement('afterend',box);
-    }
     if (!box) return;
+    box.hidden=false;
     box.innerHTML='<button type="button" id="retry-missing-images">Fill missing images</button> <button type="button" id="cancel-image-generation">Cancel image work</button>';
     el('retry-missing-images').addEventListener('click',retryImages);
     el('cancel-image-generation').addEventListener('click',cancelGeneration);
@@ -175,16 +172,16 @@
             if (proposal.signal?.aborted || proposal.project !== projectEpoch || proposal.sequence !== generationSequence) throw new Error('Image generation cancelled.');
             if (progress?.generated) mergeGeneratedImages(proposal,mode,draft,enriched);
             if (progress) imageCheckpoint(proposal,mode,mask,Math.max(0,(proposal.maxImages || 16)-progress.attempted));
-            if (progress && el('portal-edit-status')) el('portal-edit-status').textContent=`Images: ${progress.generated} generated; ${progress.remaining} remain. You can keep editing.`;
+            if (progress && el('generation-image-status')) el('generation-image-status').textContent=`Images: ${progress.generated} generated; ${progress.remaining} remain. You can keep editing.`;
           }});
         if (proposal.signal?.aborted || proposal.project !== projectEpoch || proposal.sequence !== generationSequence) return;
         mergeGeneratedImages(proposal,mode,draft,enriched);
         imageCheckpoint(proposal,mode,mask,readCheckpoint()?.remainingBudget ?? proposal.maxImages);
         if (!(root.LocalAI?.getPendingJobs?.() || []).some(job=>job.kind==='images')) clearCheckpoint();
         renderRecovery();
-        if (enriched._meta?.image_warning && el('portal-edit-status')) el('portal-edit-status').textContent = enriched._meta.image_warning;
+        if (enriched._meta?.image_warning && el('generation-image-status')) el('generation-image-status').textContent = enriched._meta.image_warning;
       } catch (error) {
-        if (!proposal.signal?.aborted && proposal.sequence === generationSequence && proposal.project === projectEpoch && el('portal-edit-status')) el('portal-edit-status').textContent = 'Your text draft was kept. Some images did not finish; generate an image in its section or upload your own.';
+        if (!proposal.signal?.aborted && proposal.sequence === generationSequence && proposal.project === projectEpoch && el('generation-image-status')) el('generation-image-status').textContent = 'Your text draft was kept. Some images did not finish; generate an image in its section or upload your own.';
       }
     }
     if (proposal.sequence === generationSequence && proposal.project === projectEpoch && !proposal.signal?.aborted) setQuickStartStatus((root.LocalAI?.getPendingJobs?.() || []).some(job=>job.kind==='images') ? 'Your text draft is ready. Some image work is unfinished; use Recover unfinished generation to check its saved request.' : 'Your portal is ready. Edit any section, or save your project to return later.', false);
