@@ -24,6 +24,7 @@ async function editor({review=false}={}) {
   w.HTMLElement.prototype.scrollIntoView=()=>{};w.confirm=()=>true;
   const run=code=>vm.runInContext(code,dom.getInternalVMContext());
   for(const file of ['defaults','images','cinematic-settings','program-model','program-runtime','portal-templates','generator','pagehost',...(review?['content-contract','program-provenance']:[]),'requirements','portal-content','variants','requirements-editor','app','projects']) run(fs.readFileSync(`js/${file}.js`,'utf8'));
+  w.LPGImages.verifyRemoteImages=async()=>({failed:[],unknown:[]});
   run(`applyIndustryDefaults('generic'); editorDefaults=cloneProject(state); scheduleDraftRecovery=()=>{}; schedulePreview=updatePreview; populateFormFromState(); LPGRequirementsEditor.init();`);
   let imageCalls=0;
   w.LocalAI={fillMissingImages:async data=>{imageCalls++; for(const key of ['vouchers','offers','benefits','badges','clubs']) data[key].forEach((item,i)=>{if(!item.imageUrl&&!item.imageData)item.imageUrl='https://brand.test/'+key+i+'.png';});return {generated:5,total_empty:5};}};
@@ -48,6 +49,26 @@ test('URL-only generation uses full content and image pipeline and updates previ
     assert.equal(e.w.document.getElementById('program-enabled'),null);
     assert.equal(e.run('state.programReview'),null);assert.equal(e.run('state.upsell.price'),'');
   }finally{e.close();}
+});
+
+test('failed or blocked website scrapes stop before AI calls instead of pretending images were imported',async()=>{
+ for(const response of [new Error('upstream_status'),'<title>Just a moment...</title><p>Enable JavaScript and cookies to continue</p>']){
+  const e=await editor({review:true});try{
+   let calls=0;const before=e.run('JSON.stringify(state)');
+   const client={scrapeViaCorsProxy:async()=>{if(response instanceof Error)throw response;return response;},callLLM:async()=>{calls++;}};
+   await assert.rejects(e.w.LPGRequirementsEditor.analyze(client,'https://www.ncsasports.org'),/website could not be read/);
+   assert.equal(calls,0);assert.equal(e.run('JSON.stringify(state)'),before);assert.equal(e.imageCalls(),0);
+  }finally{e.close();}
+ }
+});
+test('website extraction resolves assets against the final URL returned by the scraper',async()=>{
+ const e=await editor({review:true});try{
+  const client=e.client();let context;
+  client.scrapeViaCorsProxy=async()=>({html:'<title>Brand</title><h1>Member coaching</h1><img alt="Brand logo" src="images/logo.svg">',finalUrl:'https://www.ncsasports.org/member/'});
+  const call=client.callLLM;client.callLLM=async args=>{const prompt=JSON.parse(args.prompt);if(prompt.websiteContext)context=prompt.websiteContext;return call(args);};
+  await e.w.LPGRequirementsEditor.analyze(client,'https://ncsasports.org');
+  assert.equal(context.url,'https://www.ncsasports.org/member/');assert.equal(context.images[0].url,'https://www.ncsasports.org/member/images/logo.svg');
+ }finally{e.close();}
 });
 test('Both audiences generate once per audience, switch independently, persist and export selected content',async()=>{
   const e=await editor();try {

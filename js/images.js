@@ -28,7 +28,22 @@ const LPGImageUploads = (() => {
   }
   return { entries, context, same, dispose, invalidate, cancel };
 })();
-if (typeof window !== 'undefined') window.LPGImages = { invalidate: LPGImageUploads.invalidate, captureContext: LPGImageUploads.context, isContextCurrent: LPGImageUploads.same, cancel: LPGImageUploads.cancel };
+// A nonempty URL is not proof that the browser can display it. Timeouts stay
+// unknown; only explicit load failures qualify for replacement generation.
+async function verifyRemoteImages(urls,{signal,timeoutMs=4000}={}) {
+  if(signal?.aborted)throw Object.assign(new Error('Generation cancelled.'),{name:'AbortError'});
+  const sources=[...new Set(urls.filter(url=>typeof url==='string'&&/^https?:\/\//i.test(url)))].slice(0,64);
+  const results=await Promise.all(sources.map(url=>new Promise((resolve,reject)=>{
+    const image=new Image();let timer;
+    const clean=()=>{clearTimeout(timer);image.onload=null;image.onerror=null;signal?.removeEventListener('abort',abort);};
+    const finish=status=>{clean();if(status==='unknown')image.src='';resolve({url,status});};
+    const abort=()=>{clean();image.src='';reject(Object.assign(new Error('Generation cancelled.'),{name:'AbortError'}));};
+    image.onload=()=>finish(image.naturalWidth>0?'loaded':'failed');image.onerror=()=>finish('failed');
+    signal?.addEventListener('abort',abort,{once:true});timer=setTimeout(()=>finish('unknown'),timeoutMs);image.src=url;
+  })));
+  return {failed:results.filter(item=>item.status==='failed').map(item=>item.url),unknown:results.filter(item=>item.status==='unknown').map(item=>item.url)};
+}
+if (typeof window !== 'undefined') window.LPGImages = { invalidate: LPGImageUploads.invalidate, captureContext: LPGImageUploads.context, isContextCurrent: LPGImageUploads.same, cancel: LPGImageUploads.cancel, verifyRemoteImages };
 
 /** Attach one set of image handlers to a rendered upload widget. */
 function initImageUpload(dropZoneId, previewId, urlInputId, onImageSet) {

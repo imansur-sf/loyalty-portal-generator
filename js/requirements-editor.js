@@ -434,9 +434,15 @@
       const url = PageHost._analysis.normalizeURL(rawURL);
       if (!url) throw new Error('Enter a valid website URL or leave it blank.');
       try {
-        const html = await (client === root.PageHost ? client.proxyFetch(url) : client.scrapeViaCorsProxy(url));
-        website = PageHost._analysis.extractCoreHTML(html, url);
-      } catch (_) { website = { url, note: 'Website could not be read. Brand knowledge is a demo assumption, not verified website evidence.' }; }
+        const response = await (client === root.PageHost ? client.proxyFetch(url) : client.scrapeViaCorsProxy(url,{withMetadata:true}));
+        const html=typeof response==='string'?response:response?.html;
+        const finalUrl=typeof response==='object'&&/^https?:\/\//i.test(response?.finalUrl||'')?response.finalUrl:url;
+        if(typeof html!=='string')throw new Error('The scraper returned no page content.');
+        website = PageHost._analysis.extractCoreHTML(html, finalUrl);
+        if((!website.bodyText&&!website.images.length)||/^(?:just a moment|access denied|attention required|security check|request rejected|checking your browser)(?:[.!\s]|$)/i.test(website.title.trim()))throw new Error('The website returned an empty page or an access check.');
+      } catch (error) {
+        throw Object.assign(new Error('The customer website could not be read, so its logo and images were not imported. Try again, or remove the website URL to generate from your brief. '+(error.message||'')),{code:'website_scrape_failed'});
+      }
     }
     checkCurrent();
     if (root.LPGContentContract) {

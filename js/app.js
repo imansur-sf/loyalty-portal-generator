@@ -324,22 +324,26 @@ function applyAnalysis(d, target = state, { render = true } = {}) {
   //   3. AI-picked logo from candidate list (d.brand.logoUrl)
   //   4. Apple touch icon supplied by the website
   //   5. Favicon supplied by the website
-  if (!target.brand.logoData && (!target.brand.logoUrl || /^https:\/\/logo\.clearbit\.com\//i.test(target.brand.logoUrl))) {
+  const failedImages=new Set(Array.isArray(d._meta?.failed_image_urls)?d._meta.failed_image_urls:[]);
+  const failedLogo=failedImages.has(target.brand.logoUrl);
+  if (!target.brand.logoData && (!target.brand.logoUrl || failedLogo || /^https:\/\/logo\.clearbit\.com\//i.test(target.brand.logoUrl))) {
     let logo = '';
-    if (d.brand && typeof d.brand === 'object' && d.brand.logoUrl && isSafeUrl(d.brand.logoUrl)) {
+    if (d.brand && typeof d.brand === 'object' && d.brand.logoUrl && isSafeUrl(d.brand.logoUrl)&&!failedImages.has(d.brand.logoUrl)) {
       logo = d.brand.logoUrl;
     }
-    if (!logo && d._meta && d._meta.apple_icon) logo = d._meta.apple_icon;
-    if (!logo && d._meta && d._meta.favicon)    logo = d._meta.favicon;
+    if (!logo && isSafeUrl(d._meta?.apple_icon)&&!failedImages.has(d._meta.apple_icon)) logo = d._meta.apple_icon;
+    if (!logo && isSafeUrl(d._meta?.favicon)&&!failedImages.has(d._meta.favicon)) logo = d._meta.favicon;
 
     if (logo) {
       target.brand.logoUrl = logo;
-      target.brand.logoCandidates = [...new Set([...(Array.isArray(d._meta?.logo_candidates)?d._meta.logo_candidates:[]),d._meta?.apple_icon,d._meta?.favicon])].filter(url=>isSafeUrl(url)&&url!==logo).slice(0,8);
+      target.brand.logoCandidates = [...new Set([...(Array.isArray(d._meta?.logo_candidates)?d._meta.logo_candidates:[]),d._meta?.apple_icon,d._meta?.favicon])].filter(url=>isSafeUrl(url)&&url!==logo&&!failedImages.has(url)).slice(0,8);
       if (render) {
         const prev = document.getElementById('preview-logo');
         if (prev) { prev.src = logo; prev.classList.remove('hidden'); }
         setVal('url-logo', logo);
       }
+    } else if(failedLogo) {
+      target.brand.logoUrl='';target.brand.logoCandidates=[];
     }
   }
 

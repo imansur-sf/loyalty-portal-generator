@@ -221,6 +221,9 @@ test('scraper reads non-executable JSON and keeps rejected destinations out of p
   assert.equal(await c.api.scrapeViaCorsProxy('https://brand.test/'),html);
   assert.equal(c.calls.length,1);
   assert.equal(c.calls[0].headers['X-LPG-Capability'],'capability-for-test-1234567890');
+  const redirected=client(async()=>response(200,{html,finalUrl:'https://brand.test/about/'}));
+  const metadata=await redirected.api.scrapeViaCorsProxy('https://brand.test/',{withMetadata:true});
+  assert.equal(metadata.html,html);assert.equal(metadata.finalUrl,'https://brand.test/about/');
   const blocked=client(async()=>response(403,{error:'blocked_destination'}));
   await assert.rejects(blocked.api.scrapeViaCorsProxy('http://private.test/'),error=>error.code==='own_scraper_status');
   assert.equal(blocked.calls.length,1);

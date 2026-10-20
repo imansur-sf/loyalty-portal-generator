@@ -5043,7 +5043,22 @@ const LPGImageUploads = (() => {
   }
   return { entries, context, same, dispose, invalidate, cancel };
 })();
-if (typeof window !== 'undefined') window.LPGImages = { invalidate: LPGImageUploads.invalidate, captureContext: LPGImageUploads.context, isContextCurrent: LPGImageUploads.same, cancel: LPGImageUploads.cancel };
+// A nonempty URL is not proof that the browser can display it. Timeouts stay
+// unknown; only explicit load failures qualify for replacement generation.
+async function verifyRemoteImages(urls,{signal,timeoutMs=4000}={}) {
+  if(signal?.aborted)throw Object.assign(new Error('Generation cancelled.'),{name:'AbortError'});
+  const sources=[...new Set(urls.filter(url=>typeof url==='string'&&/^https?:\/\//i.test(url)))].slice(0,64);
+  const results=await Promise.all(sources.map(url=>new Promise((resolve,reject)=>{
+    const image=new Image();let timer;
+    const clean=()=>{clearTimeout(timer);image.onload=null;image.onerror=null;signal?.removeEventListener('abort',abort);};
+    const finish=status=>{clean();if(status==='unknown')image.src='';resolve({url,status});};
+    const abort=()=>{clean();image.src='';reject(Object.assign(new Error('Generation cancelled.'),{name:'AbortError'}));};
+    image.onload=()=>finish(image.naturalWidth>0?'loaded':'failed');image.onerror=()=>finish('failed');
+    signal?.addEventListener('abort',abort,{once:true});timer=setTimeout(()=>finish('unknown'),timeoutMs);image.src=url;
+  })));
+  return {failed:results.filter(item=>item.status==='failed').map(item=>item.url),unknown:results.filter(item=>item.status==='unknown').map(item=>item.url)};
+}
+if (typeof window !== 'undefined') window.LPGImages = { invalidate: LPGImageUploads.invalidate, captureContext: LPGImageUploads.context, isContextCurrent: LPGImageUploads.same, cancel: LPGImageUploads.cancel, verifyRemoteImages };
 
 /** Attach one set of image handlers to a rendered upload widget. */
 function initImageUpload(dropZoneId, previewId, urlInputId, onImageSet) {
@@ -7529,7 +7544,7 @@ complete every required section and exact reward/earning mapping before closing 
         else if (existing.upsell.bgImageUrl) { data.upsell.bgImageUrl = existing.upsell.bgImageUrl; data.upsell.bgImageData = ''; }
       }
       if (existing.colors) data.colors = clone(existing.colors);
-      data.brand = { ...(data.brand || {}), logoUrl: existing.brand?.logoUrl || '', logoData: existing.brand?.logoData || '' };
+      if(existing.brand?.logoData||existing.brand?.logoUrl)data.brand = { ...(data.brand || {}), logoUrl: existing.brand.logoUrl || '', logoData: existing.brand.logoData || '' };
     }
     data.vouchers = reconcileRewards(data.vouchers, program, {
       existingItems: refining ? existing.vouchers : [], preferExisting: refining && !refreshCopy
@@ -7618,7 +7633,15 @@ complete every required section and exact reward/earning mapping before closing 
         onStatus('repairing_content');
       }
     }
-    const candidates = new Set(scraped.images.map(image => image.url).filter(url => /^https?:\/\//i.test(url)));
+    const assetOwners=portal=>[...[portal?.brand&&[portal.brand,'logoUrl','logoData'],portal?.upsell&&[portal.upsell,'bgImageUrl','bgImageData']].filter(Boolean),
+      ...collections.flatMap(key=>(portal?.[key]||[]).flatMap(item=>[[item,'imageUrl','imageData'],...(key==='benefits'?[[item,'coverImageUrl','coverImageData']]:[])]))];
+    const sourceUrls=new Set([...scraped.images.map(image=>image.url),scraped.appleIcon,scraped.favicon]);
+    const urls=[...assetOwners(parsed).filter(([item,urlKey])=>sourceUrls.has(item[urlKey])),...assetOwners(existing)].filter(([item,urlKey,dataKey])=>!item[dataKey]).map(([item,urlKey])=>item[urlKey]);
+    const checked=await root.LPGImages?.verifyRemoteImages?.([...urls,...scraped.images.filter(image=>image.role==='logo').map(image=>image.url),scraped.appleIcon,scraped.favicon],{signal}) || {failed:[],unknown:[]};
+    checkCancelled();
+    const failedAssets=new Set(checked.failed);
+    if(existing){existing=clone(existing);for(const [item,urlKey,dataKey]of assetOwners(existing))if(!item[dataKey]&&failedAssets.has(item[urlKey]))item[urlKey]='';}
+    const candidates = new Set(scraped.images.map(image => image.url).filter(url => /^https?:\/\//i.test(url)&&!failedAssets.has(url)));
     for (const key of collections) for (const item of parsed[key]) {
       item.imageUrl = candidates.has(item.imageUrl) ? item.imageUrl : ''; delete item.imageData;
       item.coverImageUrl = key === 'benefits' && candidates.has(item.coverImageUrl) && item.coverImageUrl !== item.imageUrl ? item.coverImageUrl : '';
@@ -7627,7 +7650,7 @@ complete every required section and exact reward/earning mapping before closing 
     const generatedCopy=Object.fromEntries(cinematicCopyKeys.filter(key=>typeof parsed.cinematic?.copy?.[key]==='string').map(key=>[key,parsed.cinematic.copy[key].slice(0,8000)]));
     const generatedProgressMessage = generatedCopy.progressSummary;
     delete parsed.cinematic;
-    const siteIcons=[scraped.appleIcon,scraped.favicon].filter(url=>/^https?:\/\//i.test(url));
+    const siteIcons=[scraped.appleIcon,scraped.favicon].filter(url=>/^https?:\/\//i.test(url)&&!failedAssets.has(url));
     const logoCandidates=new Set([...candidates,...siteIcons]);
     parsed.brand = { logoUrl: logoCandidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl :
       scraped.images.find(image=>image.role==='logo'&&candidates.has(image.url))?.url || siteIcons[0] || '' };
@@ -7652,6 +7675,7 @@ complete every required section and exact reward/earning mapping before closing 
     }
     if (refinement && isRefinement(existing) && root.LPGContentContract) data = root.LPGContentContract.scope(data, existing, refinement);
     data._meta = { source_url: scraped.url, favicon: scraped.favicon, apple_icon: scraped.appleIcon,
+      failed_image_urls:[...failedAssets],
       logo_candidates:[...new Set([...scraped.images.filter(image=>image.role==='logo').map(image=>image.url),...siteIcons])].filter(url=>logoCandidates.has(url)).slice(0,8),
       mode: 'program-rich-content', images_generated: 0, images_empty: 0,
       images_pending: deferImages, ...([activityRecovery?.warning, rewardRecovery?.warning].filter(Boolean).length ? { content_warning: [activityRecovery?.warning, rewardRecovery?.warning].filter(Boolean).join(' ') } : {}) };
@@ -8170,9 +8194,15 @@ complete every required section and exact reward/earning mapping before closing 
       const url = PageHost._analysis.normalizeURL(rawURL);
       if (!url) throw new Error('Enter a valid website URL or leave it blank.');
       try {
-        const html = await (client === root.PageHost ? client.proxyFetch(url) : client.scrapeViaCorsProxy(url));
-        website = PageHost._analysis.extractCoreHTML(html, url);
-      } catch (_) { website = { url, note: 'Website could not be read. Brand knowledge is a demo assumption, not verified website evidence.' }; }
+        const response = await (client === root.PageHost ? client.proxyFetch(url) : client.scrapeViaCorsProxy(url,{withMetadata:true}));
+        const html=typeof response==='string'?response:response?.html;
+        const finalUrl=typeof response==='object'&&/^https?:\/\//i.test(response?.finalUrl||'')?response.finalUrl:url;
+        if(typeof html!=='string')throw new Error('The scraper returned no page content.');
+        website = PageHost._analysis.extractCoreHTML(html, finalUrl);
+        if((!website.bodyText&&!website.images.length)||/^(?:just a moment|access denied|attention required|security check|request rejected|checking your browser)(?:[.!\s]|$)/i.test(website.title.trim()))throw new Error('The website returned an empty page or an access check.');
+      } catch (error) {
+        throw Object.assign(new Error('The customer website could not be read, so its logo and images were not imported. Try again, or remove the website URL to generate from your brief. '+(error.message||'')),{code:'website_scrape_failed'});
+      }
     }
     checkCurrent();
     if (root.LPGContentContract) {
@@ -9381,7 +9411,8 @@ const LPG_PORTAL_UTILITIES_CSS = "*, ::before, ::after {\n  --tw-border-spacing-
       headings,
       navLinkCandidates,
       bodyText,
-      images: images.slice(0,25)
+      // Reserve room for actual content instead of filling the budget with partner logos.
+      images: [...images.filter(image=>image.role==='logo').slice(0,4),...images.filter(image=>image.role!=='logo')].slice(0,25)
     };
   }
 
@@ -10044,7 +10075,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
     if (backendCapabilities.get(key)?.token === token) backendCapabilities.delete(key);
   }
 
-  async function scrapeViaCorsProxy(url) {
+  async function scrapeViaCorsProxy(url, { withMetadata = false } = {}) {
     let lastError = null;
 
     // 1) Try the primary scraper endpoint (same-origin /api/scrape or user-configured)
@@ -10066,14 +10097,15 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
           const ct = res.headers.get('content-type') || '';
           const raw = await res.text();
           let html = raw;
+          let finalUrl = url;
           if (/application\/json/i.test(ct)) {
-            try { const envelope = JSON.parse(raw); html = typeof envelope.html === 'string' ? envelope.html : ''; } catch (_) { html = ''; }
+            try { const envelope = JSON.parse(raw); html = typeof envelope.html === 'string' ? envelope.html : ''; if(/^https?:\/\//i.test(envelope.finalUrl || ''))finalUrl=envelope.finalUrl; } catch (_) { html = ''; }
           }
           if (html && html.length >= 40) {
             // Worker returns text/html or json errors — a json response starting
             // with { and no `<` means it's likely a structured error, not HTML.
             const looksJson = html.trim().startsWith('{');
-            if (!looksJson) return html;
+            if (!looksJson) return withMetadata ? { html, finalUrl } : html;
           }
           lastError = localError('own_scraper_empty', { endpoint: scrapeBase || window.location.origin });
         } else {
@@ -10100,7 +10132,7 @@ Now return the JSON per the schema. Return ONLY the JSON.`;
           lastError = localError('proxy_empty_response', { proxy: proxy.name });
           continue;
         }
-        return html;
+        return withMetadata ? { html, finalUrl: url } : html;
       } catch (err) {
         lastError = localError('proxy_network_error', { proxy: proxy.name, cause: err.message });
       }
@@ -11255,22 +11287,26 @@ function applyAnalysis(d, target = state, { render = true } = {}) {
   //   3. AI-picked logo from candidate list (d.brand.logoUrl)
   //   4. Apple touch icon supplied by the website
   //   5. Favicon supplied by the website
-  if (!target.brand.logoData && (!target.brand.logoUrl || /^https:\/\/logo\.clearbit\.com\//i.test(target.brand.logoUrl))) {
+  const failedImages=new Set(Array.isArray(d._meta?.failed_image_urls)?d._meta.failed_image_urls:[]);
+  const failedLogo=failedImages.has(target.brand.logoUrl);
+  if (!target.brand.logoData && (!target.brand.logoUrl || failedLogo || /^https:\/\/logo\.clearbit\.com\//i.test(target.brand.logoUrl))) {
     let logo = '';
-    if (d.brand && typeof d.brand === 'object' && d.brand.logoUrl && isSafeUrl(d.brand.logoUrl)) {
+    if (d.brand && typeof d.brand === 'object' && d.brand.logoUrl && isSafeUrl(d.brand.logoUrl)&&!failedImages.has(d.brand.logoUrl)) {
       logo = d.brand.logoUrl;
     }
-    if (!logo && d._meta && d._meta.apple_icon) logo = d._meta.apple_icon;
-    if (!logo && d._meta && d._meta.favicon)    logo = d._meta.favicon;
+    if (!logo && isSafeUrl(d._meta?.apple_icon)&&!failedImages.has(d._meta.apple_icon)) logo = d._meta.apple_icon;
+    if (!logo && isSafeUrl(d._meta?.favicon)&&!failedImages.has(d._meta.favicon)) logo = d._meta.favicon;
 
     if (logo) {
       target.brand.logoUrl = logo;
-      target.brand.logoCandidates = [...new Set([...(Array.isArray(d._meta?.logo_candidates)?d._meta.logo_candidates:[]),d._meta?.apple_icon,d._meta?.favicon])].filter(url=>isSafeUrl(url)&&url!==logo).slice(0,8);
+      target.brand.logoCandidates = [...new Set([...(Array.isArray(d._meta?.logo_candidates)?d._meta.logo_candidates:[]),d._meta?.apple_icon,d._meta?.favicon])].filter(url=>isSafeUrl(url)&&url!==logo&&!failedImages.has(url)).slice(0,8);
       if (render) {
         const prev = document.getElementById('preview-logo');
         if (prev) { prev.src = logo; prev.classList.remove('hidden'); }
         setVal('url-logo', logo);
       }
+    } else if(failedLogo) {
+      target.brand.logoUrl='';target.brand.logoCandidates=[];
     }
   }
 

@@ -295,7 +295,7 @@ complete every required section and exact reward/earning mapping before closing 
         else if (existing.upsell.bgImageUrl) { data.upsell.bgImageUrl = existing.upsell.bgImageUrl; data.upsell.bgImageData = ''; }
       }
       if (existing.colors) data.colors = clone(existing.colors);
-      data.brand = { ...(data.brand || {}), logoUrl: existing.brand?.logoUrl || '', logoData: existing.brand?.logoData || '' };
+      if(existing.brand?.logoData||existing.brand?.logoUrl)data.brand = { ...(data.brand || {}), logoUrl: existing.brand.logoUrl || '', logoData: existing.brand.logoData || '' };
     }
     data.vouchers = reconcileRewards(data.vouchers, program, {
       existingItems: refining ? existing.vouchers : [], preferExisting: refining && !refreshCopy
@@ -384,7 +384,15 @@ complete every required section and exact reward/earning mapping before closing 
         onStatus('repairing_content');
       }
     }
-    const candidates = new Set(scraped.images.map(image => image.url).filter(url => /^https?:\/\//i.test(url)));
+    const assetOwners=portal=>[...[portal?.brand&&[portal.brand,'logoUrl','logoData'],portal?.upsell&&[portal.upsell,'bgImageUrl','bgImageData']].filter(Boolean),
+      ...collections.flatMap(key=>(portal?.[key]||[]).flatMap(item=>[[item,'imageUrl','imageData'],...(key==='benefits'?[[item,'coverImageUrl','coverImageData']]:[])]))];
+    const sourceUrls=new Set([...scraped.images.map(image=>image.url),scraped.appleIcon,scraped.favicon]);
+    const urls=[...assetOwners(parsed).filter(([item,urlKey])=>sourceUrls.has(item[urlKey])),...assetOwners(existing)].filter(([item,urlKey,dataKey])=>!item[dataKey]).map(([item,urlKey])=>item[urlKey]);
+    const checked=await root.LPGImages?.verifyRemoteImages?.([...urls,...scraped.images.filter(image=>image.role==='logo').map(image=>image.url),scraped.appleIcon,scraped.favicon],{signal}) || {failed:[],unknown:[]};
+    checkCancelled();
+    const failedAssets=new Set(checked.failed);
+    if(existing){existing=clone(existing);for(const [item,urlKey,dataKey]of assetOwners(existing))if(!item[dataKey]&&failedAssets.has(item[urlKey]))item[urlKey]='';}
+    const candidates = new Set(scraped.images.map(image => image.url).filter(url => /^https?:\/\//i.test(url)&&!failedAssets.has(url)));
     for (const key of collections) for (const item of parsed[key]) {
       item.imageUrl = candidates.has(item.imageUrl) ? item.imageUrl : ''; delete item.imageData;
       item.coverImageUrl = key === 'benefits' && candidates.has(item.coverImageUrl) && item.coverImageUrl !== item.imageUrl ? item.coverImageUrl : '';
@@ -393,7 +401,7 @@ complete every required section and exact reward/earning mapping before closing 
     const generatedCopy=Object.fromEntries(cinematicCopyKeys.filter(key=>typeof parsed.cinematic?.copy?.[key]==='string').map(key=>[key,parsed.cinematic.copy[key].slice(0,8000)]));
     const generatedProgressMessage = generatedCopy.progressSummary;
     delete parsed.cinematic;
-    const siteIcons=[scraped.appleIcon,scraped.favicon].filter(url=>/^https?:\/\//i.test(url));
+    const siteIcons=[scraped.appleIcon,scraped.favicon].filter(url=>/^https?:\/\//i.test(url)&&!failedAssets.has(url));
     const logoCandidates=new Set([...candidates,...siteIcons]);
     parsed.brand = { logoUrl: logoCandidates.has(parsed.brand?.logoUrl) ? parsed.brand.logoUrl :
       scraped.images.find(image=>image.role==='logo'&&candidates.has(image.url))?.url || siteIcons[0] || '' };
@@ -418,6 +426,7 @@ complete every required section and exact reward/earning mapping before closing 
     }
     if (refinement && isRefinement(existing) && root.LPGContentContract) data = root.LPGContentContract.scope(data, existing, refinement);
     data._meta = { source_url: scraped.url, favicon: scraped.favicon, apple_icon: scraped.appleIcon,
+      failed_image_urls:[...failedAssets],
       logo_candidates:[...new Set([...scraped.images.filter(image=>image.role==='logo').map(image=>image.url),...siteIcons])].filter(url=>logoCandidates.has(url)).slice(0,8),
       mode: 'program-rich-content', images_generated: 0, images_empty: 0,
       images_pending: deferImages, ...([activityRecovery?.warning, rewardRecovery?.warning].filter(Boolean).length ? { content_warning: [activityRecovery?.warning, rewardRecovery?.warning].filter(Boolean).join(' ') } : {}) };

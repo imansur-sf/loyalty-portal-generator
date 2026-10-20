@@ -42,6 +42,19 @@ test('site-owned logo and icon fallbacks survive content generation without inve
  assert.deepEqual(Array.from(output._meta.logo_candidates),[website.appleIcon,website.favicon]);
 });
 
+test('confirmed failed remote assets are repaired on regeneration while uploaded images stay intact',async()=>{
+ const program=makeProgram(),context=harness();let probes;
+ const original=content(program),existing=context.LPGContentContract.ensure({...original,program,programEnabled:true,brand:{logoUrl:'https://brand.test/old-logo.png'}});
+ existing.offers[0].imageUrl='';
+ existing.benefits[0].imageData='data:image/png;base64,author';existing.benefits[0].imageUrl='https://brand.test/private-upload.png';
+ context.LPGImages={verifyRemoteImages:async urls=>{probes=urls;return {failed:['https://brand.test/old-logo.png','https://brand.test/logo.png','https://brand.test/course.png'],unknown:[]};}};
+ const website={url:'https://brand.test',appleIcon:'https://brand.test/touch.png',images:[{url:'https://brand.test/logo.png',role:'logo'},{url:'https://brand.test/course.png',role:'product'}]};
+ const output=await context.LPGPortalContent.generate({program,website,existing,deferImages:true,client:{callLLM:async()=>JSON.stringify(content(program))}});
+ assert.equal(output.brand.logoUrl,website.appleIcon);assert.equal(output.vouchers[0].imageUrl,'');
+ assert.equal(output.benefits[0].imageData,'data:image/png;base64,author');assert.ok(!probes.includes('https://brand.test/private-upload.png'));
+ assert.ok(!probes.includes('https://invented.test/not-in-candidates.png'));assert.ok(output._meta.failed_image_urls.includes('https://brand.test/old-logo.png'));
+});
+
 test('rich generation retains website candidates and requests full branded content and image enrichment', async () => {
   const program = makeProgram();
   const phases = [];

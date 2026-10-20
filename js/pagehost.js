@@ -249,7 +249,8 @@
       headings,
       navLinkCandidates,
       bodyText,
-      images: images.slice(0,25)
+      // Reserve room for actual content instead of filling the budget with partner logos.
+      images: [...images.filter(image=>image.role==='logo').slice(0,4),...images.filter(image=>image.role!=='logo')].slice(0,25)
     };
   }
 

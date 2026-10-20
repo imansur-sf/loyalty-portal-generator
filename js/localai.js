@@ -245,7 +245,7 @@
     if (backendCapabilities.get(key)?.token === token) backendCapabilities.delete(key);
   }
 
-  async function scrapeViaCorsProxy(url) {
+  async function scrapeViaCorsProxy(url, { withMetadata = false } = {}) {
     let lastError = null;
 
     // 1) Try the primary scraper endpoint (same-origin /api/scrape or user-configured)
@@ -267,14 +267,15 @@
           const ct = res.headers.get('content-type') || '';
           const raw = await res.text();
           let html = raw;
+          let finalUrl = url;
           if (/application\/json/i.test(ct)) {
-            try { const envelope = JSON.parse(raw); html = typeof envelope.html === 'string' ? envelope.html : ''; } catch (_) { html = ''; }
+            try { const envelope = JSON.parse(raw); html = typeof envelope.html === 'string' ? envelope.html : ''; if(/^https?:\/\//i.test(envelope.finalUrl || ''))finalUrl=envelope.finalUrl; } catch (_) { html = ''; }
           }
           if (html && html.length >= 40) {
             // Worker returns text/html or json errors — a json response starting
             // with { and no `<` means it's likely a structured error, not HTML.
             const looksJson = html.trim().startsWith('{');
-            if (!looksJson) return html;
+            if (!looksJson) return withMetadata ? { html, finalUrl } : html;
           }
           lastError = localError('own_scraper_empty', { endpoint: scrapeBase || window.location.origin });
         } else {
@@ -301,7 +302,7 @@
           lastError = localError('proxy_empty_response', { proxy: proxy.name });
           continue;
         }
-        return html;
+        return withMetadata ? { html, finalUrl: url } : html;
       } catch (err) {
         lastError = localError('proxy_network_error', { proxy: proxy.name, cause: err.message });
       }

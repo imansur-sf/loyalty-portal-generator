@@ -24,3 +24,11 @@ test('decorative SVGs do not crowd customer logos and content photos out of the 
  assert.equal(result.images.length,25);assert.equal(result.images[0].role,'logo');
  assert.ok(result.images.some(image=>image.url.endsWith('/coaching.webp')));
 });
+test('partner logos leave room for the customer website content images',()=>{
+ const partners=Array.from({length:30},(_,i)=>`<img src="/assets/partner-logo-${i}.png" alt="Partner logo">`).join('');
+ const photos=Array.from({length:25},(_,i)=>`<img src="/assets/coaching-${i}.webp" alt="Recruiting guidance">`).join('');
+ const result=extract('<img src="/assets/ncsa-logo.svg" alt="NCSA logo">'+partners+photos);
+ assert.equal(result.images.length,25);assert.equal(result.images[0].url,'https://www.ncsasports.org/assets/ncsa-logo.svg');
+ assert.equal(result.images.filter(image=>image.role==='logo').length,4);
+ assert.equal(result.images.filter(image=>image.role!=='logo').length,21);
+});

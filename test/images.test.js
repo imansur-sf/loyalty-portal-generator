@@ -211,3 +211,13 @@ test('unsafe image URL schemes and SVG data cannot replace an existing asset', a
     f.type('http://brand.example/image.png');f.flush();assert.equal(f.calls.at(-1),'http://brand.example/image.png');
   } finally {f.close();}
 });
+
+test('remote verification distinguishes load errors from timeouts and supports cancellation',async()=>{
+ const f=fixture();try{
+ const seen=[];f.w.Image=class {constructor(){this.naturalWidth=200;}set src(value){if(!value)return;seen.push(value);if(value.includes('broken'))this.onerror?.();else if(value.includes('healthy'))this.onload?.();}};
+ const pending=f.w.LPGImages.verifyRemoteImages(['https://brand.test/healthy.png','https://brand.test/broken.png','https://brand.test/slow.png','https://brand.test/healthy.png','data:image/png;base64,uploaded']);
+ f.flush();const result=await pending;
+ assert.deepEqual(Array.from(result.failed),['https://brand.test/broken.png']);assert.deepEqual(Array.from(result.unknown),['https://brand.test/slow.png']);assert.equal(seen.length,3);
+ const controller=new f.w.AbortController();const aborted=f.w.LPGImages.verifyRemoteImages(['https://brand.test/slow.png'],{signal:controller.signal});controller.abort();await assert.rejects(aborted,error=>error.name==='AbortError');
+ }finally{f.close();}
+});
