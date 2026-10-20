@@ -6,7 +6,7 @@ const repo=path.resolve(__dirname,'..');
   const content=[fs.readFileSync(path.join(repo,'index.html'),'utf8'),...js.map(x=>fs.readFileSync(path.join(repo,'js',x),'utf8'))];
   const result=await postcss([tailwind({content:content.map(raw=>({raw,extension:'html'})),theme:{extend:{fontWeight:Object.fromEntries([100,200,300,400,500,600,700,800,900].map(n=>[n,String(n)]))}},corePlugins:{preflight:true}})]).process('@tailwind base;\n@tailwind components;\n@tailwind utilities;',{from:undefined});
   fs.writeFileSync(path.join(repo,'assets/builder.css'),result.css.replace(/\/\*[\s\S]*?\*\//g,'').replace(/[ \t]+$/gm,'').trim()+'\n');
-  const assets={};for(const file of [...js.map(x=>'js/'+x),'assets/builder.css'])assets[file]=crypto.createHash('sha256').update(fs.readFileSync(path.join(repo,file))).digest('hex');
+  const assets={};for(const file of [...js.map(x=>'js/'+x),'assets/builder.css','assets/editor-design.css'])assets[file]=crypto.createHash('sha256').update(fs.readFileSync(path.join(repo,file))).digest('hex');
   let html=fs.readFileSync(path.join(repo,'index.html'),'utf8');
   for(const[file,hash]of Object.entries(assets))html=html.replace(new RegExp(file.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\?v=[^"\\s]+','g'),file+'?v='+hash.slice(0,12));
   fs.writeFileSync(path.join(repo,'index.html'),html);

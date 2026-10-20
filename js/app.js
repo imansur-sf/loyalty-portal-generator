@@ -35,6 +35,7 @@ const state = {
 let currentStep = 0;
 const totalSteps = 7;
 let previewTimer = null;
+let stepTransition = null;
 
 // ---- INIT ----
 document.addEventListener('DOMContentLoaded', () => {
@@ -735,12 +736,20 @@ function onToggleSection(section) {
 // ---- STEP NAVIGATION ----
 function goToStep(step) {
   if (step < 0 || step >= totalSteps) return;
+  const direction = step >= currentStep ? 1 : -1;
+  stepTransition?.cancel();
   // Hide current
   const panels = document.querySelectorAll('.step-panel');
   panels.forEach(p => p.classList.remove('active'));
   // Show target
   const target = document.querySelector(`.step-panel[data-step="${step}"]`);
   if (target) target.classList.add('active');
+  if (target?.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    stepTransition = target.animate([
+      { opacity: .5, transform: `translateX(${direction * 6}px)` },
+      { opacity: 1, transform: 'translateX(0)' }
+    ], { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  }
   currentStep = step;
   scheduleDraftRecovery();
   updateStepIndicators();
@@ -776,7 +785,8 @@ function updateNavButtons() {
       next.classList.add('hidden');
     } else {
       next.classList.remove('hidden');
-      next.textContent = 'Next →';
+      const label = document.querySelector(`.step-dot[data-step="${currentStep + 1}"]`)?.dataset.label || 'next step';
+      next.textContent = 'Continue to ' + label + ' →';
     }
   }
 }
@@ -789,6 +799,9 @@ function renderPaletteButtons() {
   Object.keys(INDUSTRY_DEFAULTS).forEach(key => {
     const d = INDUSTRY_DEFAULTS[key];
     const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.palette = key;
+    btn.setAttribute('aria-pressed', String(Object.entries(d.colors).every(([name, value]) => state.colors[name] === value)));
     btn.className = 'palette-btn flex items-center gap-2 text-xs font-600 text-gray-700';
     btn.innerHTML = `
       <div class="flex gap-0.5">
@@ -796,8 +809,10 @@ function renderPaletteButtons() {
         <div class="w-4 h-4 rounded-full" style="background:${d.colors.accent}"></div>
       </div>
       <span>${d.label}</span>
+      <span class="palette-selection" aria-hidden="true">✓</span>
     `;
     btn.onclick = () => {
+      window.LPGEditor?.record('Apply color palette');
       state.colors = { ...d.colors };
       if (!state.colors.menu) state.colors.menu = state.colors.primary;
       state.menuColorCustom = false;
@@ -811,6 +826,7 @@ function renderPaletteButtons() {
       setVal('hex-dark', state.colors.dark);
       setVal('color-menu', state.colors.menu);
       setVal('hex-menu', state.colors.menu);
+      syncPaletteSelection();
       schedulePreview();
     };
     container.appendChild(btn);
@@ -910,10 +926,10 @@ function renderBadges() {
   c.innerHTML = state.badges.map((b, i) => `
     <div class="bg-gray-50 rounded-lg p-3 relative">
       <button onclick="removeItem('badges',${i})" class="absolute top-1 right-2 text-red-400 hover:text-red-600 text-sm font-bold leading-none">&times;</button>
-      <div class="flex items-center gap-3">
-        <input type="text" value="${esc(b.emoji||'')}" onchange="updateItem('badges',${i},'emoji',this.value)" class="w-12 px-2 py-2 border border-gray-300 rounded-lg text-center text-lg outline-none focus:ring-2 focus:ring-blue-400/50" title="Emoji (fallback if no image)">
-        <input type="text" value="${esc(b.name)}" onchange="updateItem('badges',${i},'name',this.value)" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="Badge name">
-        <select onchange="updateItem('badges',${i},'color',this.value)" class="px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50 bg-white">
+      <div class="badge-edit-row">
+        <input type="text" aria-label="Badge ${i+1} emoji" value="${esc(b.emoji||'')}" onchange="updateItem('badges',${i},'emoji',this.value)" class="w-12 px-2 py-2 border border-gray-300 rounded-lg text-center text-lg outline-none focus:ring-2 focus:ring-blue-400/50" title="Emoji (fallback if no image)">
+        <input type="text" aria-label="Badge ${i+1} name" value="${esc(b.name)}" onchange="updateItem('badges',${i},'name',this.value)" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="Badge name">
+        <select aria-label="Badge ${i+1} color" onchange="updateItem('badges',${i},'color',this.value)" class="px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400/50 bg-white">
           ${GRADIENT_COLORS.map(c2 => `<option value="${c2}" ${b.color===c2?'selected':''}>${c2}</option>`).join('')}
         </select>
       </div>
@@ -1113,7 +1129,7 @@ function removeItem(section, index) {
 function autoGenerate(section) {
   if (state.program && ['vouchers', 'earnMore'].includes(section)) {
     goToStep(0); window.LPGRequirementsEditor?.editProgram();
-    document.getElementById('program-review')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('program-review')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
     return;
   }
   window.LPGEditor?.record('Use sample '+section);
@@ -1189,9 +1205,17 @@ function reinitDynamicImageUploads() {
 
 // ---- LIVE PREVIEW ----
 function schedulePreview() {
+  syncPaletteSelection();
   scheduleDraftRecovery();
   clearTimeout(previewTimer);
   previewTimer = setTimeout(updatePreview, 300);
+}
+
+function syncPaletteSelection() {
+  document.querySelectorAll('[data-palette]').forEach(button => {
+    const colors = INDUSTRY_DEFAULTS[button.dataset.palette]?.colors;
+    button.setAttribute('aria-pressed', String(Boolean(colors && Object.entries(colors).every(([name, value]) => state.colors[name] === value))));
+  });
 }
 
 let portalPreviewSequence = 0, expandedPreviewTimer = null, presenterRoleId = null, presenterRoleEpoch = null;
@@ -1201,16 +1225,19 @@ let previewSizingInitialized = false, previewResizeObserver = null;
 function fitDesktopPreview() {
   const stage = document.getElementById('preview-stage');
   const frame = document.getElementById('preview-iframe');
-  const width = stage?.clientWidth || 0;
+  const width = document.getElementById('preview-scroll')?.clientWidth || stage?.clientWidth || 0;
   // A hidden side panel has no measurable width. ResizeObserver fits it when
   // it becomes visible, without navigating the iframe or resetting its scroll.
   if (!frame || width <= 0) return;
   const device = document.getElementById('preview-device')?.value || 'desktop';
   const [canvasWidth,canvasHeight] = ({desktop:[1440,900],tablet:[820,1180],phone:[390,844],landscape:[844,390]})[device] || [1440,900];
   frame.style.width=canvasWidth+'px';frame.style.height=canvasHeight+'px';frame.width=canvasWidth;frame.height=canvasHeight;
-  const scale = Math.min(1, width / canvasWidth);
+  const actualSize = document.getElementById('preview-zoom')?.value === 'actual';
+  const scale = actualSize ? 1 : Math.min(1, width / canvasWidth);
   frame.style.transform = `scale(${scale})`;
   stage.style.height = `${canvasHeight * scale}px`;
+  stage.style.width = `${canvasWidth * scale}px`;
+  frame.title = `${document.getElementById('preview-device')?.selectedOptions[0]?.textContent || 'Desktop'} loyalty portal preview, ${Math.round(scale * 100)}%`;
   const label = document.getElementById('preview-scale-label');
   if (label) label.textContent = `${canvasWidth} × ${canvasHeight} · ${Math.round(scale * 100)}%`;
 }
@@ -1263,7 +1290,17 @@ function portalPreviewBridge(token, previous) {
   addEventListener('scroll', () => { if (!pending) pending = setTimeout(report, 100); }, { passive: true });
   let editMode=false;
   addEventListener('message',event=>{
-    if(event.source!==parent || event.data?.type!=='lpg-preview-edit-mode' || event.data.token!==token)return;
+    if(event.source!==parent || event.data?.token!==token)return;
+    if(event.data.type==='lpg-preview-image-framing') {
+      const {slot,fit,position}=event.data;
+      if(typeof slot!=='string'||!/^(?:(?:voucher|offer|badge|club|benefit-cover|benefit|earn|profile-task)-\d+|card-artwork)$/.test(slot))return;
+      if(!['cover','contain'].includes(fit)||!/^\d{1,3}% \d{1,3}%$/.test(position))return;
+      for(const image of document.querySelectorAll(`[data-lpg-image-slot="${slot}"]`)) {
+        image.style.objectFit=fit;image.style.objectPosition=position;
+      }
+      return;
+    }
+    if(event.data.type!=='lpg-preview-edit-mode')return;
     editMode=event.data.enabled===true;
     document.body.style.cursor=editMode?'crosshair':'';
   });
@@ -1276,6 +1313,17 @@ function portalPreviewBridge(token, previous) {
   // Allow layout scripts and two paint frames to establish sticky scene geometry.
   const start = () => requestAnimationFrame(() => requestAnimationFrame(restore));
   if (document.readyState === 'loading') addEventListener('DOMContentLoaded', start, { once: true }); else start();
+}
+
+// Framing changes are visual-only: update both sandboxed previews without navigating them.
+function updatePreviewImageFraming(slot, fit, position) {
+  for (const id of ['preview-iframe', 'expanded-preview-iframe']) {
+    const frame = document.getElementById(id);
+    if (frame?.dataset.previewToken) frame.contentWindow?.postMessage({
+      type: 'lpg-preview-image-framing', token: frame.dataset.previewToken, slot, fit, position
+    }, '*');
+  }
+  scheduleDraftRecovery();
 }
 function loadPortalPreview(frame, html) {
   if (!frame) return;
@@ -1354,6 +1402,8 @@ function openPortalPreview() {
   // Establish the visible grid before navigating the iframe. A hidden iframe
   // with a percentage height can retain an unusable initial viewport.
   if (!dialog.open) dialog.showModal();
+  const expandedDevice = document.getElementById('expanded-preview-device');
+  if (expandedDevice) expandedDevice.value = document.getElementById('preview-device')?.value || 'desktop';
   refreshPresenterTools();
   const device=document.getElementById('preview-device')?.value;const dims=({tablet:[820,1180],phone:[390,844],landscape:[844,390]})[device];const expanded=document.getElementById('expanded-preview-iframe');if(expanded){expanded.style.width=dims?Math.min(dims[0],window.innerWidth-32)+'px':'100%';expanded.style.maxWidth='100%';expanded.style.margin='0 auto';}
   try { loadPortalPreview(document.getElementById('expanded-preview-iframe'), generatePortalHTML(state)); }

@@ -315,18 +315,18 @@ function buildProfile(s) {
 
 // ---- MY BENEFITS (Expandable) ----
 function buildBenefits(s) {
-  const items = (s.benefits||[]).map(b => {
+  const items = (s.benefits||[]).map((b,i) => {
     const rawCover = b.coverImageData || b.coverImageUrl || '';
     const cover = s.outputTemplate === 'cinematic' ? lpgImageSource(rawCover) : '';
     const imgSrc = lpgImageSource(b.imageData || b.imageUrl);
     const iconInner = imgSrc
-      ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(b.name)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-lg hidden">${lpgEscape(b.emoji || '✨')}</span>`
+      ? `<img data-lpg-image-slot="benefit-${i}" style="${lpgImageStyle(b)}" src="${lpgEscape(imgSrc)}" alt="${lpgEscape(b.name)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-lg hidden">${lpgEscape(b.emoji || '✨')}</span>`
       : `<span class="text-lg">${lpgEscape(b.emoji || '✨')}</span>`;
     return `
             <div class="benefit-card ${cover ? 'cj-benefit-has-cover' : ''} flex items-center gap-3 p-3 rounded-xl bg-page-bg transition-colors hover:bg-gray-100">
               <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style="background-color: ${lpgColor(s.colors.primary)}12;">${iconInner}</div>
               <div class="benefit-copy"><p class="text-sm font-700 text-dark">${lpgEscape(b.name)}</p></div>
-              ${cover ? `<img class="lpg-benefit-cover" style="${lpgImageStyle(b,'cover')}" src="${lpgEscape(cover)}" alt="" loading="lazy" onerror="this.parentElement.classList.remove('cj-benefit-has-cover');this.remove();">` : ''}
+              ${cover ? `<img data-lpg-image-slot="benefit-cover-${i}" class="lpg-benefit-cover" style="${lpgImageStyle(b,'cover')}" src="${lpgEscape(cover)}" alt="" loading="lazy" onerror="this.parentElement.classList.remove('cj-benefit-has-cover');this.remove();">` : ''}
             </div>`;
   }).join('');
 
@@ -367,7 +367,7 @@ function buildVouchers(s) {
     }
     return `<div ${v.programRewardId ? `data-program-reward-id="${lpgEscape(v.programRewardId)}"` : ''} class="voucher-card card p-4 flex gap-4 cursor-pointer">
               <div class="w-20 h-20 rounded-xl bg-gradient-to-br from-${grad[0]} to-${grad[1]} flex items-center justify-center shrink-0 overflow-hidden shadow-inner">
-                ${imgSrc ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(v.title)}" style="${lpgImageStyle(v)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-3xl hidden">${lpgEscape(v.emoji||'🎁')}</span>` : `<span class="text-3xl">${lpgEscape(v.emoji||'🎁')}</span>`}
+                ${imgSrc ? `<img data-lpg-image-slot="voucher-${i}" src="${lpgEscape(imgSrc)}" alt="${lpgEscape(v.title)}" style="${lpgImageStyle(v)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-3xl hidden">${lpgEscape(v.emoji||'🎁')}</span>` : `<span class="text-3xl">${lpgEscape(v.emoji||'🎁')}</span>`}
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-start justify-between"><div><h3 class="text-sm font-700 text-dark leading-tight">${lpgEscape(v.title)}</h3><p class="text-xs text-muted mt-1">${lpgEscape(v.vendor||'')}</p>${v.description ? `<p class="text-xs text-muted mt-1" style="white-space:pre-wrap">${lpgEscape(v.description)}</p>` : ''}</div></div>
@@ -399,7 +399,7 @@ function buildOffers(s) {
     if (o.expiry) meta.push(`<span class="flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>${lpgEscape(o.expiry)}</span>`);
     return `<div class="offer-card card overflow-hidden flex">
               <div class="w-48 h-40 bg-gradient-to-br from-${grad[0]} to-${grad[1]} flex items-center justify-center shrink-0 overflow-hidden relative">
-                ${imgSrc ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(o.title)}" style="${lpgImageStyle(o)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-5xl hidden">${lpgEscape(o.emoji||'🎯')}</span>` : `<span class="text-6xl drop-shadow-lg">${lpgEscape(o.emoji||'🎯')}</span>`}
+                ${imgSrc ? `<img data-lpg-image-slot="offer-${i}" src="${lpgEscape(imgSrc)}" alt="${lpgEscape(o.title)}" style="${lpgImageStyle(o)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-5xl hidden">${lpgEscape(o.emoji||'🎯')}</span>` : `<span class="text-6xl drop-shadow-lg">${lpgEscape(o.emoji||'🎯')}</span>`}
                 <div class="absolute inset-0" style="background: linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.25) 100%);"></div>
               </div>
               <div class="p-5 flex-1 flex flex-col justify-between">
@@ -437,7 +437,7 @@ function buildEarnMore(s) {
       const image = lpgImageSource(e.imageData || e.imageUrl);
       const icon = e.emoji ? `<span class="text-xl" aria-hidden="true">${lpgEscape(e.emoji)}</span>` : icons[i % icons.length];
       return `<article data-program-rule-id="${lpgEscape(rule.id)}" class="earn-card card p-4">
-        ${image ? `<img src="${lpgEscape(image)}" alt="${lpgEscape(e.title)}" class="w-full h-32 rounded-xl object-cover mb-3" onerror="this.hidden=true;">` : ''}
+        ${image ? `<img data-lpg-image-slot="earn-${i}" style="${lpgImageStyle(e)}" src="${lpgEscape(image)}" alt="${lpgEscape(e.title)}" class="w-full h-32 rounded-xl object-cover mb-3" onerror="this.hidden=true;">` : ''}
         <div class="flex items-start gap-3">
           <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style="background-color: ${lpgColor(s.colors.primary)}15; color: ${lpgColor(s.colors.primary)};">${icon}</div>
           <div class="flex-1 min-w-0">
@@ -496,11 +496,11 @@ function buildProfileTasks(s) {
 // ---- MY BADGES ----
 function buildBadges(s) {
   if (!s.badges || s.badges.length === 0) return '';
-  const items = s.badges.map(b => {
+  const items = s.badges.map((b,i) => {
     const c = /^(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)$/.test(b.color || '') ? b.color : 'amber';
     const imgSrc = lpgImageSource(b.imageData || b.imageUrl);
     const inner = imgSrc
-      ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(b.name)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-2xl drop-shadow-sm hidden">${lpgEscape(b.emoji||'⭐')}</span>`
+      ? `<img data-lpg-image-slot="badge-${i}" style="${lpgImageStyle(b)}" src="${lpgEscape(imgSrc)}" alt="${lpgEscape(b.name)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="text-2xl drop-shadow-sm hidden">${lpgEscape(b.emoji||'⭐')}</span>`
       : `<span class="text-2xl drop-shadow-sm">${lpgEscape(b.emoji||'⭐')}</span>`;
     return `<div class="flex flex-col items-center gap-2 group">
               <div class="w-16 h-16 rounded-full bg-gradient-to-br from-${c}-400 to-${c}-600 flex items-center justify-center overflow-hidden transition-transform group-hover:scale-105" style="box-shadow: 0 0 0 3px #fff, 0 0 0 5px rgb(var(--tw-${c}-300, 251 191 36 / 0.7) / 0.6), 0 8px 16px -6px rgba(0,0,0,0.15);">${inner}</div>
@@ -525,7 +525,7 @@ function buildClubs(s) {
     const grad = lpgGradient(c.gradient, CLUB_GRADIENTS[i % CLUB_GRADIENTS.length]);
     return `<div class="card card-hover p-4 flex gap-3 cursor-pointer">
               <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-${grad[0]} to-${grad[1]} flex items-center justify-center shrink-0 overflow-hidden shadow-inner">
-                ${imgSrc ? `<img src="${lpgEscape(imgSrc)}" alt="${lpgEscape(c.name)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-2xl hidden">${lpgEscape(c.emoji||'👥')}</span>` : `<span class="text-2xl drop-shadow">${lpgEscape(c.emoji||'👥')}</span>`}
+                ${imgSrc ? `<img data-lpg-image-slot="club-${i}" style="${lpgImageStyle(c)}" src="${lpgEscape(imgSrc)}" alt="${lpgEscape(c.name)}" class="w-full h-full object-cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><span class="text-2xl hidden">${lpgEscape(c.emoji||'👥')}</span>` : `<span class="text-2xl drop-shadow">${lpgEscape(c.emoji||'👥')}</span>`}
               </div>
               <div class="min-w-0">
                 <h4 class="text-sm font-800 text-dark leading-tight">${lpgEscape(c.name)}</h4>

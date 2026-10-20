@@ -163,7 +163,7 @@
         logo.addEventListener('error',()=>{ card.classList.remove('cj-has-mark'); logo.remove(); }); card.appendChild(logo);
       }
       if (settings.mode === 'image' && options.cardImage) {
-        const artwork = make('img','cj-card-artwork'); artwork.src = options.cardImage; artwork.alt = '';artwork.style.objectFit=options.cardFit==='contain'?'contain':'cover';artwork.style.objectPosition=options.cardPosition || '50% 50%';
+        const artwork = make('img','cj-card-artwork'); artwork.dataset.lpgImageSlot = 'card-artwork'; artwork.src = options.cardImage; artwork.alt = '';artwork.style.objectFit=options.cardFit==='contain'?'contain':'cover';artwork.style.objectPosition=options.cardPosition || '50% 50%';
         card.classList.add('cj-has-artwork');
         if (settings.showDetails === false) card.classList.add('cj-hide-details');
         artwork.addEventListener('error',()=>{ card.classList.remove('cj-has-artwork','cj-hide-details'); artwork.remove(); }); card.prepend(artwork);

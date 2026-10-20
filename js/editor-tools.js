@@ -40,6 +40,7 @@
     const scenes={arrival:'arrival',progress:'progress',possibility:'possibility',benefits:'benefits',discovery:'discovery',details:'details'};
     if(key.startsWith('cj-') && scenes[scene]) {
       goToStep(0);root.LPGCinematic?.sync();
+      if(el('portal-settings'))el('portal-settings').open=true;
       const details=el('cinematic-settings')?.querySelectorAll('details');
       const index=['arrival','progress','possibility','benefits','discovery','details'].indexOf(scene);
       if(details?.[index]){details[index].open=true;details[index].scrollIntoView?.({block:'center'});details[index].querySelector('textarea')?.focus();}
@@ -54,7 +55,7 @@
   function stepChanged(step) {
     const panels=Array.from(document.querySelectorAll('.step-panel'));
     document.querySelectorAll('.step-dot').forEach((dot,index)=>{
-      const heading=panels.find(p=>Number(p.dataset.step)===index)?.querySelector('h2')?.textContent.trim() || 'Step '+(index+1);
+      const heading=dot.dataset.label || panels.find(p=>Number(p.dataset.step)===index)?.querySelector('h2')?.textContent.trim() || 'Step '+(index+1);
       dot.setAttribute('aria-label',`Step ${index+1}: ${heading}`);
       if(index===step)dot.setAttribute('aria-current','step');else dot.removeAttribute('aria-current');
     });
@@ -63,18 +64,27 @@
       const heading=document.querySelector('.step-panel.active h2');if(heading){heading.tabIndex=-1;heading.focus();}
     }
     if(el('editor-step-status'))el('editor-step-status').textContent=`Step ${step+1} of ${panels.length}`;
+    document.querySelector('.step-dot[aria-current=step]')?.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'instant'});
     enhance();syncHistory();
   }
   function enhance() {
     if(enhancing)return;enhancing=true;
     try {
       let count=0;
-      for(const label of document.querySelectorAll('.step-panel label')) {
+      for(const label of document.querySelectorAll('#wizard-col label')) {
         if(label.htmlFor)continue;
         const next=label.nextElementSibling;
-        const field=label.querySelector('input,select,textarea') || (next?.matches('input,select,textarea')?next:null);
+        const field=label.querySelector('input,select,textarea') || (next?.matches('input,select,textarea')?next:next?.querySelector('input,select,textarea'));
         if(!field)continue;if(!field.id)field.id='lpg-editor-field-'+(++fieldSequence);
         label.htmlFor=field.id;
+      }
+      for(const input of document.querySelectorAll('#wizard-col input[type=color]')) {
+        const hex=el(input.id.replace(/^color-/,'hex-'));
+        const label=hex?.labels?.[0] || input.labels?.[0];
+        if(label){
+          input.setAttribute('aria-label',label.textContent.trim()+' color picker');
+          hex?.setAttribute('aria-label',label.textContent.trim()+' hex color');
+        }
       }
       for(const button of document.querySelectorAll('.step-panel button'))if(button.textContent.trim()==='×' && !button.getAttribute('aria-label')) {
         const name=button.parentElement?.querySelector('input')?.value || 'item';button.setAttribute('aria-label','Remove '+name.slice(0,100));
@@ -86,13 +96,14 @@
   function search(query) {
     const results=el('editor-search-results');if(!results)return;results.replaceChildren();
     const q=query.trim().toLowerCase();if(!q){results.hidden=true;return;}
-    const matches=Array.from(document.querySelectorAll('.step-panel label[for],#display-label-editor label[for]')).filter(label=>label.textContent.toLowerCase().includes(q)&&el(label.htmlFor));
+    const matches=Array.from(document.querySelectorAll('#wizard-col label[for]')).filter(label=>!label.closest('[hidden]')&&label.textContent.toLowerCase().includes(q)&&el(label.htmlFor));
     for(const label of matches.slice(0,14)) {
       const button=document.createElement('button');button.type='button';button.className='editor-search-result';button.textContent=label.textContent.trim().slice(0,120);
       button.addEventListener('click',()=>{
         const panel=label.closest('.step-panel');if(panel)goToStep(Number(panel.dataset.step));
         for(let p=label.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;
         const field=el(label.htmlFor);field?.focus();field?.scrollIntoView?.({block:'center'});
+        results.hidden=true;
       });results.appendChild(button);
     }
     if(!matches.length)results.textContent='No matching editable fields.';results.hidden=false;
@@ -114,7 +125,8 @@
     const {item,prefix}=imageTarget(slot);if(!item)return;record('Image framing',slot+field);
     if(field==='Fit')item[prefix+'Fit']=value==='contain'?'contain':'cover';
     else {const pos=(item[prefix+'Position']||'50% 50%').split(' ');pos[field==='X'?0:1]=Math.max(0,Math.min(100,Number(value)||0))+'%';item[prefix+'Position']=pos.join(' ');}
-    schedulePreview();
+    if(typeof updatePreviewImageFraming==='function')updatePreviewImageFraming(slot,item[prefix+'Fit']==='contain'?'contain':'cover',item[prefix+'Position']||'50% 50%');
+    else schedulePreview();
   }
   function displayControls() {
     const host=el('display-label-editor');if(!host)return;
@@ -135,8 +147,11 @@
     el('preview-edit-mode')?.addEventListener('change',()=>{
       for(const id of ['preview-iframe','expanded-preview-iframe']){const frame=el(id);frame?.contentWindow?.postMessage({type:'lpg-preview-edit-mode',token:frame.dataset.previewToken,enabled:el('preview-edit-mode').checked},'*');}
     });
-    el('preview-device')?.addEventListener('change',()=>{fitDesktopPreview();if(el('portal-preview-dialog')?.open)openPortalPreview();});
+    el('preview-device')?.addEventListener('change',()=>{if(el('expanded-preview-device'))el('expanded-preview-device').value=el('preview-device').value;fitDesktopPreview();if(el('portal-preview-dialog')?.open)openPortalPreview();});
+    el('expanded-preview-device')?.addEventListener('change',()=>{el('preview-device').value=el('expanded-preview-device').value;fitDesktopPreview();openPortalPreview();});
+    el('preview-zoom')?.addEventListener('change',fitDesktopPreview);
     document.addEventListener('keydown',event=>{
+      if(event.key==='Escape'&&el('editor-search-results')&&!el('editor-search-results').hidden){el('editor-search-results').hidden=true;el('editor-search')?.focus();}
       if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='z'&&!event.target.matches('input,textarea,[contenteditable]')){event.preventDefault();event.shiftKey?restore('redo'):restore('undo');}
     });
     observer=new MutationObserver(()=>{queueMicrotask(enhance);});observer.observe(document.body,{childList:true,subtree:true});

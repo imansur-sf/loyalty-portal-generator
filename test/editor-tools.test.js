@@ -43,6 +43,8 @@ test('wizard names, labels, keyboard upload targets and search work together',as
     f.w.goToStep(3);assert.equal(doc.querySelectorAll('.step-dot')[3].getAttribute('aria-current'),'step');
     const field=doc.querySelector('#vouchers-container input');assert.ok(doc.querySelector(`label[for="${field.id}"]`));
     assert.equal(doc.getElementById('drop-logo').getAttribute('role'),'button');assert.equal(doc.getElementById('drop-logo').tabIndex,0);
+    assert.equal(doc.getElementById('color-accent').getAttribute('aria-label'),'Accent color picker');
+    assert.equal(doc.getElementById('hex-accent').getAttribute('aria-label'),'Accent hex color');
     const search=doc.getElementById('editor-search');search.value='Description';search.dispatchEvent(new f.w.Event('input'));assert.ok(doc.querySelectorAll('.editor-search-result').length);
   }finally{f.close();}
 });
@@ -80,5 +82,33 @@ test('member wording edits survive canonical form updates and start over clears 
   const input=label.querySelector('input');input.value='member@example.test';input.dispatchEvent(new f.w.Event('input'));
   f.run("onFieldChange({target:document.getElementById('member-name')})");assert.equal(f.run('state.member.email'),'member@example.test');
   f.run("state.locale='ar-SA';state.displayLabels={vouchers:'Custom'};startOver()");assert.equal(f.run('state.locale'),'en-US');assert.equal(f.run('Object.keys(state.displayLabels).length'),0);
+ }finally{f.close();}
+});
+
+test('zoom inspection preserves the preview document and returns to fit',async()=>{
+ const f=await fixture();try{
+  const doc=f.w.document,stage=doc.getElementById('preview-stage'),scroll=doc.getElementById('preview-scroll'),frame=doc.getElementById('preview-iframe');
+  Object.defineProperty(scroll,'clientWidth',{value:600});f.run('updatePreview()');const token=frame.dataset.previewToken;
+  const zoom=doc.getElementById('preview-zoom');zoom.value='actual';zoom.dispatchEvent(new f.w.Event('change'));
+  assert.equal(stage.style.width,'1440px');assert.equal(frame.style.transform,'scale(1)');assert.equal(frame.dataset.previewToken,token);
+  zoom.value='fit';zoom.dispatchEvent(new f.w.Event('change'));assert.equal(stage.style.width,'600px');assert.equal(stage.style.height,'375px');assert.equal(frame.dataset.previewToken,token);
+ }finally{f.close();}
+});
+
+test('framing sends live image updates without scheduling a document replacement',async()=>{
+ const f=await fixture();try{
+  f.run('updatePreview()');const frame=f.w.document.getElementById('preview-iframe'),messages=[];frame.contentWindow.postMessage=message=>messages.push(message);
+  let renders=0;f.w.schedulePreview=()=>renders++;
+  f.w.LPGEditor.imageEdit('voucher-0','X',85);
+  assert.equal(renders,0);assert.equal(messages[0].type,'lpg-preview-image-framing');assert.equal(messages[0].token,frame.dataset.previewToken);assert.equal(messages[0].position,'85% 50%');
+ }finally{f.close();}
+});
+
+test('project popover supports keyboard dismissal and returns focus to its trigger',async()=>{
+ const f=await fixture();try{
+  f.w.SaasyAuth={isSignedIn:()=>true,getEmail:()=> 'owner@example.test',listProjects:async()=>[]};f.w.saasyAuthReady=Promise.resolve(f.w.SaasyAuth);
+  await f.w.openMyProjects();const doc=f.w.document,panel=doc.getElementById('my-projects-panel'),trigger=doc.getElementById('my-projects-trigger');
+  assert.equal(panel.classList.contains('hidden'),false);assert.equal(trigger.getAttribute('aria-expanded'),'true');assert.ok(panel.contains(doc.activeElement));
+  doc.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(panel.classList.contains('hidden'),true);assert.equal(trigger.getAttribute('aria-expanded'),'false');assert.equal(doc.activeElement,trigger);
  }finally{f.close();}
 });

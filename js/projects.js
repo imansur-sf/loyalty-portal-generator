@@ -189,6 +189,11 @@ async function openMyProjects() {
     if (epoch !== projectEpoch) return;
     const owner = projectEmail();
     panel.classList.remove('hidden');
+    projectElement('my-projects-trigger')?.setAttribute('aria-expanded', 'true');
+    panel.querySelector('button')?.focus();
+    if (panel.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      panel.animate([{ opacity: 0, transform: 'scale(.98) translateY(-4px)' }, { opacity: 1, transform: 'scale(1) translateY(0)' }], { duration: 160, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    }
     const list = projectElement('my-projects-list');
     list.textContent = 'Loading…';
     const projects = await accountsAction(() => SaasyAuth.listProjects({ tool: SAASY_TOOL }), owner);
@@ -210,7 +215,24 @@ async function openMyProjects() {
     });
   } catch (error) { projectStatus(projectError(error)); syncAuthUI(); }
 }
-function closeMyProjects() { projectElement('my-projects-panel')?.classList.add('hidden'); }
+function closeMyProjects(restoreFocus = true) {
+  const panel = projectElement('my-projects-panel');
+  const hadFocus = panel?.contains?.(document.activeElement);
+  panel?.classList.add('hidden');
+  projectElement('my-projects-trigger')?.setAttribute('aria-expanded', 'false');
+  if (restoreFocus && hadFocus) projectElement('my-projects-trigger')?.focus();
+}
+document.addEventListener('keydown', event => {
+  const panel = projectElement('my-projects-panel');
+  if (event.key === 'Escape' && panel && !panel.classList.contains('hidden')) {
+    closeMyProjects(); event.preventDefault();
+  }
+});
+document.addEventListener('click', event => {
+  const panel = projectElement('my-projects-panel');
+  const trigger = projectElement('my-projects-trigger');
+  if (panel && !panel.classList.contains('hidden') && !panel.contains(event.target) && !trigger?.contains(event.target)) closeMyProjects(false);
+});
 async function deleteProjectFromList(id, row, owner = projectEmail()) {
   if (!confirm('Delete this saved project?')) return;
   try {

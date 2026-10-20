@@ -504,7 +504,7 @@
         diffs:Object.fromEntries(Object.entries(generated).map(([mode,portal])=>[mode,root.LPGContentContract.diff(root.LPGVariants.get(mode),portal)]))};
       pendingGeneration=proposal; renderGenerationReview();
       setQuickStartStatus('Your text proposal is ready. Review the rules and changes, then accept to fill images. Your current portal was kept.',false);
-      el('generation-review')?.scrollIntoView({block:'nearest',behavior:'smooth'});
+      el('generation-review')?.scrollIntoView({block:'nearest',behavior:root.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
       return {pending:true};
     }
     root.LPGVariants.replace(generated, brief.mode === 'both' ? state.activeVariant : brief.mode);
@@ -523,13 +523,18 @@
     portal.program = program; portal.programEnabled = true; portal.programReview = null;
     root.LPGVariants.replace({ [mode]: portal }, mode);
     state.programReview = { program, brand: {}, snapshot: fingerprint() };
-    renderReview(); updateProgram(); root.LPGVariants.render();
+    renderReview(); updateProgram(); root.LPGVariants.render(); focusProgramReview();
+  }
+  function focusProgramReview() {
+    const box=el('program-review'),heading=el('program-review-title');
+    if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});}
+    box?.scrollIntoView({block:'start',behavior:root.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
   }
   function editProgram() {
     if (!state.program) return sample();
     generationSequence++;
     state.programReview = { program: clone(state.program), brand: {}, snapshot: fingerprint(), live: true };
-    renderReview(); scheduleDraftRecovery();
+    renderReview(); scheduleDraftRecovery(); focusProgramReview();
   }
   function input(label, path, value, type = 'text', extra = '') {
     return `<label class="program-field">${safe(label)}<input type="${type}" data-program-path="${path}" value="${safe(value)}" ${type === 'number' ? 'min="0" step="any"' : 'maxlength="160"'} ${extra}></label>`;
