@@ -559,6 +559,20 @@ test('selective proposal acceptance has accessible group controls, all/none coun
   assert.ok(w.document.getElementById('generation-discard').classList.contains('btn-secondary-sf'));
  }finally{e.close();}
 });
+test('proposal actions precede the choices and accepting returns focus to the editor',async()=>{
+ const e=await editor({review:true});try{
+  const doc=e.w.document,create=doc.getElementById('create-portal-panel');create.open=true;
+  e.field('brief-text','Professional program');await e.w.LPGRequirementsEditor.analyze(e.client(),'');
+  const review=doc.getElementById('generation-review'),actions=review.querySelector('.generation-review-actions'),choices=review.querySelector('.generation-review-audience');
+  assert.equal(create.open,false);assert.equal(doc.activeElement,review.querySelector('h3'));
+  assert.ok(actions.compareDocumentPosition(choices)&e.w.Node.DOCUMENT_POSITION_FOLLOWING);
+  create.open=true;
+  await e.w.LPGRequirementsEditor.acceptGeneration();
+  assert.equal(create.open,false);assert.equal(review.hidden,true);
+  assert.equal(doc.activeElement,doc.querySelector('.step-panel.active h2'));
+  assert.equal(doc.getElementById('program-name').value,'ISACA Member Rewards');
+ }finally{e.close();}
+});
 test('proposal preview keeps a desktop viewport while fitting its panel without reloading on resize',async()=>{
  const e=await editor({review:true});try{
   let resized,disconnected=0;

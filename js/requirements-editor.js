@@ -53,6 +53,12 @@
     if(discard)clearCheckpoint();
     renderRecovery();
     setQuickStartStatus('Generation cancelled. Your current portal and edits were kept.', false);
+    if(discard)focusPortalEditor();
+  }
+  function focusPortalEditor() {
+    const createPanel=el('create-portal-panel');if(createPanel)createPanel.open=false;
+    const heading=document.querySelector('.step-panel.active h2');
+    if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});heading.scrollIntoView({block:'start',behavior:'instant'});}
   }
   function commitGeneration(proposal) {
     root.LPGEditor?.record?.('Accept AI changes');
@@ -61,6 +67,7 @@
     if (el('portal-edit-status')) el('portal-edit-status').textContent = proposal.warnings.join(' ');
     renderImageControls();
     setQuickStartStatus('Your text draft is ready. Images are filling in; you can edit your portal now.', false);
+    focusPortalEditor();
   }
   function renderImageControls() {
     let box=el('image-generation-controls');
@@ -308,10 +315,10 @@
     if(!box&&el('program-review')) {box=document.createElement('section');box.id='generation-review';box.className='generation-review-panel program-edit-card';box.setAttribute('aria-label','Review proposed AI update');el('program-review').insertAdjacentElement('beforebegin',box);}
     if(!box)return;box.hidden=!pendingGeneration;if(!pendingGeneration){box.replaceChildren();return;}
     box.removeAttribute('aria-live');const proposal=pendingGeneration;prepareSelection(proposal);
-    box.innerHTML=`<h3>Choose the changes to apply</h3><p>Your current portal is unchanged. Keep the changes you want and uncheck the rest. You can also review individual text fields when the list of items stays the same.</p><div class="generation-review-selection-tools"><button type="button" id="generation-select-all">Select all</button><button type="button" id="generation-select-none">Select none</button><p id="generation-selection-count" role="status" aria-live="polite"></p></div>`+Object.keys(proposal.generated).map(mode=>{
+    box.innerHTML=`<h3>Choose the changes to apply</h3><p>Your current portal is unchanged. Keep the changes you want and uncheck the rest. You can also review individual text fields when the list of items stays the same.</p><div class="generation-review-actions"><button type="button" id="generation-accept" class="btn-primary-sf">Apply selected changes</button><button type="button" id="generation-discard" class="btn-secondary-sf">Discard proposal</button></div><div class="generation-review-selection-tools"><button type="button" id="generation-select-all">Select all</button><button type="button" id="generation-select-none">Select none</button><p id="generation-selection-count" role="status" aria-live="polite"></p></div>`+Object.keys(proposal.generated).map(mode=>{
       const evidence=proposal.generated[mode].programEvidence;
       return `<section class="generation-review-audience" aria-label="${safe(mode.toUpperCase())} proposed changes"><h4>${safe(mode.toUpperCase())}</h4>`+proposal.groups.filter(group=>group.mode===mode).map(group=>`<fieldset class="generation-review-group"><legend><label class="generation-review-section-label"><input type="checkbox" id="${group.id}" data-review-group="${group.id}" checked> ${safe(group.label)}</label></legend>${group.note?`<p class="generation-review-group-note">${safe(group.note)}</p>`:''}<details class="generation-review-details"><summary>${group.atomic?'Review changes in this group':'Choose individual changes'}</summary><ul class="generation-review-changes">${group.units.map(unit=>`<li class="generation-review-change">${group.atomic?`<strong>${safe(group.label)}</strong>`:`<label class="generation-review-field-label"><input type="checkbox" id="${unit.id}" data-review-unit="${unit.id}" checked> ${safe(unitLabel(unit,group,proposal))}</label>`}${unit.operations.map(operation=>`<div class="generation-review-comparison"><span class="generation-review-path">${safe(operation.path.join('.')||'New portal')}</span><div class="generation-review-before"><strong>Before</strong><pre tabindex="0" aria-label="Before value">${safe(reviewValue(operation.before,String(operation.path.at(-1))))}</pre></div><div class="generation-review-after"><strong>Proposed</strong><pre tabindex="0" aria-label="Proposed value">${safe(reviewValue(operation.after,String(operation.path.at(-1))))}</pre></div></div>`).join('')}</li>`).join('')}</ul></details></fieldset>`).join('')+(evidence?`<details class="generation-review-evidence"><summary>Review program facts and source evidence</summary><p>${evidence.summary.quoted} source-quoted · ${evidence.summary.illustrative} illustrative · ${evidence.summary.unresolved} unresolved facts. Quotes and values are checked against supplied pages; review whether they establish the intended policy.</p><ul>${evidence.records.map(record=>`<li><strong>${safe(record.path)}</strong>: ${safe(record.value===null?'Not specified':record.value)} <strong>(${safe(record.status)})</strong>${record.quote?`<blockquote>${safe(record.quote)}</blockquote><small>${safe(record.source)} · page ${record.page}</small>`:''}<p>${safe(record.reason)}</p></li>`).join('')}</ul></details>`:'')+'</section>';
-    }).join('')+`<details class="generation-review-preview"><summary>Preview selected changes</summary><div id="generation-review-preview-stage" style="position:relative;width:100%;max-width:1440px;aspect-ratio:1440/900;overflow:hidden;border:1px solid #ccd4e0"><iframe id="generation-review-preview" width="1440" height="900" title="Desktop portal preview with selected changes" sandbox="allow-scripts" style="position:absolute;inset:0;width:1440px;height:900px;border:0;transform-origin:top left"></iframe></div></details><div class="generation-review-actions"><button type="button" id="generation-accept" class="btn-primary-sf">Apply selected changes</button><button type="button" id="generation-discard" class="btn-secondary-sf">Discard proposal</button></div><p id="generation-review-error" role="status"></p>`;
+    }).join('')+`<details class="generation-review-preview"><summary>Preview selected changes</summary><div id="generation-review-preview-stage" style="position:relative;width:100%;max-width:1440px;aspect-ratio:1440/900;overflow:hidden;border:1px solid #ccd4e0"><iframe id="generation-review-preview" width="1440" height="900" title="Desktop portal preview with selected changes" sandbox="allow-scripts" style="position:absolute;inset:0;width:1440px;height:900px;border:0;transform-origin:top left"></iframe></div></details><p id="generation-review-error" role="status"></p>`;
     box.querySelector('.generation-review-preview').addEventListener('toggle',fitReviewPreview);
     if(typeof root.ResizeObserver==='function'){reviewPreviewResizeObserver=new root.ResizeObserver(fitReviewPreview);reviewPreviewResizeObserver.observe(el('generation-review-preview-stage'));}
     fitReviewPreview();
@@ -504,7 +511,9 @@
         diffs:Object.fromEntries(Object.entries(generated).map(([mode,portal])=>[mode,root.LPGContentContract.diff(root.LPGVariants.get(mode),portal)]))};
       pendingGeneration=proposal; renderGenerationReview();
       setQuickStartStatus('Your text proposal is ready. Review the rules and changes, then accept to fill images. Your current portal was kept.',false);
-      el('generation-review')?.scrollIntoView({block:'nearest',behavior:root.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+      const createPanel=el('create-portal-panel');if(createPanel)createPanel.open=false;
+      const reviewHeading=el('generation-review')?.querySelector('h3');
+      if(reviewHeading){reviewHeading.tabIndex=-1;reviewHeading.focus({preventScroll:true});reviewHeading.scrollIntoView({block:'start',behavior:'instant'});}
       return {pending:true};
     }
     root.LPGVariants.replace(generated, brief.mode === 'both' ? state.activeVariant : brief.mode);
