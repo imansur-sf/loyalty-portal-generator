@@ -1,6 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 const {JSDOM}=require('jsdom');
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+async function waitFor(condition){const deadline=Date.now()+2000;while(!condition()){if(Date.now()>deadline)assert.fail('Timed out waiting for the UI operation');await tick();}}
 async function fixture(overrides={}){
  const html=fs.readFileSync('index.html','utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,'');
  const dom=new JSDOM(html,{url:'https://lpg.test/',runScripts:'outside-only'}),w=dom.window;await new Promise(resolve=>w.document.addEventListener('DOMContentLoaded',resolve,{once:true}));
@@ -27,7 +28,7 @@ test('screenshots finish compression before submit, can be removed, and release 
  f.w.Image=class{constructor(){this.naturalWidth=2400;this.naturalHeight=1200;}set src(value){if(value)queueMicrotask(()=>this.onload());}};
  f.w.HTMLCanvasElement.prototype.getContext=()=>({fillRect(){},drawImage(){}});let finish;
  f.w.HTMLCanvasElement.prototype.toBlob=function(callback){finish=()=>callback(new f.w.Blob(['picture'],{type:'image/jpeg'}));};
- const input=f.$('feedback-files');Object.defineProperty(input,'files',{value:[new f.w.File(['picture'],'screen.png',{type:'image/png'})],configurable:true});input.dispatchEvent(new f.w.Event('change'));await tick();assert.equal(f.$('feedback-submit').disabled,true);finish();await tick();await tick();assert.equal(f.$('feedback-submit').disabled,false);assert.equal(f.$('feedback-previews').querySelectorAll('img').length,1);f.fill();f.submit();await tick();assert.equal(f.calls[0].payload.attachments[0].type,'image/jpeg');assert.equal(f.calls[0].payload.attachments[0].name,'screen.jpg');assert.ok(f.calls[0].payload.attachments[0].data);f.$('feedback-done').click();assert.equal(f.$('feedback-previews').children.length,0);assert.ok(f.revoked.length>=2);
+ const input=f.$('feedback-files');Object.defineProperty(input,'files',{value:[new f.w.File(['picture'],'screen.png',{type:'image/png'})],configurable:true});input.dispatchEvent(new f.w.Event('change'));await tick();assert.equal(f.$('feedback-submit').disabled,true);finish();await waitFor(()=>!f.$('feedback-submit').disabled);assert.equal(f.$('feedback-submit').disabled,false);assert.equal(f.$('feedback-previews').querySelectorAll('img').length,1);f.fill();f.submit();await tick();assert.equal(f.calls[0].payload.attachments[0].type,'image/jpeg');assert.equal(f.calls[0].payload.attachments[0].name,'screen.jpg');assert.ok(f.calls[0].payload.attachments[0].data);f.$('feedback-done').click();assert.equal(f.$('feedback-previews').children.length,0);assert.ok(f.revoked.length>=2);
  }finally{f.close();}
 });
 test('inbox supports paging, category filters and status saves without injecting markup',async()=>{

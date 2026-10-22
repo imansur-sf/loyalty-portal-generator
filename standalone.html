@@ -519,9 +519,6 @@ video {
 .left-0 {
   left: 0px;
 }
-.right-0 {
-  right: 0px;
-}
 .right-2 {
   right: 0.5rem;
 }
@@ -539,9 +536,6 @@ video {
 }
 .top-28 {
   top: 7rem;
-}
-.top-full {
-  top: 100%;
 }
 .isolate {
   isolation: isolate;
@@ -718,9 +712,6 @@ video {
 .h-full {
   height: 100%;
 }
-.max-h-72 {
-  max-height: 18rem;
-}
 .min-h-screen {
   min-height: 100vh;
 }
@@ -769,9 +760,6 @@ video {
 .w-7 {
   width: 1.75rem;
 }
-.w-80 {
-  width: 20rem;
-}
 .w-9 {
   width: 2.25rem;
 }
@@ -789,9 +777,6 @@ video {
 }
 .max-w-\[1400px\] {
   max-width: 1400px;
-}
-.max-w-\[160px\] {
-  max-width: 160px;
 }
 .max-w-md {
   max-width: 28rem;
@@ -937,23 +922,11 @@ video {
   margin-top: calc(1.5rem * calc(1 - var(--tw-space-y-reverse)));
   margin-bottom: calc(1.5rem * var(--tw-space-y-reverse));
 }
-.divide-y > :not([hidden]) ~ :not([hidden]) {
-  --tw-divide-y-reverse: 0;
-  border-top-width: calc(1px * calc(1 - var(--tw-divide-y-reverse)));
-  border-bottom-width: calc(1px * var(--tw-divide-y-reverse));
-}
-.divide-gray-100 > :not([hidden]) ~ :not([hidden]) {
-  --tw-divide-opacity: 1;
-  border-color: rgb(243 244 246 / var(--tw-divide-opacity, 1));
-}
 .self-start {
   align-self: flex-start;
 }
 .overflow-hidden {
   overflow: hidden;
-}
-.overflow-y-auto {
-  overflow-y: auto;
 }
 .truncate {
   overflow: hidden;
@@ -986,9 +959,6 @@ video {
 }
 .border-2 {
   border-width: 2px;
-}
-.border-b {
-  border-bottom-width: 1px;
 }
 .border-t {
   border-top-width: 1px;
@@ -3176,9 +3146,6 @@ video {
 .tracking-tight {
   letter-spacing: -0.025em;
 }
-.tracking-wide {
-  letter-spacing: 0.025em;
-}
 .tracking-wider {
   letter-spacing: 0.05em;
 }
@@ -3409,10 +3376,6 @@ video {
 .hover\:text-blue-600:hover {
   --tw-text-opacity: 1;
   color: rgb(37 99 235 / var(--tw-text-opacity, 1));
-}
-.hover\:text-gray-600:hover {
-  --tw-text-opacity: 1;
-  color: rgb(75 85 99 / var(--tw-text-opacity, 1));
 }
 .hover\:text-red-600:hover {
   --tw-text-opacity: 1;
@@ -3786,19 +3749,18 @@ video {
       </div>
       <div class="flex flex-wrap items-center gap-2 relative">
         <button id="save-project-button" onclick="saveCurrentProject()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Save Project</button>
-        <button id="my-projects-trigger" aria-expanded="false" aria-controls="my-projects-panel" onclick="openMyProjects()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">My Projects</button>
-        <span id="auth-email" class="hidden text-xs text-white/70 max-w-[160px] truncate"></span>
-        <button id="btn-auth" onclick="onAuthButtonClick()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Sign In</button>
-        <button onclick="startOver()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Start Over</button>
+        <button id="btn-auth" type="button" onclick="onAuthButtonClick()" class="btn-topbar account-trigger" aria-label="Sign In"><span id="account-avatar" class="account-avatar" aria-hidden="true" hidden></span><span id="account-name">Sign In</span><span id="account-chevron" class="account-chevron" aria-hidden="true" hidden>⌄</span></button>
         <button id="feedback-open" type="button" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Feedback</button>
         <button id="feedback-inbox-open" type="button" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full" hidden>Feedback Inbox <span id="feedback-unread"></span></button>
-
-        <div id="my-projects-panel" class="hidden absolute right-0 top-full mt-2 w-80 bg-white text-gray-800 rounded-xl shadow-lg border border-gray-200 text-left z-50 overflow-hidden">
-          <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <span class="text-xs font-700 uppercase tracking-wide text-gray-500">My Projects</span>
-            <button aria-label="Close My Projects" onclick="closeMyProjects()" class="text-gray-400 hover:text-gray-600 text-sm">✕</button>
-          </div>
-          <div id="my-projects-list" class="max-h-72 overflow-y-auto divide-y divide-gray-100"></div>
+        <button onclick="startOver()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Start Over</button>
+        <div id="account-menu" class="account-popover" aria-label="Your account" hidden>
+          <div class="account-identity"><span>Signed in as</span><strong id="auth-email"></strong></div>
+          <button id="my-projects-trigger" type="button" aria-expanded="false" aria-controls="my-projects-panel" onclick="openMyProjects()">My Projects</button>
+          <button id="account-sign-out" type="button" class="account-sign-out" onclick="signOutProjectAccount()">Sign Out</button>
+        </div>
+        <div id="my-projects-panel" class="account-popover hidden" role="region" aria-label="My Projects">
+          <div class="account-popover-heading"><span>My Projects</span><button type="button" aria-label="Close My Projects" onclick="closeMyProjects()">×</button></div>
+          <div id="my-projects-list" aria-live="polite"></div>
         </div>
       </div>
     </div>
@@ -4451,6 +4413,32 @@ video {
 .builder-app .project-status-bar { max-width: 1880px; margin: auto; padding: 0 1.75rem; font-size: .8125rem; color: var(--editor-muted); }
 .project-status-bar:has(:not(:empty)) { padding-block: .5rem; }
 .builder-app #my-projects-panel { max-width: calc(100vw - 2rem); transform-origin: top right; border-radius: .875rem; }
+.builder-app .account-trigger { display: inline-flex; align-items: center; gap: .625rem; border-radius: 999px; }
+.account-avatar { display: grid; place-items: center; width: 1.5rem; height: 1.5rem; flex-shrink: 0; border-radius: 50%; background: #ffffff30; color: #fff; font-weight: 600; }
+.account-avatar[hidden],.account-chevron[hidden],.account-popover[hidden] { display: none; }
+#account-name { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.account-chevron { font-size: .75rem; }
+.account-popover { position: fixed; z-index: 100; box-sizing: border-box; overflow: auto; padding: 0; border: 1px solid #e2e8f0; border-radius: 1rem; background: #fff; color: #344054; box-shadow: 0 12px 32px #10254a20,0 3px 8px #10254a0d; text-align: left; }
+.account-identity { padding: 1rem 1.25rem; border-bottom: 1px solid #edf0f5; }
+.account-identity > span { display: block; color: #667085; text-transform: uppercase; letter-spacing: .04em; font-size: .75rem; font-weight: 600; }
+.account-identity strong { display: block; margin-top: .375rem; overflow-wrap: anywhere; font-size: 1rem; font-weight: 600; }
+.account-popover > button { display: block; width: 100%; padding: .875rem 1.25rem; border: 0; border-bottom: 1px solid #edf0f5; background: #fff; color: inherit; text-align: left; font: inherit; }
+.account-popover > button:hover { background: #f3f7fd; }
+.account-popover > .account-sign-out { color: #c42626; border-bottom: 0; }
+.account-popover-heading { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; padding: .5rem 1.25rem; background: #fff; border-bottom: 1px solid #edf0f5; }
+.account-popover-heading > span { font-size: .8125rem; text-transform: uppercase; font-weight: 600; color: #667085; }
+.account-popover-heading button { min-width: 2.75rem; padding: .375rem; border: 0; border-radius: .5rem; color: #8995aa; background: #fff; font-size: 1.5rem; }
+.account-popover-heading button:hover { background: #f3f7fd; }
+.project-list-entry { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 1rem; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid #edf0f5; }
+.project-list-entry:last-child { border-bottom: 0; }
+.project-list-info { min-width: 0; }
+.project-list-info strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; font-weight: 600; }
+.project-list-info > span { display: block; margin-top: .25rem; font-size: .8125rem; color: #667085; }
+.project-list-actions { display: flex; gap: .375rem; }
+.project-list-actions button { padding: .375rem .625rem; border: 1px solid #dce3ed; border-radius: .625rem; color: #475467; background: #fff; font-size: .8125rem; }
+.project-list-actions button:hover { background: #edf3ff; color: #022ac0; }
+#my-projects-list:empty { padding: 0; }
+#my-projects-list:not(:has(.project-list-entry)) { padding: 1.25rem; font-size: .875rem; }
 .builder-app .stepper-shell { background: #ffffffb8; border-bottom: 1px solid var(--editor-line); }
 .builder-app .stepper-shell > div { max-width: 1400px; padding: .875rem 1.5rem; }
 .step-navigation { display: flex; align-items: center; justify-content: center; gap: .5rem; }
@@ -12601,7 +12589,7 @@ let workspaceOwner = '', projectEpoch = 0, projectSaveInFlight = false;
 let projectSaveAttempt = null, lastCloudSnapshot = '', editorDefaults;
 let draftReady = false, draftPending = null, draftTimer, draftDatabase;
 let draftTabKey = '', draftWrites = Promise.resolve(), draftGeneration = 0;
-let lastDraftJSON = '', projectLoadSequence = 0;
+let lastDraftJSON = '', projectLoadSequence = 0, projectListSequence = 0;
 
 const cloneProject = value => JSON.parse(JSON.stringify(value));
 const projectEmail = () => String(window.SaasyAuth?.getEmail() || '').toLowerCase();
@@ -12641,25 +12629,65 @@ async function accountsAction(action, owner = projectEmail()) {
     return action();
   }
 }
+function positionAccountPopover(panel) {
+  if (!panel || panel.hidden || panel.classList.contains('hidden')) return;
+  const rect = projectElement('btn-auth').getBoundingClientRect();
+  const width = Math.min(panel.id === 'account-menu' ? 320 : 400, window.innerWidth - 32);
+  const top = Math.max(16, Math.min(rect.bottom + 10, window.innerHeight - 100));
+  panel.style.width = width + 'px';
+  panel.style.left = Math.max(16, Math.min(rect.right - width, window.innerWidth - width - 16)) + 'px';
+  panel.style.top = top + 'px';
+  panel.style.maxHeight = Math.max(80, window.innerHeight - top - 16) + 'px';
+}
+function closeAccountMenu(restoreFocus = true) {
+  const panel = projectElement('account-menu');
+  const hadFocus = panel?.contains?.(document.activeElement);
+  if (panel) panel.hidden = true;
+  projectElement('btn-auth')?.setAttribute?.('aria-expanded', 'false');
+  if (restoreFocus && hadFocus) projectElement('btn-auth')?.focus();
+}
 function syncAuthUI() {
-  const signedIn = window.SaasyAuth?.isSignedIn();
-  projectElement('btn-auth').textContent = signedIn ? 'Sign Out' : 'Sign In';
-  projectElement('auth-email').textContent = signedIn ? projectEmail() : '';
+  const signedIn = Boolean(window.SaasyAuth?.isSignedIn()), email = signedIn ? projectEmail() : '';
+  if (projectElement('auth-email').textContent !== email || !signedIn) { closeAccountMenu(false); closeMyProjects(false); }
+  projectElement('auth-email').textContent = email;
   projectElement('auth-email').classList.toggle('hidden', !signedIn);
+  projectElement('account-name').textContent = signedIn ? email.split('@')[0] : 'Sign In';
+  projectElement('account-avatar').textContent = email.slice(0, 1).toUpperCase();
+  projectElement('account-avatar').hidden = !signedIn;
+  projectElement('account-chevron').hidden = !signedIn;
+  const trigger = projectElement('btn-auth');
+  trigger.setAttribute?.('aria-label', signedIn ? 'Account for ' + email : 'Sign In');
+  if (signedIn) {
+    trigger.setAttribute?.('aria-controls', 'account-menu my-projects-panel');
+    trigger.setAttribute?.('aria-expanded', String(!projectElement('account-menu').hidden || !projectElement('my-projects-panel').classList.contains('hidden')));
+  } else { trigger.removeAttribute?.('aria-controls'); trigger.removeAttribute?.('aria-expanded'); }
 }
 async function onAuthButtonClick() {
   try {
     await window.saasyAuthReady;
-    if (SaasyAuth.isSignedIn()) {
-      SaasyAuth.signOut();
-      resetProjectIdentity(false);
-      closeMyProjects();
-      projectStatus('Signed out. Your current work is still in the editor.');
-    } else await requireProjectAuth();
+    if (!SaasyAuth.isSignedIn()) { await requireProjectAuth(); return; }
     syncAuthUI();
+    const panel = projectElement('account-menu');
+    if (!panel.hidden) { closeAccountMenu(); return; }
+    closeMyProjects(false);
+    panel.hidden = false;
+    projectElement('btn-auth').setAttribute('aria-expanded', 'true');
+    positionAccountPopover(panel);
+    projectElement('my-projects-trigger').focus();
   } catch (error) {
     if ((error.code || error.message) !== 'cancelled') projectStatus(projectError(error));
   }
+}
+async function signOutProjectAccount() {
+  try {
+    await window.saasyAuthReady;
+    SaasyAuth.signOut();
+    resetProjectIdentity(false);
+    closeAccountMenu(false); closeMyProjects(false); syncAuthUI();
+    window.LPGFeedback?.refreshSession(true);
+    projectStatus('Signed out. Your current work is still in the editor.');
+    projectElement('btn-auth').focus();
+  } catch (error) { projectStatus(projectError(error)); }
 }
 function resetProjectIdentity(clearOwner = true) {
   currentProjectId = null; currentProjectName = ''; currentProjectRevision = null;
@@ -12782,8 +12810,11 @@ async function openMyProjects() {
   try {
     await requireProjectAuth();
     if (epoch !== projectEpoch) return;
-    const owner = projectEmail();
+    const owner = projectEmail(), request = ++projectListSequence;
+    closeAccountMenu(false);
     panel.classList.remove('hidden');
+    positionAccountPopover(panel);
+    projectElement('btn-auth').setAttribute('aria-expanded', 'true');
     projectElement('my-projects-trigger')?.setAttribute('aria-expanded', 'true');
     panel.querySelector('button')?.focus();
     if (panel.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -12792,41 +12823,50 @@ async function openMyProjects() {
     const list = projectElement('my-projects-list');
     list.textContent = 'Loading…';
     const projects = await accountsAction(() => SaasyAuth.listProjects({ tool: SAASY_TOOL }), owner);
-    if (epoch !== projectEpoch || projectEmail() !== owner) return;
+    if (request !== projectListSequence || epoch !== projectEpoch || projectEmail() !== owner) return;
     list.textContent = projects.length ? '' : 'No saved projects yet.';
     projects.forEach(project => {
-      const row = document.createElement('div');
-      row.className = 'px-4 py-3 flex items-center justify-between gap-2';
-      const title = document.createElement('span'); title.textContent = project.name;
-      title.className = 'text-sm text-gray-800 truncate'; row.appendChild(title);
+      const row = document.createElement('div'); row.className = 'project-list-entry';
+      const info = document.createElement('div'); info.className = 'project-list-info';
+      const title = document.createElement('strong'); title.textContent = project.name; title.title = project.name;
+      const date = document.createElement('span');
+      const savedAt = new Date(project.updatedAt || project.updated_at || project.createdAt || project.created_at || '');
+      date.textContent = Number.isNaN(savedAt.getTime()) ? '' : savedAt.toLocaleDateString();
+      info.append(title, date); row.appendChild(info);
+      const actions = document.createElement('div'); actions.className = 'project-list-actions';
       for (const action of ['Load', 'Delete']) {
         const button = document.createElement('button'); button.type = 'button'; button.textContent = action;
-        button.className = 'text-xs text-gray-700 border border-gray-300 rounded px-2 py-1';
         button.setAttribute('aria-label', action + ' ' + project.name);
         button.onclick = () => action === 'Load' ? loadProjectAndHydrate(project.id) : deleteProjectFromList(project.id, row, owner);
-        row.appendChild(button);
+        actions.appendChild(button);
       }
+      row.appendChild(actions);
       list.appendChild(row);
     });
   } catch (error) { projectStatus(projectError(error)); syncAuthUI(); }
 }
 function closeMyProjects(restoreFocus = true) {
+  projectListSequence++;
   const panel = projectElement('my-projects-panel');
   const hadFocus = panel?.contains?.(document.activeElement);
   panel?.classList.add('hidden');
+  projectElement('my-projects-list')?.replaceChildren?.();
   projectElement('my-projects-trigger')?.setAttribute('aria-expanded', 'false');
-  if (restoreFocus && hadFocus) projectElement('my-projects-trigger')?.focus();
+  if (projectElement('account-menu')?.hidden) projectElement('btn-auth')?.setAttribute?.('aria-expanded', 'false');
+  if (restoreFocus && hadFocus) projectElement('btn-auth')?.focus();
 }
 document.addEventListener('keydown', event => {
   const panel = projectElement('my-projects-panel');
+  if (event.key === 'Escape' && !projectElement('account-menu')?.hidden) { closeAccountMenu(); event.preventDefault(); }
   if (event.key === 'Escape' && panel && !panel.classList.contains('hidden')) {
     closeMyProjects(); event.preventDefault();
   }
 });
 document.addEventListener('click', event => {
   const panel = projectElement('my-projects-panel');
-  const trigger = projectElement('my-projects-trigger');
-  if (panel && !panel.classList.contains('hidden') && !panel.contains(event.target) && !trigger?.contains(event.target)) closeMyProjects(false);
+  const trigger = projectElement('btn-auth'), accountMenu = projectElement('account-menu');
+  if (accountMenu && !accountMenu.hidden && !accountMenu.contains(event.target) && !trigger?.contains(event.target)) closeAccountMenu(false);
+  if (panel && !panel.classList.contains('hidden') && !panel.contains(event.target) && !trigger?.contains(event.target) && !projectElement('my-projects-trigger')?.contains(event.target)) closeMyProjects(false);
 });
 async function deleteProjectFromList(id, row, owner = projectEmail()) {
   if (!confirm('Delete this saved project?')) return;
@@ -12835,6 +12875,7 @@ async function deleteProjectFromList(id, row, owner = projectEmail()) {
     await accountsAction(() => SaasyAuth.deleteProject(id), owner);
     if (projectEmail() !== owner) return;
     row.remove();
+    if (!projectElement('my-projects-list').children.length) projectElement('my-projects-list').textContent = 'No saved projects yet.';
     if (String(id) === String(currentProjectId)) resetProjectIdentity(false);
     await persistDraftRecovery();
   } catch (error) { projectStatus(projectError(error)); }
@@ -12971,6 +13012,16 @@ async function initializeProjects() {
     if (!draftPending || confirm('Open the linked cloud project instead of the available browser draft?')) await loadProjectAndHydrate(id, false);
   }
 }
+
+function repositionAccountPopovers(event) {
+  for (const id of ['account-menu', 'my-projects-panel']) {
+    const panel = projectElement(id);
+    if (event?.type === 'scroll' && panel?.contains?.(event.target)) continue;
+    positionAccountPopover(panel);
+  }
+}
+window.addEventListener('resize', repositionAccountPopovers);
+document.addEventListener('scroll', repositionAccountPopovers, true);
 
 </script>
   <script>

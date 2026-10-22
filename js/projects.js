@@ -6,7 +6,7 @@ let workspaceOwner = '', projectEpoch = 0, projectSaveInFlight = false;
 let projectSaveAttempt = null, lastCloudSnapshot = '', editorDefaults;
 let draftReady = false, draftPending = null, draftTimer, draftDatabase;
 let draftTabKey = '', draftWrites = Promise.resolve(), draftGeneration = 0;
-let lastDraftJSON = '', projectLoadSequence = 0;
+let lastDraftJSON = '', projectLoadSequence = 0, projectListSequence = 0;
 
 const cloneProject = value => JSON.parse(JSON.stringify(value));
 const projectEmail = () => String(window.SaasyAuth?.getEmail() || '').toLowerCase();
@@ -46,25 +46,65 @@ async function accountsAction(action, owner = projectEmail()) {
     return action();
   }
 }
+function positionAccountPopover(panel) {
+  if (!panel || panel.hidden || panel.classList.contains('hidden')) return;
+  const rect = projectElement('btn-auth').getBoundingClientRect();
+  const width = Math.min(panel.id === 'account-menu' ? 320 : 400, window.innerWidth - 32);
+  const top = Math.max(16, Math.min(rect.bottom + 10, window.innerHeight - 100));
+  panel.style.width = width + 'px';
+  panel.style.left = Math.max(16, Math.min(rect.right - width, window.innerWidth - width - 16)) + 'px';
+  panel.style.top = top + 'px';
+  panel.style.maxHeight = Math.max(80, window.innerHeight - top - 16) + 'px';
+}
+function closeAccountMenu(restoreFocus = true) {
+  const panel = projectElement('account-menu');
+  const hadFocus = panel?.contains?.(document.activeElement);
+  if (panel) panel.hidden = true;
+  projectElement('btn-auth')?.setAttribute?.('aria-expanded', 'false');
+  if (restoreFocus && hadFocus) projectElement('btn-auth')?.focus();
+}
 function syncAuthUI() {
-  const signedIn = window.SaasyAuth?.isSignedIn();
-  projectElement('btn-auth').textContent = signedIn ? 'Sign Out' : 'Sign In';
-  projectElement('auth-email').textContent = signedIn ? projectEmail() : '';
+  const signedIn = Boolean(window.SaasyAuth?.isSignedIn()), email = signedIn ? projectEmail() : '';
+  if (projectElement('auth-email').textContent !== email || !signedIn) { closeAccountMenu(false); closeMyProjects(false); }
+  projectElement('auth-email').textContent = email;
   projectElement('auth-email').classList.toggle('hidden', !signedIn);
+  projectElement('account-name').textContent = signedIn ? email.split('@')[0] : 'Sign In';
+  projectElement('account-avatar').textContent = email.slice(0, 1).toUpperCase();
+  projectElement('account-avatar').hidden = !signedIn;
+  projectElement('account-chevron').hidden = !signedIn;
+  const trigger = projectElement('btn-auth');
+  trigger.setAttribute?.('aria-label', signedIn ? 'Account for ' + email : 'Sign In');
+  if (signedIn) {
+    trigger.setAttribute?.('aria-controls', 'account-menu my-projects-panel');
+    trigger.setAttribute?.('aria-expanded', String(!projectElement('account-menu').hidden || !projectElement('my-projects-panel').classList.contains('hidden')));
+  } else { trigger.removeAttribute?.('aria-controls'); trigger.removeAttribute?.('aria-expanded'); }
 }
 async function onAuthButtonClick() {
   try {
     await window.saasyAuthReady;
-    if (SaasyAuth.isSignedIn()) {
-      SaasyAuth.signOut();
-      resetProjectIdentity(false);
-      closeMyProjects();
-      projectStatus('Signed out. Your current work is still in the editor.');
-    } else await requireProjectAuth();
+    if (!SaasyAuth.isSignedIn()) { await requireProjectAuth(); return; }
     syncAuthUI();
+    const panel = projectElement('account-menu');
+    if (!panel.hidden) { closeAccountMenu(); return; }
+    closeMyProjects(false);
+    panel.hidden = false;
+    projectElement('btn-auth').setAttribute('aria-expanded', 'true');
+    positionAccountPopover(panel);
+    projectElement('my-projects-trigger').focus();
   } catch (error) {
     if ((error.code || error.message) !== 'cancelled') projectStatus(projectError(error));
   }
+}
+async function signOutProjectAccount() {
+  try {
+    await window.saasyAuthReady;
+    SaasyAuth.signOut();
+    resetProjectIdentity(false);
+    closeAccountMenu(false); closeMyProjects(false); syncAuthUI();
+    window.LPGFeedback?.refreshSession(true);
+    projectStatus('Signed out. Your current work is still in the editor.');
+    projectElement('btn-auth').focus();
+  } catch (error) { projectStatus(projectError(error)); }
 }
 function resetProjectIdentity(clearOwner = true) {
   currentProjectId = null; currentProjectName = ''; currentProjectRevision = null;
@@ -187,8 +227,11 @@ async function openMyProjects() {
   try {
     await requireProjectAuth();
     if (epoch !== projectEpoch) return;
-    const owner = projectEmail();
+    const owner = projectEmail(), request = ++projectListSequence;
+    closeAccountMenu(false);
     panel.classList.remove('hidden');
+    positionAccountPopover(panel);
+    projectElement('btn-auth').setAttribute('aria-expanded', 'true');
     projectElement('my-projects-trigger')?.setAttribute('aria-expanded', 'true');
     panel.querySelector('button')?.focus();
     if (panel.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -197,41 +240,50 @@ async function openMyProjects() {
     const list = projectElement('my-projects-list');
     list.textContent = 'Loading…';
     const projects = await accountsAction(() => SaasyAuth.listProjects({ tool: SAASY_TOOL }), owner);
-    if (epoch !== projectEpoch || projectEmail() !== owner) return;
+    if (request !== projectListSequence || epoch !== projectEpoch || projectEmail() !== owner) return;
     list.textContent = projects.length ? '' : 'No saved projects yet.';
     projects.forEach(project => {
-      const row = document.createElement('div');
-      row.className = 'px-4 py-3 flex items-center justify-between gap-2';
-      const title = document.createElement('span'); title.textContent = project.name;
-      title.className = 'text-sm text-gray-800 truncate'; row.appendChild(title);
+      const row = document.createElement('div'); row.className = 'project-list-entry';
+      const info = document.createElement('div'); info.className = 'project-list-info';
+      const title = document.createElement('strong'); title.textContent = project.name; title.title = project.name;
+      const date = document.createElement('span');
+      const savedAt = new Date(project.updatedAt || project.updated_at || project.createdAt || project.created_at || '');
+      date.textContent = Number.isNaN(savedAt.getTime()) ? '' : savedAt.toLocaleDateString();
+      info.append(title, date); row.appendChild(info);
+      const actions = document.createElement('div'); actions.className = 'project-list-actions';
       for (const action of ['Load', 'Delete']) {
         const button = document.createElement('button'); button.type = 'button'; button.textContent = action;
-        button.className = 'text-xs text-gray-700 border border-gray-300 rounded px-2 py-1';
         button.setAttribute('aria-label', action + ' ' + project.name);
         button.onclick = () => action === 'Load' ? loadProjectAndHydrate(project.id) : deleteProjectFromList(project.id, row, owner);
-        row.appendChild(button);
+        actions.appendChild(button);
       }
+      row.appendChild(actions);
       list.appendChild(row);
     });
   } catch (error) { projectStatus(projectError(error)); syncAuthUI(); }
 }
 function closeMyProjects(restoreFocus = true) {
+  projectListSequence++;
   const panel = projectElement('my-projects-panel');
   const hadFocus = panel?.contains?.(document.activeElement);
   panel?.classList.add('hidden');
+  projectElement('my-projects-list')?.replaceChildren?.();
   projectElement('my-projects-trigger')?.setAttribute('aria-expanded', 'false');
-  if (restoreFocus && hadFocus) projectElement('my-projects-trigger')?.focus();
+  if (projectElement('account-menu')?.hidden) projectElement('btn-auth')?.setAttribute?.('aria-expanded', 'false');
+  if (restoreFocus && hadFocus) projectElement('btn-auth')?.focus();
 }
 document.addEventListener('keydown', event => {
   const panel = projectElement('my-projects-panel');
+  if (event.key === 'Escape' && !projectElement('account-menu')?.hidden) { closeAccountMenu(); event.preventDefault(); }
   if (event.key === 'Escape' && panel && !panel.classList.contains('hidden')) {
     closeMyProjects(); event.preventDefault();
   }
 });
 document.addEventListener('click', event => {
   const panel = projectElement('my-projects-panel');
-  const trigger = projectElement('my-projects-trigger');
-  if (panel && !panel.classList.contains('hidden') && !panel.contains(event.target) && !trigger?.contains(event.target)) closeMyProjects(false);
+  const trigger = projectElement('btn-auth'), accountMenu = projectElement('account-menu');
+  if (accountMenu && !accountMenu.hidden && !accountMenu.contains(event.target) && !trigger?.contains(event.target)) closeAccountMenu(false);
+  if (panel && !panel.classList.contains('hidden') && !panel.contains(event.target) && !trigger?.contains(event.target) && !projectElement('my-projects-trigger')?.contains(event.target)) closeMyProjects(false);
 });
 async function deleteProjectFromList(id, row, owner = projectEmail()) {
   if (!confirm('Delete this saved project?')) return;
@@ -240,6 +292,7 @@ async function deleteProjectFromList(id, row, owner = projectEmail()) {
     await accountsAction(() => SaasyAuth.deleteProject(id), owner);
     if (projectEmail() !== owner) return;
     row.remove();
+    if (!projectElement('my-projects-list').children.length) projectElement('my-projects-list').textContent = 'No saved projects yet.';
     if (String(id) === String(currentProjectId)) resetProjectIdentity(false);
     await persistDraftRecovery();
   } catch (error) { projectStatus(projectError(error)); }
@@ -376,3 +429,13 @@ async function initializeProjects() {
     if (!draftPending || confirm('Open the linked cloud project instead of the available browser draft?')) await loadProjectAndHydrate(id, false);
   }
 }
+
+function repositionAccountPopovers(event) {
+  for (const id of ['account-menu', 'my-projects-panel']) {
+    const panel = projectElement(id);
+    if (event?.type === 'scroll' && panel?.contains?.(event.target)) continue;
+    positionAccountPopover(panel);
+  }
+}
+window.addEventListener('resize', repositionAccountPopovers);
+document.addEventListener('scroll', repositionAccountPopovers, true);

@@ -12,7 +12,7 @@
     gtag('js', new Date());
     gtag('config', 'G-S15S6PRHES');
   </script>
-  <link rel="stylesheet" href="./assets/builder.css?v=7605de06a917">
+  <link rel="stylesheet" href="./assets/builder.css?v=ee01b9662d13">
   <style>
     /* ── Salesforce Sans + Avant Garde For Salesforce (self-hosted) ── */
     @font-face { font-family: 'Salesforce Sans'; font-weight: 300; font-style: normal; font-display: swap; src: url('./assets/fonts/SalesforceSans-Light.woff2') format('woff2'); }
@@ -283,19 +283,18 @@
       </div>
       <div class="flex flex-wrap items-center gap-2 relative">
         <button id="save-project-button" onclick="saveCurrentProject()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Save Project</button>
-        <button id="my-projects-trigger" aria-expanded="false" aria-controls="my-projects-panel" onclick="openMyProjects()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">My Projects</button>
-        <span id="auth-email" class="hidden text-xs text-white/70 max-w-[160px] truncate"></span>
-        <button id="btn-auth" onclick="onAuthButtonClick()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Sign In</button>
-        <button onclick="startOver()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Start Over</button>
+        <button id="btn-auth" type="button" onclick="onAuthButtonClick()" class="btn-topbar account-trigger" aria-label="Sign In"><span id="account-avatar" class="account-avatar" aria-hidden="true" hidden></span><span id="account-name">Sign In</span><span id="account-chevron" class="account-chevron" aria-hidden="true" hidden>⌄</span></button>
         <button id="feedback-open" type="button" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Feedback</button>
         <button id="feedback-inbox-open" type="button" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full" hidden>Feedback Inbox <span id="feedback-unread"></span></button>
-
-        <div id="my-projects-panel" class="hidden absolute right-0 top-full mt-2 w-80 bg-white text-gray-800 rounded-xl shadow-lg border border-gray-200 text-left z-50 overflow-hidden">
-          <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <span class="text-xs font-700 uppercase tracking-wide text-gray-500">My Projects</span>
-            <button aria-label="Close My Projects" onclick="closeMyProjects()" class="text-gray-400 hover:text-gray-600 text-sm">✕</button>
-          </div>
-          <div id="my-projects-list" class="max-h-72 overflow-y-auto divide-y divide-gray-100"></div>
+        <button onclick="startOver()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Start Over</button>
+        <div id="account-menu" class="account-popover" aria-label="Your account" hidden>
+          <div class="account-identity"><span>Signed in as</span><strong id="auth-email"></strong></div>
+          <button id="my-projects-trigger" type="button" aria-expanded="false" aria-controls="my-projects-panel" onclick="openMyProjects()">My Projects</button>
+          <button id="account-sign-out" type="button" class="account-sign-out" onclick="signOutProjectAccount()">Sign Out</button>
+        </div>
+        <div id="my-projects-panel" class="account-popover hidden" role="region" aria-label="My Projects">
+          <div class="account-popover-heading"><span>My Projects</span><button type="button" aria-label="Close My Projects" onclick="closeMyProjects()">×</button></div>
+          <div id="my-projects-list" aria-live="polite"></div>
         </div>
       </div>
     </div>
@@ -916,7 +915,7 @@
     .image-framing {font-size:12px;margin-top:8px;}.image-framing label {display:block;margin-top:8px;}.image-framing input {width:100%;}
     @media(max-width:1023px){.editor-toolbar {position:relative;}.editor-toolbar .program-actions {position:sticky;top:0;background:white;z-index:5;}}
   </style>
-  <link rel="stylesheet" href="./assets/editor-design.css?v=763591ee05e8">
+  <link rel="stylesheet" href="./assets/editor-design.css?v=1b4d35a74f23">
   <!-- Scripts -->
   <script src="./js/accounts-loader.js?v=d7eb6095c4cd"></script>
   <script src="./js/defaults.js?v=bc138671a8e0"></script>
@@ -936,7 +935,7 @@
   <script src="./js/localai.js?v=69ae98aa6595"></script>
   <script src="./js/app.js?v=ca7ea5ad2900"></script>
   <script src="./js/feedback.js?v=c1814fef9cfc"></script>
-  <script src="./js/projects.js?v=9b651f165901"></script>
+  <script src="./js/projects.js?v=8c0b06d6473a"></script>
   <script src="./js/editor-tools.js?v=2fc641022f13"></script>
 </body>
 </html>

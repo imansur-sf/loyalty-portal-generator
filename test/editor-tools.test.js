@@ -109,7 +109,8 @@ test('project popover supports keyboard dismissal and returns focus to its trigg
   f.w.SaasyAuth={isSignedIn:()=>true,getEmail:()=> 'owner@example.test',listProjects:async()=>[]};f.w.saasyAuthReady=Promise.resolve(f.w.SaasyAuth);
   await f.w.openMyProjects();const doc=f.w.document,panel=doc.getElementById('my-projects-panel'),trigger=doc.getElementById('my-projects-trigger');
   assert.equal(panel.classList.contains('hidden'),false);assert.equal(trigger.getAttribute('aria-expanded'),'true');assert.ok(panel.contains(doc.activeElement));
-  doc.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(panel.classList.contains('hidden'),true);assert.equal(trigger.getAttribute('aria-expanded'),'false');assert.equal(doc.activeElement,trigger);
+  trigger.dispatchEvent(new f.w.MouseEvent('click',{bubbles:true}));assert.equal(panel.classList.contains('hidden'),false);
+  doc.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(panel.classList.contains('hidden'),true);assert.equal(trigger.getAttribute('aria-expanded'),'false');assert.equal(doc.activeElement,doc.getElementById('btn-auth'));
  }finally{f.close();}
 });
 
@@ -132,5 +133,35 @@ test('accepted or restored assets synchronize the editor thumbnails and URL fiel
   assert.equal(doc.getElementById('preview-avatar').getAttribute('src'),'data:image/png;base64,uploaded');
   f.run("state.brand.logoUrl='';state.member.avatarData='';populateFormFromState();");
   assert.equal(doc.getElementById('preview-logo').getAttribute('src'),null);assert.equal(doc.getElementById('preview-logo').classList.contains('hidden'),true);assert.equal(doc.getElementById('url-logo').value,'');
+ }finally{f.close();}
+});
+
+test('account button signs in, opens a compact menu, and signs out only through the explicit action',async()=>{
+ const f=await fixture();try{
+  let email='',signins=0,signouts=0;f.w.SaasyAuth={isSignedIn:()=>!!email,getEmail:()=>email,signIn:async()=>{signins++;email='imansur@salesforce.com';},signOut:()=>{signouts++;email='';}};f.w.saasyAuthReady=Promise.resolve(f.w.SaasyAuth);
+  f.w.syncAuthUI();const doc=f.w.document;assert.equal(doc.getElementById('account-name').textContent,'Sign In');
+  f.run("state.brandName='Keep my draft';");await f.w.onAuthButtonClick();assert.equal(signins,1);assert.equal(doc.getElementById('account-name').textContent,'imansur');assert.equal(doc.getElementById('account-avatar').textContent,'I');
+  await f.w.onAuthButtonClick();assert.equal(signouts,0);assert.equal(doc.getElementById('account-menu').hidden,false);assert.equal(doc.activeElement,doc.getElementById('my-projects-trigger'));
+  doc.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(doc.getElementById('account-menu').hidden,true);assert.equal(doc.activeElement,doc.getElementById('btn-auth'));
+  await f.w.signOutProjectAccount();assert.equal(signouts,1);assert.equal(f.run('state.brandName'),'Keep my draft');assert.equal(doc.getElementById('account-name').textContent,'Sign In');
+  const buttons=[...doc.getElementById('btn-auth').parentElement.children];assert.ok(buttons.indexOf(doc.getElementById('feedback-open'))>buttons.indexOf(doc.getElementById('btn-auth')));assert.ok(buttons.indexOf(doc.getElementById('feedback-open'))<buttons.findIndex(x=>x.textContent==='Start Over'));
+  assert.equal(doc.getElementById('account-menu').contains(doc.getElementById('feedback-open')),false);assert.equal(doc.getElementById('feedback-inbox-open').hidden,true);
+ }finally{f.close();}
+});
+
+test('project list shows safe names, saved dates and actions within the viewport',async()=>{
+ const f=await fixture();try{
+  f.w.SaasyAuth={isSignedIn:()=>true,getEmail:()=> 'owner@example.test',listProjects:async()=>[{id:'1',name:'<img src=x onerror=alert(1)>',updatedAt:'2026-10-22T12:00:00Z'}]};f.w.saasyAuthReady=Promise.resolve(f.w.SaasyAuth);
+  Object.defineProperty(f.w,'innerWidth',{value:320,configurable:true});f.w.document.getElementById('btn-auth').getBoundingClientRect=()=>({right:150,bottom:120});
+  await f.w.onAuthButtonClick();await f.w.openMyProjects();const doc=f.w.document,panel=doc.getElementById('my-projects-panel');assert.equal(doc.getElementById('account-menu').hidden,true);
+  assert.equal(panel.style.width,'288px');assert.equal(panel.style.left,'16px');const row=doc.querySelector('.project-list-entry');assert.equal(row.querySelector('img'),null);assert.match(row.querySelector('.project-list-info strong').textContent,/onerror/);assert.ok(row.querySelector('.project-list-info > span').textContent);assert.equal(row.querySelectorAll('button').length,2);
+ }finally{f.close();}
+});
+
+test('a closed project popover discards late private list responses',async()=>{
+ const f=await fixture();try{
+  let finish;f.w.SaasyAuth={isSignedIn:()=>true,getEmail:()=> 'owner@example.test',listProjects:()=>new Promise(resolve=>{finish=resolve;})};f.w.saasyAuthReady=Promise.resolve(f.w.SaasyAuth);
+  const pending=f.w.openMyProjects();await new Promise(resolve=>setTimeout(resolve,0));f.w.closeMyProjects();finish([{id:'1',name:'Private project'}]);await pending;
+  assert.equal(f.w.document.getElementById('my-projects-list').textContent,'');assert.equal(f.w.document.getElementById('my-projects-panel').classList.contains('hidden'),true);
  }finally{f.close();}
 });

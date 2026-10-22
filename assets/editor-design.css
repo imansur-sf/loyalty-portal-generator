@@ -30,6 +30,32 @@
 .builder-app .project-status-bar { max-width: 1880px; margin: auto; padding: 0 1.75rem; font-size: .8125rem; color: var(--editor-muted); }
 .project-status-bar:has(:not(:empty)) { padding-block: .5rem; }
 .builder-app #my-projects-panel { max-width: calc(100vw - 2rem); transform-origin: top right; border-radius: .875rem; }
+.builder-app .account-trigger { display: inline-flex; align-items: center; gap: .625rem; border-radius: 999px; }
+.account-avatar { display: grid; place-items: center; width: 1.5rem; height: 1.5rem; flex-shrink: 0; border-radius: 50%; background: #ffffff30; color: #fff; font-weight: 600; }
+.account-avatar[hidden],.account-chevron[hidden],.account-popover[hidden] { display: none; }
+#account-name { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.account-chevron { font-size: .75rem; }
+.account-popover { position: fixed; z-index: 100; box-sizing: border-box; overflow: auto; padding: 0; border: 1px solid #e2e8f0; border-radius: 1rem; background: #fff; color: #344054; box-shadow: 0 12px 32px #10254a20,0 3px 8px #10254a0d; text-align: left; }
+.account-identity { padding: 1rem 1.25rem; border-bottom: 1px solid #edf0f5; }
+.account-identity > span { display: block; color: #667085; text-transform: uppercase; letter-spacing: .04em; font-size: .75rem; font-weight: 600; }
+.account-identity strong { display: block; margin-top: .375rem; overflow-wrap: anywhere; font-size: 1rem; font-weight: 600; }
+.account-popover > button { display: block; width: 100%; padding: .875rem 1.25rem; border: 0; border-bottom: 1px solid #edf0f5; background: #fff; color: inherit; text-align: left; font: inherit; }
+.account-popover > button:hover { background: #f3f7fd; }
+.account-popover > .account-sign-out { color: #c42626; border-bottom: 0; }
+.account-popover-heading { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; padding: .5rem 1.25rem; background: #fff; border-bottom: 1px solid #edf0f5; }
+.account-popover-heading > span { font-size: .8125rem; text-transform: uppercase; font-weight: 600; color: #667085; }
+.account-popover-heading button { min-width: 2.75rem; padding: .375rem; border: 0; border-radius: .5rem; color: #8995aa; background: #fff; font-size: 1.5rem; }
+.account-popover-heading button:hover { background: #f3f7fd; }
+.project-list-entry { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 1rem; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid #edf0f5; }
+.project-list-entry:last-child { border-bottom: 0; }
+.project-list-info { min-width: 0; }
+.project-list-info strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; font-weight: 600; }
+.project-list-info > span { display: block; margin-top: .25rem; font-size: .8125rem; color: #667085; }
+.project-list-actions { display: flex; gap: .375rem; }
+.project-list-actions button { padding: .375rem .625rem; border: 1px solid #dce3ed; border-radius: .625rem; color: #475467; background: #fff; font-size: .8125rem; }
+.project-list-actions button:hover { background: #edf3ff; color: #022ac0; }
+#my-projects-list:empty { padding: 0; }
+#my-projects-list:not(:has(.project-list-entry)) { padding: 1.25rem; font-size: .875rem; }
 .builder-app .stepper-shell { background: #ffffffb8; border-bottom: 1px solid var(--editor-line); }
 .builder-app .stepper-shell > div { max-width: 1400px; padding: .875rem 1.5rem; }
 .step-navigation { display: flex; align-items: center; justify-content: center; gap: .5rem; }
