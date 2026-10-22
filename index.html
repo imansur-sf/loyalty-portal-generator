@@ -4,6 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Loyalty Portal Generator</title>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-S15S6PRHES"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-S15S6PRHES');
+  </script>
   <link rel="stylesheet" href="./assets/builder.css?v=7605de06a917">
   <style>
     /* ── Salesforce Sans + Avant Garde For Salesforce (self-hosted) ── */
@@ -257,6 +265,7 @@
     .brief-inputs :focus-visible,.program-authoring :focus-visible {outline:3px solid #2b83f6;outline-offset:3px}
     @media(max-width:640px){.program-grid {grid-template-columns:1fr}.program-row {display:block}}
   </style>
+  <link rel="stylesheet" href="./assets/feedback.css?v=cbcc984cca2f">
 </head>
 <body class="min-h-screen builder-app">
 
@@ -278,6 +287,8 @@
         <span id="auth-email" class="hidden text-xs text-white/70 max-w-[160px] truncate"></span>
         <button id="btn-auth" onclick="onAuthButtonClick()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Sign In</button>
         <button onclick="startOver()" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Start Over</button>
+        <button id="feedback-open" type="button" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full">Feedback</button>
+        <button id="feedback-inbox-open" type="button" class="btn-topbar px-4 py-2 text-xs font-600 rounded-full" hidden>Feedback Inbox <span id="feedback-unread"></span></button>
 
         <div id="my-projects-panel" class="hidden absolute right-0 top-full mt-2 w-80 bg-white text-gray-800 rounded-xl shadow-lg border border-gray-200 text-left z-50 overflow-hidden">
           <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -299,6 +310,23 @@
     </span>
   </div>
 
+  <dialog id="feedback-dialog" class="feedback-dialog" aria-labelledby="feedback-title">
+    <header class="feedback-heading"><div><p class="feedback-eyebrow">Help shape the portal generator</p><h2 id="feedback-title">Share feedback</h2></div><button type="button" data-feedback-close aria-label="Close feedback">×</button></header>
+    <form id="feedback-form" class="feedback-body">
+      <label for="feedback-category">What would you like to share?</label><select id="feedback-category" required><option value="feature">Feature request</option><option value="bug">Bug report</option><option value="general">General feedback</option></select>
+      <div class="feedback-fields"><div><label for="feedback-name">Name</label><input id="feedback-name" autocomplete="name" maxlength="120" required></div><div><label for="feedback-email">Email</label><input id="feedback-email" type="email" autocomplete="email" maxlength="254" required></div></div>
+      <label for="feedback-description">Description</label><textarea id="feedback-description" rows="5" maxlength="8000" required placeholder="Tell us what happened or what you’d like to see."></textarea>
+      <div id="feedback-drop" class="feedback-drop"><label for="feedback-files">Screenshots <span>(optional)</span></label><p>Choose images, drop them here, or paste a screenshot.</p><input id="feedback-files" type="file" accept="image/png,image/jpeg,image/webp" multiple aria-describedby="feedback-file-help"><p id="feedback-file-help">Up to 3 images. Images are resized to fit; 1 MB each maximum.</p></div>
+      <ul id="feedback-previews" class="feedback-previews"></ul><p id="feedback-message" role="status" aria-live="polite"></p>
+      <footer class="feedback-actions"><button type="button" data-feedback-close>Cancel</button><button id="feedback-submit" class="feedback-primary" type="submit">Send feedback</button></footer>
+    </form>
+    <div id="feedback-success" class="feedback-body" hidden><h3>Thank you for sharing</h3><p id="feedback-reference"></p><p>Your feedback has been saved for review.</p><button type="button" id="feedback-done" class="feedback-primary">Done</button></div>
+  </dialog>
+  <dialog id="feedback-inbox-dialog" class="feedback-dialog feedback-inbox" aria-labelledby="feedback-inbox-title">
+    <header class="feedback-heading"><div><p class="feedback-eyebrow">Admin</p><h2 id="feedback-inbox-title">Feedback Inbox</h2></div><button type="button" data-feedback-inbox-close aria-label="Close feedback inbox">×</button></header>
+    <div class="feedback-body"><div id="feedback-inbox-controls" class="feedback-fields"><div><label for="feedback-filter-category">Category</label><select id="feedback-filter-category"><option value="">All categories</option><option value="bug">Bug reports</option><option value="feature">Feature requests</option><option value="general">General feedback</option></select></div><div><label for="feedback-filter-status">Status</label><select id="feedback-filter-status"><option value="">All statuses</option><option value="new">New</option><option value="reviewing">Reviewing</option><option value="completed">Completed</option></select></div></div>
+    <p id="feedback-inbox-message" role="status" aria-live="polite"></p><button type="button" id="feedback-inbox-retry" hidden>Try again</button><div id="feedback-inbox-list"></div><div id="feedback-inbox-detail" hidden></div><nav id="feedback-pagination" class="feedback-actions" aria-label="Feedback pages"><button type="button" id="feedback-prev">Previous</button><span id="feedback-page"></span><button type="button" id="feedback-next">Next</button></nav></div>
+  </dialog>
   <dialog id="save-project-dialog" aria-labelledby="save-project-title" class="rounded-xl p-6 w-full max-w-md text-gray-800 shadow-xl">
     <form id="save-project-form">
       <h2 id="save-project-title" class="text-xl font-bold mb-4">Save portal</h2>
@@ -907,6 +935,7 @@
   <script src="./js/pagehost.js?v=9248eb956518"></script>
   <script src="./js/localai.js?v=69ae98aa6595"></script>
   <script src="./js/app.js?v=ca7ea5ad2900"></script>
+  <script src="./js/feedback.js?v=78f9c5fd967a"></script>
   <script src="./js/projects.js?v=9b651f165901"></script>
   <script src="./js/editor-tools.js?v=2fc641022f13"></script>
 </body>

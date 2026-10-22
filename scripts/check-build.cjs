@@ -8,6 +8,7 @@ try {
   cp.execFileSync(process.execPath,['scripts/build-portal-css.cjs'],{cwd:tmp,stdio:'pipe'});
   cp.execFileSync(process.execPath,['scripts/build-editor.cjs'],{cwd:tmp,stdio:'pipe'});
   cp.execFileSync('python3',['build-standalone.py'],{cwd:tmp,stdio:'pipe'});
+  if (/<script\b[^>]*\bsrc=["']\.\/js\//i.test(fs.readFileSync(path.join(tmp,'standalone.html'),'utf8'))) throw Error('Standalone still references a local script instead of inlining it.');
   const stale=files.filter(name=>!fs.existsSync(path.join(root,name))||!fs.readFileSync(path.join(root,name)).equals(fs.readFileSync(path.join(tmp,name))));
   if(stale.length)throw Error('Stale build artifacts: '+stale.join(', ')+'. Run npm run build.');
   console.log('Editor CSS, portal CSS, asset manifest and standalone are current.');

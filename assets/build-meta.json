@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "buildId": "390df33c576c1bc994039f416f69610a1f45e8974fe4ee9632bc0c859d8f1d95",
+  "buildId": "197c2aa524ef05e74d1148d3eaa008351a767fce1230b910cf00fb5a12bab61c",
   "assets": {
     "js/accounts-loader.js": "d7eb6095c4cdd76b10fc4f183e7a4645243fd84f3cd475f90ca89b946a4369b4",
     "js/app.js": "ca7ea5ad29005ef4b0d27c7fedfc794ae6f048913b1164e3e37123a7354a58a4",
@@ -8,6 +8,7 @@
     "js/content-contract.js": "7b62dbe35a95c633812f802a6ffa5f8979d906387f6931e8d19e3784ad6bcf41",
     "js/defaults.js": "bc138671a8e095a34f899ef24a3151be529067f04e2180cd33f3164d1cb88d6b",
     "js/editor-tools.js": "2fc641022f13bdb7fb4080684083250b38d8920d19b41a9e691a34374e0e0ff4",
+    "js/feedback.js": "78f9c5fd967aa18d7c92555307048da54d7ff0b87b7dc58c200951ee0d4835ef",
     "js/generator.js": "5e76d65a9ea8c6e83697b9d2874174ed18f79bd15ca78e59d3567c18a0bc57d2",
     "js/images.js": "4934ed08e79fa7926334828d08ebeb9cfd0be7aa27a1856d0d11c717a5efc8a3",
     "js/localai.js": "69ae98aa6595cb4d46287b07c7c6869982d4a8994c625b86965f516e371b488a",
@@ -22,6 +23,7 @@
     "js/requirements.js": "cd8117060249d2ea2c8da5ed2947797082ef84bda40005d94ea19f8a887576f1",
     "js/variants.js": "8bb370744bdea612d0d8b0426c679ebcb1b364bc76313c0f9cc2414672e9a100",
     "assets/builder.css": "7605de06a91759b484150b66d59725bb80689a1eb0dea1865d2bf6416a8ca306",
-    "assets/editor-design.css": "763591ee05e8879d061206a3c62e505f1cefb330ba587987affef1cdbd1a6d53"
+    "assets/editor-design.css": "763591ee05e8879d061206a3c62e505f1cefb330ba587987affef1cdbd1a6d53",
+    "assets/feedback.css": "cbcc984cca2fbcd8733c4854e9c65c3a8a6dbcfe0cec099c86c97c19a6bc30b7"
   }
 }

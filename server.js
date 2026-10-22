@@ -66,8 +66,10 @@ const DEFAULT_MODEL = TIER_MODELS.balanced;
 // Middleware
 // ============================================================
 app.use('/projects', express.json({ limit: '20mb' }));
+// Three compressed screenshots (1 MiB each) fit in a bounded base64 envelope.
+app.use('/feedback', express.json({ limit: '5mb' }));
 app.use(express.json({ limit: '1mb' }));
-app.use(['/saasy-auth.js', '/auth', '/projects'], createAccountsProxy());
+app.use(['/saasy-auth.js', '/auth', '/projects', '/feedback'], createAccountsProxy());
 app.use((error, req, res, next) => {
   if (error.type === 'entity.too.large') return res.status(413).json({ error: 'payload_too_large' });
   next(error);
